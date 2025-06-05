@@ -30,35 +30,51 @@ var alignSrMemCmd = &cobra.Command{
 		// Get all flag values and handle errors
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", cErr)
+			log.Fatalf("Error getting config flag: %v", cErr)
 		}
+
 		referencePath, rErr := cmd.Flags().GetString("reference")
 		if rErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", rErr)
+			log.Fatalf("Error getting reference flag: %v", rErr)
 		}
+
 		forwardPath, fErr := cmd.Flags().GetString("forward")
 		if fErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", fErr)
+			log.Fatalf("Error getting forward reads flag: %v", fErr)
 		}
+
 		reversePath, revErr := cmd.Flags().GetString("reverse")
 		if cErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", revErr)
+			log.Fatalf("Error getting reverse read flag: %v", revErr)
 		}
+
 		sampleName, sErr := cmd.Flags().GetString("sample")
 		if cErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", sErr)
+			log.Fatalf("Error getting sample name flag: %v", sErr)
 		}
+
 		libName, lErr := cmd.Flags().GetString("library")
 		if cErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", lErr)
+			log.Fatalf("Error getting library flag: %v", lErr)
 		}
+
 		outDir, oErr := cmd.Flags().GetString("output_dir")
 		if cErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", oErr)
+			log.Fatalf("Error getting output dir flag: %v", oErr)
+		}
+
+		threads, tErr := cmd.Flags().GetInt("threads")
+		if tErr != nil {
+			log.Fatalf("Error getting threads flag: %v", tErr)
 		}
 
 		if configFile != "" {
 			fmt.Println("Reading config file ...")
+			_, confErr := os.Stat(configFile)
+			if confErr != nil {
+				log.Fatalf("Error reading config file: %v", confErr)
+			}
+			alignment.AlignShortReadsConfig(configFile, threads)
 		} else {
 			fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
@@ -97,7 +113,7 @@ var alignSrMemCmd = &cobra.Command{
 				return
 			}
 			fmt.Printf("All paths PASSED...\n ")
-			alignment.AlignShortReadsMem(referencePath, forwardPath, reversePath, sampleName, libName, outDir)
+			alignment.AlignShortReadsMem(referencePath, forwardPath, reversePath, sampleName, libName, outDir, threads)
 		}
 	},
 }
@@ -115,11 +131,13 @@ func init() {
 	// is called directly, e.g.:
 	// alignSrMemCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	// --------------------------------------------- Config File ---------------------------------------------------- //
-	alignSrMemCmd.Flags().StringP("config", "c", "", "config file path")
-	alignSrMemCmd.Flags().StringP("reference", "r", "", "Reference genome")
+	//alignSrMemCmd.Flags().StringP("config", "c", "", "config file path")
+	//alignSrMemCmd.Flags().StringP("reference", "r", "", "Reference genome")
 	alignSrMemCmd.Flags().StringP("forward", "1", "", "Path to forward reads")
 	alignSrMemCmd.Flags().StringP("reverse", "2", "", "Path to reverse reads")
 	alignSrMemCmd.Flags().StringP("sample", "s", "", "Sample name")
 	alignSrMemCmd.Flags().StringP("library", "l", "", "Library name")
-	alignSrMemCmd.Flags().StringP("output_dir", "o", "", "Library name")
+	alignSrMemCmd.Flags().StringP("output_dir", "o", "", "output directory")
+	alignSrMemCmd.Flags().IntP("threads", "t", 8, "number of threads")
+	//alignSrMemCmd.Flags().Int32P("jobs", "j", 4, "Library name")
 }

@@ -11,7 +11,7 @@ import (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "genome-whisperer-go",
+	Use:   "genome-whisperer",
 	Short: "A toolkit for genome analysis",
 	Long: `A multi-purpose tool for performing:
     1. Alignment
@@ -33,7 +33,11 @@ func Execute() {
 	}
 }
 
+var cfgFile string
+
 func init() {
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "path to config file ")
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "reference", "r", "", "path to reference genome fasta file ")
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.

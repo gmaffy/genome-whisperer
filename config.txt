@@ -1,0 +1,6 @@
+OutputDir: /mnt/f/GOWHISPERER_GO/
+Reference: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_genome_v1.fa
+ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-16A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-16A/ReverseReads.fq.gz BULK1 BULK1
+ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-32A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-32A/ReverseReads.fq.gz BULK2 BULK2
+ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-1A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-1A/ReverseReads.fq.gz MO1057 MO1057
+ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-2A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-2A/ReverseReads.fq.gz MOB31 MOB31
