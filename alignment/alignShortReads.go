@@ -1,6 +1,7 @@
 package alignment
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -53,6 +54,17 @@ func AlignShortReadsMem(referencePath string, forwardPath string, reversePath st
 	iErr := indexCmd.Run()
 	if iErr != nil {
 		return
+	}
+
+}
+
+func AlignShortReadsConfig(configPath string) {
+	fmt.Println("Reading config file ...")
+	configFile, _ := os.Open(configPath)
+	defer configFile.Close()
+	lineScanner := bufio.NewScanner(configFile)
+	for lineScanner.Scan() {
+		line := lineScanner.Text()
 	}
 
 }
