@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/gmaffy/genome-whisperer/alignment"
 	"github.com/spf13/cobra"
 	"log"
 	"os"
@@ -34,27 +35,34 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting bootstrap flag: %v", bErr)
 		}
 
+		jobs, jErr := cmd.Flags().GetInt("jobs")
+		if jErr != nil {
+			log.Fatalf("Error getting bootstrap flag: %v", jErr)
+		}
+
+		refFile, refErr := cmd.Flags().GetString("reference")
+		if refErr != nil {
+			log.Fatalf("Error getting reference flag: %v", refErr)
+		}
+
+		fmt.Printf("Reference file: %s\n %v bootstrap", refFile, bootstrap)
+
+		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
+		if ksErr != nil {
+			log.Fatalf("Error getting known-sites flag: %v", ksErr)
+		}
+
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
+			alignment.BQSRconfig(configFile, bootstrap, jobs)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
-			refFile, refErr := cmd.Flags().GetString("reference")
-			if cErr != nil {
-				log.Fatalf("Error getting reference flag: %v", refErr)
-			}
-
-			knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
-			if cErr != nil {
-				log.Fatalf("Error getting known-sites flag: %v", ksErr)
-			}
 
 			bams, bamsErr := cmd.Flags().GetStringSlice("bam")
 			if bamsErr != nil {
 				log.Fatalf("Error getting bam flag: %v", bamsErr)
 			}
-
-			// ================================ Check file paths
 
 			_, rErr := os.Stat(refFile)
 			if rErr != nil {
@@ -76,13 +84,15 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				}
 			}
 
-			if len(knownSites) == 0 && !bootstrap {
+			if len(knownSites) == 0 && bootstrap == false {
 				fmt.Println("Either pass a known-sites file or enable bootstrap method")
 				return
-			} else if len(knownSites) == 0 && bootstrap {
+			} else if len(knownSites) == 0 && bootstrap == true {
 				fmt.Println("Running with bootstrap method")
+				alignment.BootstrapBqsr(refFile, bams, jobs)
 			} else if len(knownSites) > 0 {
 				fmt.Println("Running with known-sites flag")
+				// ------------------------ Checking Known sites file paths ----------------------------------------- //
 				for j, _ := range knownSites {
 					_, err := os.Stat(knownSites[j])
 					if err != nil {
@@ -90,6 +100,9 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 						log.Fatal(err)
 					}
 				}
+
+				// --------------------------- Running dbSnpBQSR ---------------------------------------------------- //
+				alignment.DbSnpBqsr(refFile, bams, knownSites, jobs)
 
 			} else {
 				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
@@ -117,6 +130,7 @@ func init() {
 	//alignSrMemCmd.Flags().StringP("reference", "r", "", "Reference genome")
 	bqsrCmd.Flags().StringSliceP("bam", "b", []string{}, "path to bam file (can specify multiple)")
 	bqsrCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
-	bqsrCmd.Flags().BoolP("bootstrap", "b", false, "Bootstrap method")
+	bqsrCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
+	bqsrCmd.Flags().IntP("jobs", "j", 4, "Number of jobs per run")
 
 }

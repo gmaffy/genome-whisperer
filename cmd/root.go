@@ -34,10 +34,11 @@ func Execute() {
 }
 
 var cfgFile string
+var refFile string
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "path to config file ")
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "reference", "r", "", "path to reference genome fasta file ")
+	rootCmd.PersistentFlags().StringVarP(&refFile, "reference", "r", "", "path to reference genome fasta file ")
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
