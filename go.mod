@@ -3,6 +3,7 @@ module github.com/gmaffy/genome-whisperer
 go 1.24.3
 
 require (
+	github.com/biogo/biogo v1.0.4
 	github.com/go-echarts/go-echarts/v2 v2.5.4
 	github.com/go-gota/gota v0.12.0
 	github.com/spf13/cobra v1.9.1

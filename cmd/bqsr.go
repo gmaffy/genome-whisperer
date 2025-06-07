@@ -40,11 +40,6 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting bootstrap flag: %v", jErr)
 		}
 
-		refFile, refErr := cmd.Flags().GetString("reference")
-		if refErr != nil {
-			log.Fatalf("Error getting reference flag: %v", refErr)
-		}
-
 		fmt.Printf("Reference file: %s\n %v bootstrap", refFile, bootstrap)
 
 		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")

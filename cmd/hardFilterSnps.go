@@ -1,11 +1,12 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"fmt"
+	"github.com/gmaffy/genome-whisperer/variants"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,17 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("hardFilterSnps called")
+		variant, vErr := cmd.Flags().GetString("variant")
+		if vErr != nil {
+			fmt.Println("Error getting variant flag")
+		}
+
+		_, err := os.Stat(variant)
+		if err != nil {
+			fmt.Printf("Variant file %s is not a valid file: %v\n", variant, err)
+			return
+		}
+		variants.HardFilterSNPs(variant)
 	},
 }
 
@@ -36,5 +48,5 @@ func init() {
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	// hardFilterSnpsCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	hardFilterSnpsCmd.Flags().StringP("variant", "V", "", "SNP VCF file")
 }
