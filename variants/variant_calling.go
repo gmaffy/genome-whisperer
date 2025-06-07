@@ -48,8 +48,8 @@ func VariantCalling(refFile string, bams []string, out string) {
 		chromDir := filepath.Join(out, strings.ReplaceAll(seq.ID, ".", "_"))
 		gvcfPath := filepath.Join(chromDir, "gvcfs")
 		tmpPath := filepath.Join(chromDir, "tmp")
-		tmp2Path := filepath.join(chromDir, "tmp2")
-		vcfPath = filepath.Join(chromDir, "VCFs")
+		tmp2Path := filepath.Join(chromDir, "tmp2")
+		vcfPath := filepath.Join(chromDir, "VCFs")
 
 		cErr := os.MkdirAll(chromDir, 0755)
 		if cErr != nil {
@@ -63,16 +63,26 @@ func VariantCalling(refFile string, bams []string, out string) {
 			return
 		}
 
-		tErr := os.MkdirAll(Dir, 0755)
-		if cErr != nil {
+		tErr := os.MkdirAll(tmpPath, 0755)
+		if tErr != nil {
 			log.Fatalf("Error creating directory: %v", cErr)
 			return
 		}
 
-		cErr := os.MkdirAll(chromDir, 0755)
-		if cErr != nil {
-			log.Fatalf("Error creating directory: %v", cErr)
+		t2Err := os.MkdirAll(tmp2Path, 0755)
+		if t2Err != nil {
+			log.Fatalf("Error creating directory: %v", t2Err)
 			return
+		}
+
+		vErr := os.MkdirAll(vcfPath, 0755)
+		if vErr != nil {
+			log.Fatalf("Error creating directory: %v", vErr)
+			return
+		}
+
+		for _, bam := range bams {
+			
 		}
 
 	}
