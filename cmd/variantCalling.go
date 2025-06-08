@@ -39,9 +39,14 @@ var variantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting reference flag: %v", refErr)
 		}
 
+		speciesName, sErr := cmd.Flags().GetString("species")
+		if sErr != nil {
+			log.Fatalf("Error getting species flag: %v", sErr)
+		}
+
 		outDir, outErr := cmd.Flags().GetString("out")
 		if outErr != nil {
-			log.Fatalf("Error getting output directory flag: %v", refErr)
+			log.Fatalf("Error getting output directory flag: %v", outErr)
 		}
 
 		if configFile != "" {
@@ -76,7 +81,7 @@ var variantCallingCmd = &cobra.Command{
 			fmt.Printf("Bams: %v\n", bams)
 			fmt.Printf("Jobs: %v\n", jobs)
 			fmt.Printf("Reference: %v\n", refFile)
-			variants.VariantCalling(refFile, bams, outDir)
+			variants.VariantCalling(refFile, bams, outDir, speciesName)
 		}
 	},
 }
@@ -94,5 +99,6 @@ func init() {
 	// is called directly, e.g.:
 	variantCallingCmd.Flags().StringSliceP("bam", "b", []string{}, "Recalibrated bam file")
 	variantCallingCmd.Flags().StringP("out", "o", "", "Recalibrated bam file")
+	variantCallingCmd.Flags().StringP("species", "s", "", "Species name")
 	variantCallingCmd.Flags().IntP("jobs", "j", 4, "Jobs per run")
 }

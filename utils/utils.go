@@ -122,13 +122,14 @@ func ReadConfig(configPath string) (Config, error) {
 
 }
 
-func RunBashCmdVerbose(cmdStr string) {
+func RunBashCmdVerbose(cmdStr string) error {
 	cmd := exec.Command("bash", "-c", cmdStr)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	err := cmd.Run()
 	if err != nil {
-		return
+		return err
 	}
+	return nil
 }
