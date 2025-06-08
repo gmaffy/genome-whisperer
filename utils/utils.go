@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -129,6 +130,7 @@ func RunBashCmdVerbose(cmdStr string) error {
 
 	err := cmd.Run()
 	if err != nil {
+		fmt.Println("Verbose error:", err)
 		return err
 	}
 	return nil

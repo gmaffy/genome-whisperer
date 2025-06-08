@@ -1,0 +1,506 @@
+package variants
+
+import (
+	"compress/gzip"
+	"fmt"
+	"github.com/biogo/biogo/alphabet"
+	"github.com/biogo/biogo/io/seqio"
+	"github.com/biogo/biogo/io/seqio/fasta"
+	"github.com/biogo/biogo/seq/linear"
+	"github.com/gmaffy/genome-whisperer/utils"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+// Define constants for logging stages and status
+const (
+	StageHaplotypeCalling   = "HAPLOTYPE_CALLING"
+	StageGenomicsDBImport   = "GENOMICS_DB_IMPORT"
+	StageGenotypeGVCFs      = "GENOTYPE_GVCFS"
+	StageHardFilterSNPs     = "HARD_FILTER_SNPS"
+	StageHardFilterINDELs   = "HARD_FILTER_INDELS"
+	StageMergeVcfs          = "MERGE_VCFS"
+	StageChromosomeComplete = "CHROMOSOME_COMPLETE"
+
+	StatusStarted    = "STARTED"
+	StatusFinished   = "FINISHED"
+	StatusSkipped    = "SKIPPED"
+	StatusFailed     = "FAILED"
+	StatusRunningCmd = "RUNNING_CMD" // New status for clarity when a command is executed
+)
+
+// isStageCompleted checks if a given stage is marked as completed in the status file.
+func isStageCompleted(statusFilePath, stage string) bool {
+	content, err := os.ReadFile(statusFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false // File doesn't exist, so stage isn't completed
+		}
+		slog.Warn("Error reading status file", "file", statusFilePath, "error", err)
+		return false
+	}
+	// Look for the "STAGE_DONE" marker in the status file
+	return strings.Contains(string(content), stage+"_DONE")
+}
+
+// markStageCompleted appends a stage completion message to the status file.
+func markStageCompleted(statusFilePath, stage string) {
+	f, err := os.OpenFile(statusFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		slog.Error("Error opening status file for writing", "file", statusFilePath, "error", err)
+		return
+	}
+	defer f.Close()
+	if _, err := f.WriteString(stage + "_DONE\n"); err != nil {
+		slog.Error("Error writing to status file", "file", statusFilePath, "error", err)
+	}
+}
+
+func VariantCalling(refFile string, bams []string, out string, species string) {
+	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
+	logFilePath := filepath.Join(out, "variant_calling.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to open log file %s: %v\n", logFilePath, err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+
+	// Custom ReplaceAttr function to reorder and format attributes for columnar output
+	replaceAttr := func(groups []string, a slog.Attr) slog.Attr {
+		// Only show specific attributes for the main log line, and in a specific order
+		switch a.Key {
+		case slog.TimeKey: // Renamed from "time" to slog.TimeKey for robustness
+			return slog.String("timestamp", a.Value.Time().Format("2006-01-02 15:04:05"))
+		case slog.LevelKey: // Renamed from "level" to slog.LevelKey
+			return slog.String("level", strings.ToUpper(a.Value.String()))
+		case "chromosome_id": // First custom column
+			return a
+		case "bam_file": // Second custom column
+			return a
+		case "status": // Third custom column
+			return a
+		case "stage": // Fourth custom column
+			return a
+		case "command": // Fifth custom column
+			return a
+		case slog.MessageKey: // Renamed from "msg" to slog.MessageKey, we'll keep it but it might be redundant if stage is the primary info
+			// If you want to remove the default message and rely solely on "stage", uncomment below
+			// return slog.Attr{}
+			return a // Keep message for more detail, if desired
+		case slog.SourceKey: // Hide source by default for cleaner logs
+			return slog.Attr{}
+		default: // Hide other attributes you don't explicitly want
+			return slog.Attr{}
+		}
+	}
+
+	// Set up slog to write to the log file with custom formatting
+	handler := slog.NewTextHandler(logFile, &slog.HandlerOptions{
+		Level:       slog.LevelInfo,
+		ReplaceAttr: replaceAttr,
+		AddSource:   false, // Set to true if you want filename:line in logs
+	})
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	// Log initial pipeline status
+	slog.Info("Pipeline initiated",
+		"chromosome_id", "ALL",
+		"bam_file", "N/A",
+		"status", StatusStarted,
+		"stage", "PIPELINE_START",
+		"command", "N/A",
+		"species", species,
+		"ref_file", refFile,
+		"output_dir", out)
+
+	// --------------------------------------- Opening fasta file --------------------------------------------------- //
+	slog.Info("FASTA file processing",
+		"chromosome_id", "ALL",
+		"bam_file", "N/A",
+		"status", StatusStarted,
+		"stage", "FASTA_PROCESSING",
+		"command", "N/A",
+		"file", refFile)
+	fna, err := os.Open(refFile)
+	if err != nil {
+		slog.Error("Failed to open FASTA file",
+			"chromosome_id", "ALL",
+			"bam_file", "N/A",
+			"status", StatusFailed,
+			"stage", "FASTA_PROCESSING",
+			"command", "N/A",
+			"file", refFile,
+			"error", err)
+		os.Exit(1)
+	}
+	defer func(fna *os.File) {
+		err := fna.Close()
+		if err != nil {
+			slog.Error("Failed to close FASTA file",
+				"chromosome_id", "ALL",
+				"bam_file", "N/A",
+				"status", StatusFailed,
+				"stage", "FASTA_PROCESSING",
+				"command", "N/A",
+				"file", refFile,
+				"error", err)
+		}
+	}(fna)
+
+	var reader io.Reader = fna
+	if strings.HasSuffix(refFile, ".gz") {
+		gzReader, err := gzip.NewReader(fna)
+		if err != nil {
+			slog.Error("Failed to create gzip reader",
+				"chromosome_id", "ALL",
+				"bam_file", "N/A",
+				"status", StatusFailed,
+				"stage", "FASTA_PROCESSING",
+				"command", "N/A",
+				"file", refFile,
+				"error", err)
+			os.Exit(1)
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+	slog.Info("FASTA file processing",
+		"chromosome_id", "ALL",
+		"bam_file", "N/A",
+		"status", StatusFinished,
+		"stage", "FASTA_PROCESSING",
+		"command", "N/A",
+		"file", refFile)
+
+	r := fasta.NewReader(reader, linear.NewSeq("", nil, alphabet.DNA))
+	sc := seqio.NewScanner(r)
+
+	var wg sync.WaitGroup
+	for sc.Next() {
+		seq := sc.Seq().(*linear.Seq)
+		chromID := seq.ID
+		chromDir := strings.ReplaceAll(chromID, ".", "_")
+		chromDirPath := filepath.Join(out, chromDir)
+		statusFilePath := filepath.Join(chromDirPath, "status.log")
+
+		chromLogger := slog.Default().With("chromosome_id", chromID)
+
+		// Check if this chromosome is already completely processed
+		if isStageCompleted(statusFilePath, StageChromosomeComplete) {
+			chromLogger.Info("Chromosome already completed.",
+				"bam_file", "ALL",
+				"status", StatusSkipped,
+				"stage", StageChromosomeComplete,
+				"command", "N/A")
+			continue // Skip to the next chromosome
+		}
+
+		wg.Add(1)
+		go func(seq *linear.Seq, chromID string, chromDirPath string, statusFilePath string, chromLogger *slog.Logger) {
+			defer wg.Done()
+
+			// Log chromosome processing start
+			chromLogger.Info(fmt.Sprintf("Processing chromosome: %s", chromID),
+				"bam_file", "ALL",
+				"status", StatusStarted,
+				"stage", "CHROMOSOME_INIT",
+				"command", "N/A")
+
+			gvcfPath := filepath.Join(chromDirPath, "gvcfs")
+			tmpPath := filepath.Join(chromDirPath, "tmp")
+			tmp2Path := filepath.Join(chromDirPath, "tmp2")
+			vcfPath := filepath.Join(chromDirPath, "VCFs")
+
+			// Create directories for the chromosome
+			dirsToCreate := []string{chromDirPath, gvcfPath, tmpPath, tmp2Path, vcfPath}
+			for _, dir := range dirsToCreate {
+				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+					chromLogger.Error("Failed to create directory",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", "DIR_CREATION",
+						"command", fmt.Sprintf("mkdir -p %s", dir),
+						"directory", dir,
+						"error", cErr)
+					return // Stop processing this chromosome if directory creation fails
+				}
+			}
+
+			// --- HaplotypeCaller ---
+			var vSlice []string
+			if !isStageCompleted(statusFilePath, StageHaplotypeCalling) {
+				chromLogger.Info("Starting stage",
+					"bam_file", "ALL",
+					"status", StatusStarted,
+					"stage", StageHaplotypeCalling,
+					"command", "N/A")
+
+				for _, bam := range bams {
+					bamName := filepath.Base(bam)
+					theGVCF := filepath.Join(gvcfPath, strings.TrimSuffix(bamName, ".bam")+"_"+chromDir+".g.vcf.gz")
+					hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF`, refFile, bam, chromID, theGVCF)
+
+					chromLogger.Info("Running command",
+						"bam_file", bamName,
+						"status", StatusRunningCmd,
+						"stage", StageHaplotypeCalling,
+						"command", hapCmdStr)
+
+					if err := utils.RunBashCmdVerbose(hapCmdStr); err != nil {
+						chromLogger.Error("Command failed",
+							"bam_file", bamName,
+							"status", StatusFailed,
+							"stage", StageHaplotypeCalling,
+							"command", hapCmdStr,
+							"error", err)
+						return // Stop processing this chromosome
+					}
+					chromLogger.Info("Command finished",
+						"bam_file", bamName,
+						"status", StatusFinished,
+						"stage", StageHaplotypeCalling,
+						"command", hapCmdStr)
+					vSlice = append(vSlice, "-V "+theGVCF)
+				}
+				markStageCompleted(statusFilePath, StageHaplotypeCalling)
+				chromLogger.Info("Stage completed",
+					"bam_file", "ALL",
+					"status", StatusFinished,
+					"stage", StageHaplotypeCalling,
+					"command", "N/A")
+			} else {
+				chromLogger.Info("Stage already completed. Skipping.",
+					"bam_file", "ALL",
+					"status", StatusSkipped,
+					"stage", StageHaplotypeCalling,
+					"command", "N/A")
+				// Reconstruct vSlice if skipping HaplotypeCaller to ensure subsequent steps have correct paths
+				var vSlice []string
+				for _, bam := range bams {
+					bamName := filepath.Base(bam)
+					theGVCF := filepath.Join(gvcfPath, strings.TrimSuffix(bamName, ".bam")+"_"+chromDir+".g.vcf.gz")
+					vSlice = append(vSlice, "-V "+theGVCF)
+				}
+			}
+
+			bName := strings.Replace(filepath.Base(bams[0]), ".bam", "", 1)
+			vArgs := strings.Join(vSlice, " ")
+			theDB := filepath.Join(chromDirPath, chromDir+"DB")
+			jointVCF := filepath.Join(vcfPath, bName+"_"+chromDir+".joint.vcf.gz")
+			snpVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".SNP.vcf.gz"
+			indelVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".INDEL.vcf.gz"
+			hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
+
+			// --- GenomicsDBImport ---
+			if !isStageCompleted(statusFilePath, StageGenomicsDBImport) {
+				chromLogger.Info("Starting stage",
+					"bam_file", "ALL",
+					"status", StatusStarted,
+					"stage", StageGenomicsDBImport,
+					"command", "N/A")
+				gDBImpCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s --genomicsdb-workspace-path %s --tmp-dir %s -L %s --genomicsdb-shared-posixfs-optimizations true --batch-size 50  --bypass-feature-reader`, vArgs, theDB, tmpPath, chromID)
+				chromLogger.Info("Running command",
+					"bam_file", "ALL",
+					"status", StatusRunningCmd,
+					"stage", StageGenomicsDBImport,
+					"command", gDBImpCmdStr)
+				if err := utils.RunBashCmdVerbose(gDBImpCmdStr); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageGenomicsDBImport,
+						"command", gDBImpCmdStr,
+						"error", err)
+					return
+				}
+				markStageCompleted(statusFilePath, StageGenomicsDBImport)
+				chromLogger.Info("Stage completed",
+					"bam_file", "ALL",
+					"status", StatusFinished,
+					"stage", StageGenomicsDBImport,
+					"command", "N/A")
+			} else {
+				chromLogger.Info("Stage already completed. Skipping.",
+					"bam_file", "ALL",
+					"status", StatusSkipped,
+					"stage", StageGenomicsDBImport,
+					"command", "N/A")
+			}
+
+			// --- GenotypeGVCFs ---
+			if !isStageCompleted(statusFilePath, StageGenotypeGVCFs) {
+				chromLogger.Info("Starting stage",
+					"bam_file", "ALL",
+					"status", StatusStarted,
+					"stage", StageGenotypeGVCFs,
+					"command", "N/A")
+				genoCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s`, refFile, theDB, jointVCF, tmpPath)
+				chromLogger.Info("Running command",
+					"bam_file", "ALL",
+					"status", StatusRunningCmd,
+					"stage", StageGenotypeGVCFs,
+					"command", genoCmdStr)
+				if err := utils.RunBashCmdVerbose(genoCmdStr); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageGenotypeGVCFs,
+						"command", genoCmdStr,
+						"error", err)
+					return
+				}
+				markStageCompleted(statusFilePath, StageGenotypeGVCFs)
+				chromLogger.Info("Stage completed",
+					"bam_file", "ALL",
+					"status", StatusFinished,
+					"stage", StageGenotypeGVCFs,
+					"command", "N/A")
+			} else {
+				chromLogger.Info("Stage already completed. Skipping.",
+					"bam_file", "ALL",
+					"status", StatusSkipped,
+					"stage", StageGenotypeGVCFs,
+					"command", "N/A")
+			}
+
+			// --- Hard Filtering SNPs ---
+			if !isStageCompleted(statusFilePath, StageHardFilterSNPs) {
+				chromLogger.Info("Starting stage",
+					"bam_file", "ALL",
+					"status", StatusStarted,
+					"stage", StageHardFilterSNPs,
+					"command", "N/A")
+				// Call GetVariantType and HardFilterSNPs with proper error handling
+				if err := GetVariantType(jointVCF, "SNP"); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageHardFilterSNPs,
+						"command", "GetVariantType",
+						"error", err)
+					return
+				}
+				if err := HardFilterSNPs(snpVCF); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageHardFilterSNPs,
+						"command", "HardFilterSNPs",
+						"error", err)
+					return
+				}
+				markStageCompleted(statusFilePath, StageHardFilterSNPs)
+				chromLogger.Info("Stage completed",
+					"bam_file", "ALL",
+					"status", StatusFinished,
+					"stage", StageHardFilterSNPs,
+					"command", "N/A")
+			} else {
+				chromLogger.Info("Stage already completed. Skipping.",
+					"bam_file", "ALL",
+					"status", StatusSkipped,
+					"stage", StageHardFilterSNPs,
+					"command", "N/A")
+			}
+
+			// --- Hard Filtering INDELs ---
+			if !isStageCompleted(statusFilePath, StageHardFilterINDELs) {
+				chromLogger.Info("Starting stage",
+					"bam_file", "ALL",
+					"status", StatusStarted,
+					"stage", StageHardFilterINDELs,
+					"command", "N/A")
+				// Call GetVariantType and HardFilterINDELs with proper error handling
+				if err := GetVariantType(jointVCF, "INDEL"); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageHardFilterINDELs,
+						"command", "GetVariantType",
+						"error", err)
+					return
+				}
+				if err := HardFilterINDELs(indelVCF); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageHardFilterINDELs,
+						"command", "HardFilterINDELs",
+						"error", err)
+					return
+				}
+				markStageCompleted(statusFilePath, StageHardFilterINDELs)
+				chromLogger.Info("Stage completed",
+					"bam_file", "ALL",
+					"status", StatusFinished,
+					"stage", StageHardFilterINDELs,
+					"command", "N/A")
+			} else {
+				chromLogger.Info("Stage already completed. Skipping.",
+					"bam_file", "ALL",
+					"status", StatusSkipped,
+					"stage", StageHardFilterINDELs,
+					"command", "N/A")
+			}
+
+			// --- Merge VCFs ---
+			if !isStageCompleted(statusFilePath, StageMergeVcfs) {
+				chromLogger.Info("Starting stage",
+					"bam_file", "ALL",
+					"status", StatusStarted,
+					"stage", StageMergeVcfs,
+					"command", "N/A")
+				mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s`, snpVCF, indelVCF, hardFilteredVCF)
+				chromLogger.Info("Running command",
+					"bam_file", "ALL",
+					"status", StatusRunningCmd,
+					"stage", StageMergeVcfs,
+					"command", mergeCmdStr)
+				if err := utils.RunBashCmdVerbose(mergeCmdStr); err != nil {
+					chromLogger.Error("Command failed",
+						"bam_file", "ALL",
+						"status", StatusFailed,
+						"stage", StageMergeVcfs,
+						"command", mergeCmdStr,
+						"error", err)
+					return
+				}
+				markStageCompleted(statusFilePath, StageMergeVcfs)
+				chromLogger.Info("Stage completed",
+					"bam_file", "ALL",
+					"status", StatusFinished,
+					"stage", StageMergeVcfs,
+					"command", "N/A")
+			} else {
+				chromLogger.Info("Stage already completed. Skipping.",
+					"bam_file", "ALL",
+					"status", StatusSkipped,
+					"stage", StageMergeVcfs,
+					"command", "N/A")
+			}
+
+			// Mark chromosome as completely processed
+			markStageCompleted(statusFilePath, StageChromosomeComplete)
+			chromLogger.Info("All variant calling stages completed successfully.",
+				"bam_file", "ALL",
+				"status", StatusFinished,
+				"stage", StageChromosomeComplete,
+				"command", "N/A")
+
+		}(seq, chromID, chromDirPath, statusFilePath, chromLogger)
+	}
+
+	wg.Wait()
+	slog.Info("All pipeline processes finished.",
+		"chromosome_id", "ALL",
+		"bam_file", "N/A",
+		"status", StatusFinished,
+		"stage", "PIPELINE_END",
+		"command", "N/A")
+}

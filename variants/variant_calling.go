@@ -2,6 +2,7 @@ package variants
 
 import (
 	"compress/gzip"
+	"encoding/csv"
 	"fmt"
 	"github.com/biogo/biogo/alphabet"
 	"github.com/biogo/biogo/io/seqio"
@@ -15,6 +16,15 @@ import (
 	"strings"
 	"sync"
 )
+
+type LogEntry struct {
+	Timestamp  string
+	Chromosome string
+	Program    string
+	Bam        string
+	Status     string
+	Cmd        string
+}
 
 func VariantCalling(refFile string, bams []string, out string, species string) {
 
@@ -42,7 +52,7 @@ func VariantCalling(refFile string, bams []string, out string, species string) {
 	}
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
-	logFilePath := filepath.Join(filepath.Dir(out), "variant_calling.log")
+	logFilePath := filepath.Join(out, "variant_calling.log")
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)
@@ -50,6 +60,8 @@ func VariantCalling(refFile string, bams []string, out string, species string) {
 	defer logFile.Close()
 
 	log.SetOutput(logFile)
+
+	log.Printf("CHROM\tPROGRAM\tBAM\tSTATUS\tCMD\n")
 
 	// --------------------------------------- Reading fasta -------------------------------------------------------- //
 
@@ -76,7 +88,7 @@ func VariantCalling(refFile string, bams []string, out string, species string) {
 				if _, err := os.Stat(dir); os.IsNotExist(err) {
 					cErr := os.MkdirAll(dir, 0755)
 					if cErr != nil {
-						log.Fatalf("Error creating directory %s: %v", dir, cErr)
+						log.Fatalf("Dir:%s\tDir creation\tNA\tFAILED\tNA")
 						return
 					}
 				}
@@ -89,10 +101,15 @@ func VariantCalling(refFile string, bams []string, out string, species string) {
 				hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF`, refFile, bam, seq.ID, theGVCF)
 				vSlice = append(vSlice, "-V "+theGVCF)
 				fmt.Println(hapCmdStr)
-				err := utils.RunBashCmdVerbose(hapCmdStr)
-				if err != nil {
+				log.Printf("%s\tHaplotypeCaller\t%s\tSTARTED\t%s\n", seq.ID, bamName, hapCmdStr)
+				hapErr := utils.RunBashCmdVerbose(hapCmdStr)
+				fmt.Println(hapErr)
+				if hapErr != nil {
+					log.Fatalf("%s\tHaplotypeCaller\t%s\tFAILED\t%s\n", seq.ID, bamName, hapErr)
 					return
 				}
+				log.Printf("%s\tHaplotypeCaller\t%s\tFINISHED\t%s\n", seq.ID, bamName, hapCmdStr)
+
 			}
 
 			//bName := strings.Replace(filepath.Base(bams[0]), ".bam", "", 1)
@@ -103,52 +120,129 @@ func VariantCalling(refFile string, bams []string, out string, species string) {
 
 			gDBImpCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s --genomicsdb-workspace-path %s --tmp-dir %s -L %s --genomicsdb-shared-posixfs-optimizations true --batch-size 50  --bypass-feature-reader`, vArgs, theDB, tmpPath, seq.ID)
 			fmt.Println(gDBImpCmdStr)
+			log.Printf("%s\tGenomicsDBImport\tALL\tSTARTED\t%s\n", seq.ID, gDBImpCmdStr)
+
 			gErr := utils.RunBashCmdVerbose(gDBImpCmdStr)
 			if gErr != nil {
+				log.Fatalf("%s\tGenomicsDBImport\tALL\tFAILED\t%s\n", seq.ID, gDBImpCmdStr)
 				return
 			}
+			log.Printf("%s\tGenomicsDBImport\tALL\tFINISHED\t%s\n", seq.ID, gDBImpCmdStr)
 
 			genoCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s`, refFile, theDB, jointVCF, tmpPath)
 			fmt.Println(genoCmdStr)
+			log.Printf("%s\tGenotypeGVCFs\tALL\tSTARTED\t%s\n", seq.ID, genoCmdStr)
 			gtErr := utils.RunBashCmdVerbose(genoCmdStr)
 			if gtErr != nil {
+				fmt.Println(gtErr)
+				log.Fatalf("%s\tGenotypeGVCFs\tALL\tFAILED\t%s\n", seq.ID, genoCmdStr)
 				return
 			}
+			log.Printf("%s\tGenotypeGVCFs\tALL\tFINISED\t%s\n", seq.ID, genoCmdStr)
 
 			snpVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".SNP.vcf.gz"
 			indelVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".INDEL.vcf.gz"
 			hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 
 			fmt.Println("Hard filtered joint VCF ...")
+			log.Printf("%s\tSELECT_SNPS\tALL\tSTARTED\tSNPS\n", seq.ID)
 			sErr := GetVariantType(jointVCF, "SNP")
 			if sErr != nil {
+				log.Fatalf("%s\tSELECT_SNPS\tALL\tFAILED\tSNPS\n", seq.ID)
 				return
 			}
+			log.Printf("%s\tSelectVariants\tALL\tFINISHED\tSNPS\n", seq.ID)
+
+			log.Printf("%s\tSelectVariants\tALL\tSTARTED\tINDELs\n", seq.ID)
 			iErr := GetVariantType(jointVCF, "INDEL")
 			if iErr != nil {
+				log.Fatalf("%s\tSelectVariants\tALL\tFAILED\tINDELs\n", seq.ID)
 				return
 			}
+			log.Printf("%s\tSelectVariants\tALL\tFINISHED\tINDELs\n", seq.ID)
 
+			log.Printf("%s\tHardFiltering\tALL\tSTARTED\tSNPs\n", seq.ID)
 			hsErr := HardFilterSNPs(snpVCF)
 			if hsErr != nil {
+				log.Fatalf("%s\tHardFiltering\tALL\tFAILED\tSNPs\n", seq.ID)
 				return
 			}
+			log.Printf("%s\tHardFiltering\tALL\tFAILED\tSNPs\n", seq.ID)
+
+			log.Printf("%s\tHardFiltering\tALL\tSTARTED\tINDELs\n", seq.ID)
 			hiErr := HardFilterINDELs(indelVCF)
 			if hiErr != nil {
+				log.Fatalf("%s\tHardFiltering\tALL\tFAILED\tINDELs\n", seq.ID)
 				return
 			}
+			log.Printf("%s\tHardFiltering\tALL\tFINISHED\tINDELs\n", seq.ID)
 
 			mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s`, snpVCF, indelVCF, hardFilteredVCF)
+			log.Printf("%s\tMergeVcfs\tALL\tSTART\t%s\n", seq.ID, mergeCmdStr)
 			fmt.Println(mergeCmdStr)
 			mErr := utils.RunBashCmdVerbose(mergeCmdStr)
 			if mErr != nil {
+				log.Fatalf("%s\tMergeVcfs\tALL\tFAILED\t%s\n", seq.ID, mergeCmdStr)
 				return
 			}
+			log.Printf("%s\tMergeVcfs\tALL\tFINISHED\t%s\n", seq.ID, mergeCmdStr)
+
 		}(seq)
 
 	}
 	wg.Wait()
 
+}
+
+func parseLogFile(logFilePath string) []LogEntry {
+
+	file, err := os.Open(logFilePath)
+	if err != nil {
+		log.Fatalf("Failed to open log file for parsing: %v", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = '\t'
+	reader.TrimLeadingSpace = true
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(records) < 2 {
+		log.Fatalf("Expected at least 2 rows, got %d", len(records))
+	}
+
+	var data []LogEntry
+	for _, row := range records[1:] {
+		if len(row) != 6 {
+			log.Fatalf("Expected 6 columns, got %d", len(row))
+		}
+		timeStamp := row[0]
+		chromID := row[1]
+		stage := row[2]
+		bam := row[3]
+		status := row[4]
+		details := row[5]
+		r := LogEntry{
+			Timestamp:  timeStamp,
+			Chromosome: chromID,
+			Program:    stage,
+			Bam:        bam,
+			Status:     status,
+			Cmd:        details,
+		}
+		data = append(data, r)
+	}
+
+	//scanner := bufio.NewScanner(file)
+	//for scanner.Scan() {
+	//	line := scanner.Text()
+	//	fields := strings.Split(line, "\t")
+	//	fmt.Println(fields)
+	//}
+	return data
 }
 
 // Define log messages for different stages
