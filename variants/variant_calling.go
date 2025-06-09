@@ -167,7 +167,7 @@ func VariantCalling(refFile string, bams []string, out string, species string) {
 				log.Fatalf("%s\tHardFiltering\tALL\tFAILED\tSNPs\n", seq.ID)
 				return
 			}
-			log.Printf("%s\tHardFiltering\tALL\tFAILED\tSNPs\n", seq.ID)
+			log.Printf("%s\tHardFiltering\tALL\tFINISHED\tSNPs\n", seq.ID)
 
 			log.Printf("%s\tHardFiltering\tALL\tSTARTED\tINDELs\n", seq.ID)
 			hiErr := HardFilterINDELs(indelVCF)
