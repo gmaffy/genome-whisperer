@@ -42,12 +42,12 @@ func HardFilterINDELs(vcf string) error {
 		return fmt.Errorf("vcf file must be in vcf or vcf.gz format")
 	}
 
-	cmdStr := fmt.Sprintf(`gatk VariantFiltration \ 
-    -V %s \ 
+	cmdStr := fmt.Sprintf(`gatk VariantFiltration \
+    -V %s \
     -filter "QD < 2.0" --filter-name "QD2" \
     -filter "QUAL < 30.0" --filter-name "QUAL30" \
     -filter "FS > 200.0" --filter-name "FS200" \
-    -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \ 
+    -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
     -O %s`, vcf, vcfCol)
 
 	if err := utils.RunBashCmdVerbose(cmdStr); err != nil {
