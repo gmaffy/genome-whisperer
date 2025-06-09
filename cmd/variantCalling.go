@@ -56,6 +56,13 @@ var variantCallingCmd = &cobra.Command{
 
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
+			_, err := os.Stat(configFile)
+			if err != nil {
+				fmt.Printf("Config file %s does not exist", configFile)
+				return
+
+			}
+			variants.VariantCallingConfig(configFile, speciesName, jobs, verbosity)
 
 		} else {
 			fmt.Printf("Running without config flag\n")

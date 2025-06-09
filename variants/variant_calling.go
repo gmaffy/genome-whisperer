@@ -313,17 +313,14 @@ func parseLogFile(logFilePath string) []LogEntry {
 	var data []LogEntry
 	file, err := os.Open(logFilePath)
 	if err != nil {
-		// It's okay if the log file doesn't exist on the first run,
-		// so we don't want to Fatalf here.
-		// log.Fatalf("Failed to open log file for parsing: %v", err)
 		fmt.Printf("Log file '%s' not found, starting fresh or assuming no previous runs.\n", logFilePath)
-		return data // Return empty data if file doesn't exist
+		return data
 	}
 	defer file.Close()
 	fmt.Println("Parsing log file ...")
 
 	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() { // Skip header or empty file
+	if !scanner.Scan() {
 		return data
 	}
 	for scanner.Scan() {
@@ -332,7 +329,7 @@ func parseLogFile(logFilePath string) []LogEntry {
 			fmt.Printf("Skipping malformed log line: '%s', Expected 5 columns, got %d\n", scanner.Text(), len(line))
 			continue
 		}
-		//fmt.Println(line)
+
 		timeStampChrom := strings.Split(line[0], " ")
 		timeStamp := strings.Join(timeStampChrom[:len(timeStampChrom)-1], " ")
 
@@ -341,8 +338,6 @@ func parseLogFile(logFilePath string) []LogEntry {
 		bam := line[2]
 		status := line[3]
 		details := line[4]
-
-		//fmt.Println(chromID, stage, bam, status, details)
 
 		r := LogEntry{
 			Timestamp:  timeStamp,
@@ -371,7 +366,7 @@ func getHapFinished(logEntries []LogEntry) []ChromosomeSamplePair {
 func getCompletedStages(logEntries []LogEntry) map[string]map[string]bool {
 	cs := make(map[string]map[string]bool)
 	for _, entry := range logEntries {
-		// Ensure the inner map is initialized before adding entries
+
 		if entry.Program == "GenomicsDBImport" && entry.Status == "FINISHED" {
 			if _, ok := cs["GenomicsDBImport"]; !ok {
 				cs["GenomicsDBImport"] = make(map[string]bool)
@@ -393,12 +388,12 @@ func getCompletedStages(logEntries []LogEntry) map[string]map[string]bool {
 				cs["SELECT_INDELS"] = make(map[string]bool)
 			}
 			cs["SELECT_INDELS"][entry.Chromosome] = true
-		} else if entry.Program == "HardFilteringSNPS" && entry.Status == "FINISHED" { // Corrected key
+		} else if entry.Program == "HardFilteringSNPS" && entry.Status == "FINISHED" {
 			if _, ok := cs["HardFilteringSNPS"]; !ok {
 				cs["HardFilteringSNPS"] = make(map[string]bool)
 			}
 			cs["HardFilteringSNPS"][entry.Chromosome] = true
-		} else if entry.Program == "HardFilteringINDELS" && entry.Status == "FINISHED" { // Corrected key
+		} else if entry.Program == "HardFilteringINDELS" && entry.Status == "FINISHED" {
 			if _, ok := cs["HardFilteringINDELS"]; !ok {
 				cs["HardFilteringINDELS"] = make(map[string]bool)
 			}
@@ -428,7 +423,7 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 
 	_, rErr := os.Stat(refFile)
 	if rErr != nil {
-		fmt.Printf("Reference file: %s does not exist\n", refFile) // Added newline
+		fmt.Printf("Reference file: %s does not exist\n", refFile)
 		return
 	}
 	bams := cfg.Bams
@@ -438,10 +433,10 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 		fmt.Println("You must provide at least one bam file")
 		return
 	} else {
-		for i := range bams { // Use range without underscore if index is used
+		for i := range bams {
 			_, err := os.Stat(bams[i])
 			if err != nil {
-				fmt.Printf("Bam file: %s is not a valid file path: %v\n", bams[i], err) // Added error and newline
+				fmt.Printf("Bam file: %s is not a valid file path: %v\n", bams[i], err)
 				return
 			}
 		}
@@ -452,7 +447,7 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 	outInfo, outErr := os.Stat(outputDir)
 
 	if outErr != nil {
-		// If directory doesn't exist, try to create it.
+
 		if os.IsNotExist(outErr) {
 			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outputDir)
 			if createErr := os.MkdirAll(outputDir, 0755); createErr != nil {
@@ -474,5 +469,5 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 		return
 	}
 
-	VariantCalling(refFile, bams, outputDir, species, maxParallelJobs, verbosity) // Changed order of species and outputDir
+	VariantCalling(refFile, bams, outputDir, species, maxParallelJobs, verbosity)
 }
