@@ -32,6 +32,8 @@ type ChromosomeSamplePair struct {
 }
 
 func VariantCalling(refFile string, bams []string, out string, species string, maxParallelJobs int, verbosity string) {
+	log.Printf("Starting variant calling with %d parallel jobs", maxParallelJobs)
+	log.Printf("Available memory: %d GB", utils.GetAvailableMemory()/1024/1024/1024)
 
 	// --------------------------------------- Opening fasta file --------------------------------------------------- //
 	fmt.Println("Working on FASTA file ...")
@@ -176,7 +178,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					fmt.Println("Directory removed successfully (if it existed).")
 				}
 
-				//----------------------------- Delete DB if present and delete ---------------------------------------//
+				//---------------- निर्णयायक Delete DB if present and delete ---------------------------------------//
 
 				gDBImpCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s --genomicsdb-workspace-path %s --tmp-dir %s -L %s --genomicsdb-shared-posixfs-optimizations true --batch-size 50  --bypass-feature-reader`, vArgs, theDB, tmpPath, seq.ID)
 				fmt.Println(gDBImpCmdStr)
