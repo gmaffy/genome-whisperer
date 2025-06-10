@@ -57,7 +57,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	}
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
-	fmt.Println("Creating log file ...")
+	fmt.Println("Reading log file ...")
 	logFilePath := filepath.Join(out, "variant_calling.log")
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -68,17 +68,12 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	mw := io.MultiWriter(logFile, os.Stdout)
 	log.SetOutput(mw)
 	fmt.Println("Log file created.")
-	//log.Printf("CHROM\tPROGRAM\tBAM\tSTATUS\tCMD\n")
 
 	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
 
 	logged := parseLogFile(logFilePath)
-	//fmt.Println(logged)
 	completed := getCompletedStages(logged)
 	hapPairCompleted := getHapFinished(logged)
-
-	//fmt.Println("completed stages:", completed)
-	//fmt.Println("completed chrom, bam pairs", hapPairCompleted)
 
 	// --------------------------------------- Reading fasta -------------------------------------------------------- //
 
@@ -86,25 +81,25 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	sc := seqio.NewScanner(r)
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxParallelJobs) // Controls concurrency
+	sem := make(chan struct{}, maxParallelJobs)
 
 	for sc.Next() {
 		seq := sc.Seq().(*linear.Seq)
 
-		// ------------------ Check if MergeVcfs already completed for this chromosome ------------------------------- //
+		// ----------------------- Check if MergeVcfs already completed for this chromosome ------------------------- //
+
 		if _, exists := completed["MergeVcfs"][seq.ID]; exists {
-			fmt.Printf("Chromosome %s already processed all steps. Skipping\n.", seq.ID)
+			fmt.Printf("Chromosome %s already processed all steps. Skipping\n", seq.ID)
 			continue
 		}
 
-		// Acquire a semaphore slot before launching goroutine
 		sem <- struct{}{}
-		wg.Add(1) // Increment WaitGroup for each new goroutine
+		wg.Add(1)
 
 		go func(seq *linear.Seq) {
 			defer func() {
-				wg.Done() // Decrement WaitGroup when goroutine finishes
-				<-sem     // Release the semaphore slot
+				wg.Done()
+				<-sem
 			}()
 
 			fmt.Println(seq.ID)
@@ -121,7 +116,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				if _, err := os.Stat(dir); os.IsNotExist(err) {
 					cErr := os.MkdirAll(dir, 0755)
 					if cErr != nil {
-						log.Printf("Dir:%s\tDir creation\tNA\tFAILED\tNA - Error: %v\n", seq.ID, cErr) // Use Printf
+						log.Printf("Dir:%s\tDir creation\tNA\tFAILED\tNA - Error: %v\n", seq.ID, cErr)
 						return
 					}
 				}
@@ -176,14 +171,16 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 			} else {
 				vArgs := strings.Join(vSlice, " ")
 
+				//----------------------------- Delete DB if present and delete ------------------------------------- //
+
 				dErr := os.RemoveAll(theDB)
-				if dErr != nil { // Corrected: check dErr, not err
+				if dErr != nil {
 					fmt.Println("Error removing directory:", dErr)
 				} else {
 					fmt.Println("Directory removed successfully (if it existed).")
 				}
 
-				//----------------------------- Delete DB if present and delete ---------------------------------------//
+				// -------------------------------------------------------------------------------------------------- //
 
 				gDBImpCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s --genomicsdb-workspace-path %s --tmp-dir %s -L %s --genomicsdb-shared-posixfs-optimizations true --batch-size 50  --bypass-feature-reader`, vArgs, theDB, tmpPath, seq.ID)
 				fmt.Println(gDBImpCmdStr)
@@ -191,14 +188,14 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 				gErr := utils.RunBashCmdVerbose(gDBImpCmdStr)
 				if gErr != nil {
-					log.Printf("%s\tGenomicsDBImport\tALL\tFAILED\t%s - Error: %v\n", seq.ID, gDBImpCmdStr, gErr) // Use Printf
+					log.Printf("%s\tGenomicsDBImport\tALL\tFAILED\t%s - Error: %v\n", seq.ID, gDBImpCmdStr, gErr)
 					return
 				}
 				log.Printf("%s\tGenomicsDBImport\tALL\tFINISHED\t%s\n", seq.ID, gDBImpCmdStr)
 
 			}
 
-			// --------------------------------------- GENOTYPEGVCFS (Skip completed) ------------------------------- //
+			// --------------------------------------- GENOTYPE GVCFS (Skip completed) ------------------------------ //
 
 			if _, exists := completed["GenotypeGVCFs"][seq.ID]; exists {
 				fmt.Printf("GenomicsDBImport already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
@@ -210,14 +207,14 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				gtErr := utils.RunBashCmdVerbose(genoCmdStr)
 				if gtErr != nil {
 					fmt.Println(gtErr)
-					log.Printf("%s\tGenotypeGVCFs\tALL\tFAILED\t%s - Error: %v\n", seq.ID, genoCmdStr, gtErr) // Use Printf
+					log.Printf("%s\tGenotypeGVCFs\tALL\tFAILED\t%s - Error: %v\n", seq.ID, genoCmdStr, gtErr)
 					return
 				}
 				log.Printf("%s\tGenotypeGVCFs\tALL\tFINISED\t%s\n", seq.ID, genoCmdStr)
 
 			}
 
-			// -------------------------------------- SELECT_SNPS (Skip completed) ------------------------------- //
+			// -------------------------------------- SELECT SNPs (Skip completed) ---------------------------------- //
 
 			fmt.Println("Hard filtered  joint VCF ...")
 
@@ -229,14 +226,14 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				log.Printf("%s\tSELECT_SNPS\tALL\tSTARTED\tSNPS\n", seq.ID)
 				sErr := GetVariantType(jointVCF, "SNP")
 				if sErr != nil {
-					log.Printf("%s\tSELECT_SNPS\tALL\tFAILED\tSNPS - Error: %v\n", seq.ID, sErr) // Use Printf
+					log.Printf("%s\tSELECT_SNPS\tALL\tFAILED\tSNPS - Error: %v\n", seq.ID, sErr)
 					return
 				}
 				log.Printf("%s\tSELECT_SNPS\tALL\tFINISHED\tSNPS\n", seq.ID)
 
 			}
 
-			// -------------------------------------- SELECT_INDELS (Skip completed) ------------------------------- //
+			// -------------------------------------- SELECT INDELS (Skip completed) -------------------------------- //
 
 			if _, exists := completed["SELECT_INDELS"][seq.ID]; exists {
 				fmt.Printf("SELECT_INDELS already completed for %s. Skipping.\n", seq.ID)
@@ -245,46 +242,46 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				log.Printf("%s\tSELECT_INDELS\tALL\tSTARTED\tINDELs\n", seq.ID)
 				iErr := GetVariantType(jointVCF, "INDEL")
 				if iErr != nil {
-					log.Printf("%s\tSELECT_INDELS\tALL\tFAILED\tINDELs - Error: %v\n", seq.ID, iErr) // Use Printf
+					log.Printf("%s\tSELECT_INDELS\tALL\tFAILED\tINDELs - Error: %v\n", seq.ID, iErr)
 					return
 				}
 				log.Printf("%s\tSELECT_INDELS\tALL\tFINISHED\tINDELs\n", seq.ID)
 
 			}
 
-			// -------------------------------------- HARDFILTERING SNPS (Skip completed) ------------------------------- //
+			// --------------------------------- HARD FILTERING SNPs (Skip completed) ------------------------------- //
 
-			if _, exists := completed["HardFilteringSNPS"][seq.ID]; exists { // Corrected key
+			if _, exists := completed["HardFilteringSNPS"][seq.ID]; exists {
 				fmt.Printf("HardFilteringSNPS already completed for %s. Skipping.\n", seq.ID)
 
 			} else {
 				log.Printf("%s\tHardFilteringSNPS\tALL\tSTARTED\tSNPs\n", seq.ID)
 				hsErr := HardFilterSNPs(snpVCF)
 				if hsErr != nil {
-					log.Printf("%s\tHardFilteringSNPS\tALL\tFAILED\tSNPs - Error: %v\n", seq.ID, hsErr) // Use Printf
+					log.Printf("%s\tHardFilteringSNPS\tALL\tFAILED\tSNPs - Error: %v\n", seq.ID, hsErr)
 					return
 				}
 				log.Printf("%s\tHardFilteringSNPS\tALL\tFINISHED\tSNPs\n", seq.ID)
 
 			}
 
-			// -------------------------------------- HARDFILTERING INDELS (Skip completed) ------------------------------- //
+			// -------------------------------- HARD FILTERING INDELS (Skip completed) ------------------------------ //
 
-			if _, exists := completed["HardFilteringINDELS"][seq.ID]; exists { // Corrected key
+			if _, exists := completed["HardFilteringINDELS"][seq.ID]; exists {
 				fmt.Printf("HardFilteringINDELS already completed for %s. Skipping.\n", seq.ID)
 
 			} else {
 				log.Printf("%s\tHardFilteringINDELS\tALL\tSTARTED\tINDELs\n", seq.ID)
 				hiErr := HardFilterINDELs(indelVCF)
 				if hiErr != nil {
-					log.Printf("%s\tHardFilteringINDELS\tALL\tFAILED\tINDELs - Error: %v\n", seq.ID, hiErr) // Use Printf
+					log.Printf("%s\tHardFilteringINDELS\tALL\tFAILED\tINDELs - Error: %v\n", seq.ID, hiErr)
 					return
 				}
 				log.Printf("%s\tHardFilteringINDELS\tALL\tFINISHED\tINDELs\n", seq.ID)
 
 			}
 
-			// -------------------------------------- MERGE VCFS (Skip completed) ------------------------------- //
+			// -------------------------------------- MERGE VCFs (Skip completed) ----------------------------------- //
 
 			if _, exists := completed["MergeVcfs"][seq.ID]; exists {
 				fmt.Printf("MergeVcfs already completed for %s. Skipping.\n", seq.ID)
@@ -295,7 +292,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				fmt.Println(mergeCmdStr)
 				mErr := utils.RunBashCmdVerbose(mergeCmdStr)
 				if mErr != nil {
-					log.Printf("%s\tMergeVcfs\tALL\tFAILED\t%s - Error: %v\n", seq.ID, mergeCmdStr, mErr) // Use Printf
+					log.Printf("%s\tMergeVcfs\tALL\tFAILED\t%s - Error: %v\n", seq.ID, mergeCmdStr, mErr)
 					return
 				}
 				log.Printf("%s\tMergeVcfs\tALL\tFINISHED\t%s\n", seq.ID, mergeCmdStr)
@@ -305,7 +302,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 		}(seq)
 
 	}
-	wg.Wait() // Wait for all goroutines to finish
+	wg.Wait()
 
 }
 
@@ -461,11 +458,6 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 		}
 	} else if !outInfo.IsDir() {
 		fmt.Printf("Output Directory %s file path is not a directory\n", outputDir)
-		return
-	}
-
-	if species == "" {
-		fmt.Println("Please provide species name with flag --species ")
 		return
 	}
 

@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
 	"log"
 	"os"
@@ -23,7 +24,14 @@ var variantCallingCmd = &cobra.Command{
 3. gatk GenotypeVcfs to create a multi-sample VCF
 4. Hard filter VCFS`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("variantCalling called")
+		fmt.Printf("Checking dependencies ...\n\n")
+
+		if err := utils.CheckDeps(); err != nil {
+			log.Fatalf("Dependency check failed: %v", err)
+		}
+
+		fmt.Printf("Dependencies OK\n\n----------------------------------------------------------\n\n")
+
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
 			log.Fatalf("Error getting config flag: %v", cErr)
@@ -54,6 +62,11 @@ var variantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting output directory flag: %v", outErr)
 		}
 
+		if speciesName == "" {
+			fmt.Println("Please provide species name with flag --species ")
+			return
+		}
+
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
 			_, err := os.Stat(configFile)
@@ -73,7 +86,7 @@ var variantCallingCmd = &cobra.Command{
 
 			_, rErr := os.Stat(refFile)
 			if rErr != nil {
-				fmt.Printf("Reference file: %s does not exist", refFile)
+				fmt.Printf("Reference file: %s does not exist\n\n", refFile)
 				return
 			}
 
@@ -89,6 +102,25 @@ var variantCallingCmd = &cobra.Command{
 						log.Fatal(err)
 					}
 				}
+			}
+			outInfo, outErr := os.Stat(outDir)
+
+			if outErr != nil {
+
+				if os.IsNotExist(outErr) {
+					fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outDir)
+					if createErr := os.MkdirAll(outDir, 0755); createErr != nil {
+						fmt.Printf("Failed to create output directory %s: %v\n", outDir, createErr)
+						return
+					}
+					fmt.Printf("Output directory %s created successfully.\n", outDir)
+				} else {
+					fmt.Printf("Error accessing output directory %s: %v\n", outDir, outErr)
+					return
+				}
+			} else if !outInfo.IsDir() {
+				fmt.Printf("Output Directory %s file path is not a directory\n", outDir)
+				return
 			}
 			fmt.Printf("Bams: %v\n", bams)
 			fmt.Printf("Jobs: %v\n", jobs)
@@ -109,7 +141,7 @@ func init() {
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	variantCallingCmd.Flags().StringSliceP("bam", "b", []string{}, "Recalibrated bam file")
+	variantCallingCmd.Flags().StringSliceP("bam", "b", []string{}, "Recalibrated bam file (Can specify multiple)")
 	variantCallingCmd.Flags().StringP("out", "o", "", "Recalibrated bam file")
 	variantCallingCmd.Flags().StringP("species", "s", "", "Species name")
 	variantCallingCmd.Flags().IntP("jobs", "j", 4, "Jobs per run")
