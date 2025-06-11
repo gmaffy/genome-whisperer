@@ -121,8 +121,6 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// bqsrCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	//alignSrMemCmd.Flags().StringP("config", "c", "", "config file path")
-	//alignSrMemCmd.Flags().StringP("reference", "r", "", "Reference genome")
 	bqsrCmd.Flags().StringSliceP("bam", "b", []string{}, "path to bam file (can specify multiple)")
 	bqsrCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
 	bqsrCmd.Flags().Bool("bootstrap", false, "Bootstrap method")

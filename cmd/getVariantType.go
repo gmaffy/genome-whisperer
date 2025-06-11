@@ -33,7 +33,11 @@ var getVariantTypeCmd = &cobra.Command{
 			fmt.Printf("Variant file %s is not a valid file: %v\n", variant, err)
 			return
 		}
-		variants.GetVariantType(variant, variantType)
+		gErr := variants.GetVariantType(variant, variantType)
+		if gErr != nil {
+			fmt.Printf("Error getting variant type: %v\n", gErr)
+			return
+		}
 	},
 }
 

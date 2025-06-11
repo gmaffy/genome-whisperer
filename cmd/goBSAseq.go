@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/bsaseq"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"log"
 
 	"github.com/spf13/cobra"
@@ -20,10 +21,10 @@ var goBSAseqCmd = &cobra.Command{
 	2. Two bulks with one/two parents: provide high_parent (-H), low_parent (-L), high_bulk (-A), and low_bulk (-B)
 	3. One bulk with one/two parents: provide high_parent (-H), low_parent (-L), and bulk (-X)`,
 	Run: func(cmd *cobra.Command, args []string) {
-		//fmt.Println("goBSAseq called")
+
 		fmt.Printf("Checking dependencies ...\n\n")
 
-		if err := bsaseq.CheckDeps(); err != nil {
+		if err := utils.CheckDeps(); err != nil {
 			log.Fatalf("Dependency check failed: %v", err)
 		}
 
@@ -191,7 +192,7 @@ func init() {
 
 	// -------------------------------------------- BASIC PARAMS ---------------------------------------------------- //
 	goBSAseqCmd.Flags().StringP("pop_structure", "p", "F2", "F2, BC or RIL")
-	goBSAseqCmd.Flags().IntP("rep", "r", 10000, "Replications for threshold calculations ..")
+	goBSAseqCmd.Flags().Int("rep", 10000, "Replications for threshold calculations ..")
 
 	// ------------------------------------------ PLOTTING PARAMS --------------------------------------------------- //
 	goBSAseqCmd.Flags().IntP("window_size", "w", 2000000, "window size for plotting")

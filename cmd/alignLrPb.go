@@ -1,6 +1,5 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -13,13 +12,8 @@ import (
 // alignLrPbCmd represents the alignLrPb command
 var alignLrPbCmd = &cobra.Command{
 	Use:   "alignLrPb",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Align PacBio long read paired-end reads to reference genome using pbmm2.",
+	Long:  `Still to come`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("alignLrPb called")
 	},

@@ -6,7 +6,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/alignment"
-	"github.com/gmaffy/genome-whisperer/bsaseq"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"log"
 	"os"
 
@@ -21,7 +21,7 @@ var alignSrMemCmd = &cobra.Command{
 		fmt.Println("alignSrMem called")
 		fmt.Printf("Checking dependencies ...\n\n")
 
-		if err := bsaseq.CheckDeps(); err != nil {
+		if err := utils.CheckDeps(); err != nil {
 			log.Fatalf("Dependency check failed: %v", err)
 		}
 

@@ -37,6 +37,19 @@ type Config struct {
 	GVCFs      []string
 }
 
+func CheckDeps() error {
+	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread"}
+
+	for _, dep := range deps {
+		if _, err := exec.LookPath(dep); err != nil {
+			return fmt.Errorf("%s not found: %w", dep, err)
+		}
+		fmt.Printf("%s OK\n", dep)
+	}
+
+	return nil
+}
+
 func ReadConfig(configPath string) (Config, error) {
 	configFile, err := os.Open(configPath)
 	if err != nil {
@@ -130,7 +143,7 @@ func RunBashCmdVerbose(cmdStr string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("Verbose error:", err)
+		fmt.Println("CMD error:", err)
 		return err
 	}
 	return nil
