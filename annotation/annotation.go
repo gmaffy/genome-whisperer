@@ -319,7 +319,7 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	fmt.Printf("Editing snpEff config file ...\n\n")
 
 	cmdStr1 := fmt.Sprintf(`sed -i "164 a # %s genome, version %s%s"  %s`, species, species, version, configPath)
-	fmt.Printf(cmdStr1)
+	fmt.Println(cmdStr1)
 	err1 := utils.RunBashCmdVerbose(cmdStr1)
 	if err1 != nil {
 		return err1
@@ -348,26 +348,48 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	fmt.Printf(" mkdir %s", dbDir)
 	fmt.Printf("Copying reference, cds and protein files ...\n\n")
 
-	fmt.Printf("Copying %s to %s ...\n\n", ref, filepath.Join(dataDir, "sequences.fa"))
-	crErr := CopyFile(ref, filepath.Join(dataDir, "sequences.fa"))
+	var seqs string
+	var pro string
+	var cd string
+
+	if strings.HasSuffix(ref, ".gz") {
+		seqs = filepath.Join(dataDir, "sequences.fa.gz")
+	} else {
+		seqs = filepath.Join(dataDir, "sequences.fa")
+	}
+
+	if strings.HasSuffix(prot, ".gz") {
+		pro = filepath.Join(dataDir, "protein.fa.gz")
+	} else {
+		pro = filepath.Join(dataDir, "protein.fa")
+	}
+
+	if strings.HasSuffix(cds, ".gz") {
+		cd = filepath.Join(dataDir, "cds.fa.gz")
+	} else {
+		cd = filepath.Join(dataDir, "cds.fa")
+	}
+
+	fmt.Printf("Copying %s to %s ...\n\n", ref, seqs)
+	crErr := CopyFile(ref, seqs)
 	if crErr != nil {
-		fmt.Printf("failed to copy  %s to %s", ref, filepath.Join(dataDir, "sequences.fa"))
+		fmt.Printf("failed to copy  %s to %s", ref, seqs)
 		return crErr
 	}
 
-	fmt.Printf("Copying %s to %s ...\n\n", prot, filepath.Join(dataDir, "protein.fa"))
+	fmt.Printf("Copying %s to %s ...\n\n", prot, pro)
 
-	cpErr := CopyFile(prot, filepath.Join(dataDir, "protein.fa"))
+	cpErr := CopyFile(prot, pro)
 	if cpErr != nil {
-		fmt.Printf("failed to copy %s to %s", prot, filepath.Join(dataDir, "protein.fa"))
+		fmt.Printf("failed to copy %s to %s", prot, pro)
 		return cpErr
 	}
 
-	fmt.Printf("Copying %s to %s ...\n\n", cds, filepath.Join(dataDir, "cds.fa"))
+	fmt.Printf("Copying %s to %s ...\n\n", cds, cd)
 
-	ccErr := CopyFile(cds, filepath.Join(dataDir, "cds.fa"))
+	ccErr := CopyFile(cds, cd)
 	if ccErr != nil {
-		fmt.Printf("failed to copy  sequences.fa: %v", ccErr)
+		fmt.Printf("failed to copy  %s: %v", cds, ccErr)
 		return ccErr
 	}
 

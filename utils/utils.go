@@ -42,6 +42,7 @@ func CheckDeps() error {
 
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {
+			fmt.Printf("%s not found!\n\n", dep)
 			return fmt.Errorf("%s not found: %w", dep, err)
 		}
 		fmt.Printf("%s OK\n", dep)
