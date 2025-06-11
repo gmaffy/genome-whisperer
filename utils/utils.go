@@ -38,7 +38,7 @@ type Config struct {
 }
 
 func CheckDeps() error {
-	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff"}
+	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread"}
 
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {
