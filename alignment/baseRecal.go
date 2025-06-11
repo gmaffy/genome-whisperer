@@ -27,22 +27,34 @@ func Recalibrate(ref string, bam string, knownSites []string) {
 
 	cmdStr := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s`, ref, bam, ks, recalTable)
 	fmt.Println(cmdStr)
-	utils.RunBashCmdVerbose(cmdStr)
+	err := utils.RunBashCmdVerbose(cmdStr)
+	if err != nil {
+		return
+	}
 
 	// ------------------------------------------------ Apply BQSR -------------------------------------------------- //
 	aCmdStr := fmt.Sprintf(`gatk ApplyBQSR -R %s -I %s -bqsr %s -O %s`, ref, bam, recalTable, bqsrBam)
 	fmt.Println(aCmdStr)
-	utils.RunBashCmdVerbose(aCmdStr)
+	aErr := utils.RunBashCmdVerbose(aCmdStr)
+	if aErr != nil {
+		return
+	}
 
 	// -------------------------------------- 2nd Recalibration table ----------------------------------------------- //
 	cmdStr2 := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s`, ref, bqsrBam, ks, recalTable2)
 	fmt.Println(cmdStr2)
-	utils.RunBashCmdVerbose(cmdStr2)
+	bErr := utils.RunBashCmdVerbose(cmdStr2)
+	if bErr != nil {
+		return
+	}
 
 	// ------------------------------------------ Analyse Covariates ------------------------------------------------ //
 	cmdStrA := fmt.Sprintf(`gatk AnalyzeCovariates -before %s -after %s -plots %s `, recalTable, recalTable2, plots)
 	fmt.Println(cmdStrA)
-	utils.RunBashCmdVerbose(cmdStrA)
+	A2err := utils.RunBashCmdVerbose(cmdStrA)
+	if A2err != nil {
+		return
+	}
 
 }
 
