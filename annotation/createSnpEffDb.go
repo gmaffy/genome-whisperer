@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+func check_err(err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	// --------------------------------------------------- Get Config file ---------------------------------------- //
 	snEffPath, err := exec.LookPath("snpEff")
@@ -27,36 +34,37 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 		return rErr
 	}
 
+	// ------------------------------------ Check if db is not already installed ------------------------------------ //
+
+	//------------------------------------------ Editing config file ------------------------------------------------ //
 	fmt.Printf("Editing snpEff config file ...\n\n")
+	firstLine := fmt.Sprintf("g# %s genome, version %s%s", species, species, version)
+	secondLine := fmt.Sprintf("%s%s.genome : %s", species, version, species)
 
-	cmdStr1 := fmt.Sprintf(`sed -i "164 a # %s genome, version %s%s"  %s`, species, species, version, configPath)
-	fmt.Println(cmdStr1)
-	err1 := utils.RunBashCmdVerbose(cmdStr1)
-	if err1 != nil {
-		return err1
-	}
+	fmt.Printf("Adding %s to snpEff config file ...\n\n", firstLine)
+	fmt.Printf("Adding %s to snpEff config file ...\n\n", secondLine)
 
-	cmdStr2 := fmt.Sprintf(`sed -i "165 a %s%s.genome : %s" %s`, species, version, species, configPath)
-	fmt.Printf(cmdStr2)
-	err2 := utils.RunBashCmdVerbose(cmdStr2)
-	if err2 != nil {
-		return err2
-	}
+	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0644)
+	check_err(err)
+	defer f.Close()
+	_, err = f.WriteString(firstLine + "\n" + secondLine + "\n")
+	check_err(err)
+
+	//---------------------------------- Copying annotation files to snpEff data dir -------------------------------- //
 
 	fmt.Printf("Creating directories ...\n\n")
+
 	dataDir := filepath.Join(snpEffDir, "data")
+	fmt.Printf(" mkdir -p %s", dataDir)
+	err = os.MkdirAll(dataDir, 0755)
+	check_err(err)
+
 	db := fmt.Sprintf("%s%s", species, version)
 	dbDir := filepath.Join(dataDir, db)
-	dErr := os.MkdirAll(dataDir, 0755)
-	if dErr != nil {
-		return dErr
-	}
-	dErr1 := os.MkdirAll(dbDir, 0755)
-	if dErr1 != nil {
-		return dErr1
-	}
+	fmt.Printf(" mkdir -p %s", dbDir)
+	err = os.MkdirAll(dbDir, 0755)
+	check_err(err)
 
-	fmt.Printf(" mkdir %s", dbDir)
 	fmt.Printf("Copying reference, cds and protein files ...\n\n")
 
 	var seqs string
@@ -64,21 +72,21 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	var cd string
 
 	if strings.HasSuffix(ref, ".gz") {
-		seqs = filepath.Join(dataDir, "sequences.fa.gz")
+		seqs = filepath.Join(dbDir, "sequences.fa.gz")
 	} else {
-		seqs = filepath.Join(dataDir, "sequences.fa")
+		seqs = filepath.Join(dbDir, "sequences.fa")
 	}
 
 	if strings.HasSuffix(prot, ".gz") {
-		pro = filepath.Join(dataDir, "protein.fa.gz")
+		pro = filepath.Join(dbDir, "protein.fa.gz")
 	} else {
-		pro = filepath.Join(dataDir, "protein.fa")
+		pro = filepath.Join(dbDir, "protein.fa")
 	}
 
 	if strings.HasSuffix(cds, ".gz") {
-		cd = filepath.Join(dataDir, "cds.fa.gz")
+		cd = filepath.Join(dbDir, "cds.fa.gz")
 	} else {
-		cd = filepath.Join(dataDir, "cds.fa")
+		cd = filepath.Join(dbDir, "cds.fa")
 	}
 
 	fmt.Printf("Copying %s to %s ...\n\n", ref, seqs)
