@@ -1,5 +1,8 @@
 OutputDir: /mnt/f/GOWHISPERER_GO/
 Reference: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v2/Cmoschata_Rifu_v2_genome.fa
+gff: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v1/Cmoschata_v1.gff3.gz
+proteins: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v1/Cmoschata_pep_v1.fa.gz
+cds: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v1/Cmoschata_CDS_v1.fa.gz
 ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-16A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-16A/ReverseReads.fq.gz BULK1 BULK1
 ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-32A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-32A/ReverseReads.fq.gz BULK2 BULK2
 ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-1A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-1A/ReverseReads.fq.gz MO1057 MO1057

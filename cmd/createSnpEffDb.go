@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 Godwin Mafireyi <mafireyi@gmail.com>
 */
 package cmd
 
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/annotation"
 	"github.com/gmaffy/genome-whisperer/utils"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -14,13 +15,8 @@ import (
 // createSnpEffDbCmd represents the createSnpEffDb command
 var createSnpEffDbCmd = &cobra.Command{
 	Use:   "createSnpEffDb",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Creates a snpEff database from a reference genome, protein fasta, cds fasta and gff3 file.",
+	Long:  `Creates a snpEff database from a reference genome, protein fasta, cds fasta and gff3 file.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("createSnpEffDb called")
 		err := utils.CheckDeps()
@@ -30,82 +26,131 @@ to quickly create a Cobra application.`,
 		ref, rErr := cmd.Flags().GetString("reference")
 		if rErr != nil {
 			fmt.Println("Error getting reference flag")
+			return
 		}
 
 		protein, pErr := cmd.Flags().GetString("protein")
 		if pErr != nil {
 			fmt.Println("Error getting protein flag")
+			return
 		}
 
 		cds, cErr := cmd.Flags().GetString("cds")
 		if cErr != nil {
 			fmt.Println("Error getting cds flag")
+			return
 		}
 
 		gff, gErr := cmd.Flags().GetString("gff")
 		if gErr != nil {
-			fmt.Println("Error getting reference flag")
+			fmt.Println("Error getting gff flag")
+			return
 		}
 
 		species, sErr := cmd.Flags().GetString("species")
 		if sErr != nil {
-			fmt.Println("Error getting reference flag")
+			fmt.Println("Error getting species flag")
+			return
+
 		}
 
 		version, vErr := cmd.Flags().GetString("version")
 		if vErr != nil {
-			fmt.Println("Error getting reference flag")
-		}
-
-		err1 := annotation.CreateCustomDb(ref, protein, cds, species, gff, version)
-		if err1 != nil {
+			fmt.Println("Error getting version flag")
 			return
 		}
+
+		config, cErr := cmd.Flags().GetString("config")
+		if cErr != nil {
+			fmt.Println("Error getting config flag")
+			return
+		}
+
+		if config != "" {
+			_, err := os.Stat(config)
+			if err != nil {
+				fmt.Printf("config file: %s is not a valid file path", config)
+				return
+			}
+			er := annotation.CreateCustomDbFromConfig(config, species, version)
+			if er != nil {
+				fmt.Printf("Error creating custom db from config file: %v", er)
+				return
+			}
+
+		} else {
+			_, err := os.Stat(refFile)
+			if err != nil {
+				fmt.Printf("Reference file: %s is not a valid file path", refFile)
+				return
+			}
+
+			_, err = os.Stat(protein)
+			if err != nil {
+				fmt.Printf("Protein file: %s is not a valid file path", protein)
+				return
+			}
+
+			_, err = os.Stat(cds)
+			if err != nil {
+				fmt.Printf("CDS file: %s is not a valid file path", cds)
+				return
+			}
+
+			_, err = os.Stat(gff)
+			if err != nil {
+				fmt.Printf("GFF file: %s is not a valid file path", gff)
+				return
+			}
+
+			if species == "" {
+				fmt.Println("Please provide species name")
+				return
+			}
+
+			if version == "" {
+				fmt.Println("Please provide version")
+				return
+			}
+			err1 := annotation.CreateCustomDb(ref, protein, cds, species, gff, version)
+			if err1 != nil {
+				return
+			}
+
+		}
+
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(createSnpEffDbCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// createSnpEffDbCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
+	// Add all flags
 	createSnpEffDbCmd.Flags().String("protein", "", "Path to protein fasta file ...")
 	createSnpEffDbCmd.Flags().String("cds", "", "Path to cds fasta file ...")
 	createSnpEffDbCmd.Flags().String("gff", "", "Path to gff3 file ...")
 	createSnpEffDbCmd.Flags().String("species", "", "Species name (no spaces or special characters) ...")
 	createSnpEffDbCmd.Flags().String("version", "", "Reference annotation version ...")
-	err := createSnpEffDbCmd.MarkFlagRequired("protein")
-	if err != nil {
-		return
-	}
-	err = createSnpEffDbCmd.MarkFlagRequired("cds")
-	if err != nil {
-		return
-	}
 
-	err = createSnpEffDbCmd.MarkFlagRequired("cds")
-	if err != nil {
-		return
-	}
+	// Check if -c flag is provided via persistent flags
+	cFlag, _ := rootCmd.PersistentFlags().GetString("config")
+	if cFlag != "" {
+		// Mark flags as required only if -c is false
+		requiredFlags := []string{"protein", "cds", "species", "gff", "reference", "version"}
+		for _, flag := range requiredFlags {
+			err := createSnpEffDbCmd.MarkFlagRequired(flag)
+			if err != nil {
+				return
+			}
+		}
+	} else {
+		requiredFlags := []string{"version", "species"}
+		for _, flag := range requiredFlags {
+			err := createSnpEffDbCmd.MarkFlagRequired(flag)
+			if err != nil {
+				return
+			}
+		}
 
-	err = createSnpEffDbCmd.MarkFlagRequired("species")
-	if err != nil {
-
-	}
-
-	err = createSnpEffDbCmd.MarkFlagRequired("gff")
-	if err != nil {
-		return
-	}
-
-	err = createSnpEffDbCmd.MarkFlagRequired("reference")
-	if err != nil {
-		return
 	}
 }

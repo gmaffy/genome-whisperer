@@ -57,6 +57,37 @@ type TwoBulkTwoParentsRecord struct {
 	GsP95      float64
 }
 
+type TwoBulkOnlyRecord struct {
+	Chrom      string
+	Pos        float64
+	Ref        string
+	Alt        string
+	Type       string
+	HighBulkGT string
+	LowBulkGT  string
+	HighBulkDP int
+	LowBulkDP  int
+	HighBulkAD string
+	LowBulkAD  string
+	HighSI     float64
+	LowSI      float64
+	DSI        float64
+	GS         float64
+	HighP99    float64
+	HighP95    float64
+	HighMp99   float64
+	HighMp95   float64
+	LowP99     float64
+	LowP95     float64
+	LowMp99    float64
+	LowMp95    float64
+	DsiP99     float64
+	DsiP95     float64
+	DsiMp99    float64
+	DsiMp95    float64
+	GsP99      float64
+	GsP95      float64
+}
 type TwoBulkQtlRecord struct {
 	Chrom string
 	HIp99 string
@@ -139,6 +170,74 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 			LowParGT: strings.ReplaceAll(row[colIndex[lowPar+".GT"]], "|", "/"),
 			LowParDP: lPdp,
 			LowParAD: row[colIndex[lowPar+".AD"]],
+
+			HighBulkGT: strings.ReplaceAll(row[colIndex[highBulk+".GT"]], "|", "/"),
+			HighBulkDP: hBdp,
+			HighBulkAD: row[colIndex[highBulk+".AD"]],
+
+			LowBulkGT: strings.ReplaceAll(row[colIndex[lowBulk+".GT"]], "|", "/"),
+			LowBulkDP: lBdp,
+			LowBulkAD: row[colIndex[lowBulk+".AD"]],
+		}
+		data = append(data, r)
+	}
+	return data
+}
+
+func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string) []TwoBulkOnlyRecord {
+	file, err := os.Open(tsvFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = '\t'
+	reader.TrimLeadingSpace = true
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(records) < 2 {
+		log.Fatalf("Expected at least 2 rows, got %d", len(records))
+	}
+
+	header := records[0]
+	colIndex := make(map[string]int)
+
+	requiredCols := []string{highBulk + ".GT", lowBulk + ".GT", highBulk + ".DP", lowBulk + ".DP", highBulk + ".AD", lowBulk + ".AD"}
+	for _, col := range requiredCols {
+		found := false
+		for i, headerCol := range header {
+			if headerCol == col {
+				found = true
+				colIndex[headerCol] = i
+				break
+			}
+		}
+		if !found {
+			log.Fatalf("required column %s not found in header", col)
+		}
+	}
+
+	for i, col := range header {
+		colIndex[col] = i
+	}
+
+	var data []TwoBulkOnlyRecord
+	for _, row := range records[1:] {
+		pos, _ := strconv.ParseFloat(row[colIndex["POS"]], 64)
+
+		hBdp, _ := strconv.Atoi(row[colIndex[highBulk+".DP"]])
+		lBdp, _ := strconv.Atoi(row[colIndex[lowBulk+".DP"]])
+
+		r := TwoBulkOnlyRecord{
+			Chrom: row[colIndex["CHROM"]],
+			Pos:   pos,
+			Ref:   row[colIndex["REF"]],
+			Alt:   row[colIndex["ALT"]],
+			Type:  row[colIndex["TYPE"]],
 
 			HighBulkGT: strings.ReplaceAll(row[colIndex[highBulk+".GT"]], "|", "/"),
 			HighBulkDP: hBdp,
@@ -283,6 +382,37 @@ func removeShortContigsTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, winSize
 	return bsaSeqRecords
 }
 
+func removeShortContigsTwoBulkOnly(variants []TwoBulkOnlyRecord, winSize int, stepSize int) []TwoBulkOnlyRecord {
+	chromMax := make(map[string]float64)
+	for _, v := range variants {
+		if v.Pos > chromMax[v.Chrom] {
+			chromMax[v.Chrom] = v.Pos
+		}
+	}
+
+	var goodChroms = make(map[string]bool)
+	var chroms []string
+	for chrom, maxPos := range chromMax {
+		if int(maxPos) > winSize+stepSize {
+			goodChroms[chrom] = true
+			chroms = append(chroms, chrom)
+		}
+	}
+
+	sort.Strings(chroms)
+
+	fmt.Printf("Chromosomes suitable for BSA-seq analysis: \n%s\n\n", chroms)
+
+	var bsaSeqRecords []TwoBulkOnlyRecord
+	for _, v := range variants {
+		if goodChroms[v.Chrom] {
+			bsaSeqRecords = append(bsaSeqRecords, v)
+		}
+	}
+
+	return bsaSeqRecords
+}
+
 func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowPar string, highBulk string, lowBulk string, outputFile string) {
 	file, err := os.Create(outputFile)
 	if err != nil {
@@ -323,6 +453,62 @@ func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowP
 			rec.Chrom, strconv.FormatInt(int64(rec.Pos), 10), rec.Ref, rec.Alt, rec.Type,
 			rec.LowParGT, rec.LowParAD, strconv.FormatInt(int64(rec.LowParDP), 10),
 			rec.HighParGT, rec.HighParAD, strconv.FormatInt(int64(rec.HighParDP), 10),
+			rec.LowBulkGT, rec.LowBulkAD, strconv.FormatInt(int64(rec.LowBulkDP), 10),
+			rec.HighBulkGT, rec.HighBulkAD, strconv.FormatInt(int64(rec.HighBulkDP), 10),
+
+			strconv.FormatFloat(rec.HighSI, 'f', 6, 64), strconv.FormatFloat(rec.LowSI, 'f', 6, 64),
+			strconv.FormatFloat(rec.DSI, 'f', 6, 64), strconv.FormatFloat(rec.GS, 'f', 6, 64),
+			strconv.FormatFloat(rec.HighP99, 'f', 6, 64), strconv.FormatFloat(rec.HighP95, 'f', 6, 64),
+			strconv.FormatFloat(rec.HighMp99, 'f', 6, 64), strconv.FormatFloat(rec.HighMp95, 'f', 6, 64),
+			strconv.FormatFloat(rec.LowP99, 'f', 6, 64), strconv.FormatFloat(rec.LowP95, 'f', 6, 64),
+			strconv.FormatFloat(rec.LowMp99, 'f', 6, 64), strconv.FormatFloat(rec.LowMp95, 'f', 6, 64),
+			strconv.FormatFloat(rec.DsiP99, 'f', 6, 64), strconv.FormatFloat(rec.DsiP95, 'f', 6, 64),
+			strconv.FormatFloat(rec.DsiMp99, 'f', 6, 64), strconv.FormatFloat(rec.DsiMp95, 'f', 6, 64),
+			strconv.FormatFloat(rec.GsP99, 'f', 6, 64), strconv.FormatFloat(rec.GsP95, 'f', 6, 64),
+		}
+		if wErr := writer.Write(record); wErr != nil {
+			log.Fatalf("Error: %s\n", wErr)
+		}
+	}
+
+}
+
+func writeTwoBulkOnly(variants []TwoBulkOnlyRecord, highBulk string, lowBulk string, outputFile string) {
+	file, err := os.Create(outputFile)
+	if err != nil {
+		log.Fatalf("Failed to create output CSV: %v", err)
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(file)
+
+	writer := csv.NewWriter(file)
+	writer.Comma = '\t'
+
+	defer writer.Flush()
+
+	// Write header
+	header := []string{
+		"CHROM", "POS", "REF", "ALT", "TYPE",
+		lowBulk + ".GT", lowBulk + ".AD", lowBulk + ".DP",
+		highBulk + ".GT", highBulk + ".AD", highBulk + ".DP",
+		highBulk + "_SNP_INDEX", lowBulk + "_SNP_INDEX", "DELTA_SNP_INDEX", "G_STATISTIC",
+		highBulk + "_p99", highBulk + "_p95", highBulk + "_m_p99", highBulk + "_m_p95",
+		lowBulk + "_p99", lowBulk + "_p95", lowBulk + "_m_p99", lowBulk + "_m_p95",
+		"dsi_p99", "dsi_p95", "dsi_m_p99", "dsi_m_p95",
+		"gs_p99", "gs_p95",
+	}
+	if hErr := writer.Write(header); hErr != nil {
+		log.Fatalf("Failed to write header: %v", hErr)
+	}
+
+	// Write records
+	for _, rec := range variants {
+		record := []string{
+			rec.Chrom, strconv.FormatInt(int64(rec.Pos), 10), rec.Ref, rec.Alt, rec.Type,
 			rec.LowBulkGT, rec.LowBulkAD, strconv.FormatInt(int64(rec.LowBulkDP), 10),
 			rec.HighBulkGT, rec.HighBulkAD, strconv.FormatInt(int64(rec.HighBulkDP), 10),
 
@@ -410,5 +596,43 @@ func calculateStatsRecord(rec TwoBulkTwoParentsRecord, rep int, resSmAF float64,
 		rec.GsP95 = threshMap["gs95"]
 	}
 
+	return rec
+}
+
+func calculateStatsRecordBulksOnly(rec TwoBulkOnlyRecord, rep int, resSmAF float64, susSmAF float64) TwoBulkOnlyRecord {
+
+	hBDP := rec.HighBulkDP
+	lBDP := rec.LowBulkDP
+	hBAD := rec.HighBulkAD
+	lBAD := rec.LowBulkAD
+
+	highBulkRefAltAD := strings.Split(hBAD, ",")
+	lowBulkRefAltAD := strings.Split(lBAD, ",")
+
+	highBulkRefAD, _ := strconv.ParseFloat(highBulkRefAltAD[0], 64)
+	highBulkAltAD, _ := strconv.ParseFloat(highBulkRefAltAD[1], 64)
+
+	lowBulkRefAD, _ := strconv.ParseFloat(lowBulkRefAltAD[0], 64)
+	lowBulkAltAD, _ := strconv.ParseFloat(lowBulkRefAltAD[1], 64)
+
+	rec.HighSI = math.Round(highBulkAltAD/float64(hBDP)*1e6) / 1e6
+	rec.LowSI = math.Round(lowBulkAltAD/float64(lBDP)*1e6) / 1e6
+	rec.DSI = math.Round((rec.HighSI-rec.LowSI)*1e6) / 1e6
+	rec.GS = math.Round(gStatistic(int(highBulkRefAD), int(highBulkAltAD), int(lowBulkRefAD), int(lowBulkAltAD))*1e6) / 1e6
+	threshMap := twoBulkThresholdsCached(float64(hBDP), float64(lBDP), resSmAF, susSmAF, rep)
+	rec.HighP99 = threshMap["res99"]
+	rec.HighP95 = threshMap["res95"]
+	rec.HighMp99 = threshMap["resL99"]
+	rec.HighMp95 = threshMap["resL95"]
+	rec.LowP99 = threshMap["sus99"]
+	rec.LowP95 = threshMap["sus95"]
+	rec.LowMp99 = threshMap["susL99"]
+	rec.LowMp95 = threshMap["susL95"]
+	rec.DsiP99 = threshMap["dsi99"]
+	rec.DsiP95 = threshMap["dsi95"]
+	rec.DsiMp99 = threshMap["dsiL99"]
+	rec.DsiMp95 = threshMap["dsiL95"]
+	rec.GsP99 = threshMap["gs99"]
+	rec.GsP95 = threshMap["gs95"]
 	return rec
 }

@@ -157,6 +157,58 @@ func twoBulkTwoParTsvFilter(tsvFile string, highPar string, highParDP int, lowPa
 
 }
 
+func twoBulksOnlyFilter(tsvFile string, highBulk string, highBulkDP int, lowBulk string, lowBulkDP int, winSize int, stepSize int, resultsDir string) []TwoBulkOnlyRecord {
+	// ----------------------------------------------- Read to struct ------------------------------------------------//
+	fmt.Printf("Reading VCF file %s ...\n\n", tsvFile)
+	filterStart := time.Now()
+	vcfStruct := readTsvToStructTwoBulkOnly(tsvFile, highBulk, lowBulk)
+	fmt.Printf("#Variants in original VCF: %d\n\n", len(vcfStruct))
+	fmt.Printf("Removing short contigs ...\n\n")
+
+	// --------------------------------------------- Remove short contigs --------------------------------------------//
+	bsaStruct := removeShortContigsTwoBulkOnly(vcfStruct, winSize, stepSize)
+
+	bsaCount := len(bsaStruct)
+	fmt.Printf("#Variants after removing short contigs: %d\n\n", bsaCount)
+
+	fmt.Printf("Filtering variants ...\n\n")
+	// ---------------------------------------------- Filter with Params -------------------------------------------- //
+	var filteredRecords []TwoBulkOnlyRecord
+	for _, rec := range bsaStruct {
+
+		hBGT := rec.HighBulkGT
+		hBAD := rec.HighBulkAD
+		hBDP := rec.HighBulkDP
+		hBADComms := strings.Count(hBAD, ",")
+
+		lBGT := rec.LowBulkGT
+		lBAD := rec.LowBulkAD
+		lBDP := rec.LowBulkDP
+		lBADComms := strings.Count(lBAD, ",")
+
+		if hBGT != "./." && lBGT != "./." {
+			if hBDP >= highBulkDP && lBDP >= lowBulkDP {
+				if hBADComms == 1 && lBADComms == 1 {
+					filteredRecords = append(filteredRecords, rec)
+				}
+			}
+
+		}
+	}
+	fmt.Println("#Variants after filtering: ", len(filteredRecords))
+
+	filterEnd := time.Now()
+	filterElapsed := filterEnd.Sub(filterStart)
+	fmt.Printf("Filtering took %s\n", filterElapsed)
+
+	// ---------------------------------------------- Write to file ------------------------------------------------- //
+
+	writeTwoBulkOnly(filteredRecords, highBulk, lowBulk, filepath.Join(resultsDir, "filtered.tsv"))
+	fmt.Println("Filtered tsv file saved at: ", filepath.Join(resultsDir, "filtered.tsv"))
+	return filteredRecords
+
+}
+
 // =================================================== Statistics =================================================== //
 
 func twoBulkTwoParStats(filteredRecords []TwoBulkTwoParentsRecord, highBulkSize int, lowBulkSize int, popStructure string, rep int) []TwoBulkTwoParentsRecord {
@@ -172,6 +224,34 @@ func twoBulkTwoParStats(filteredRecords []TwoBulkTwoParentsRecord, highBulkSize 
 		i := i
 		g.Go(func() error {
 			statsRecords[i] = calculateStatsRecord(filteredRecords[i], rep, highSmAF, lowSmAF)
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		fmt.Println("Stats calc Error: ", err)
+	}
+
+	statsEnd := time.Now()
+	statsElapsed := statsEnd.Sub(statsStart)
+	fmt.Printf("Statistics and Thresholds took ... %s\n", statsElapsed)
+	return statsRecords
+
+}
+
+func twoBulkOnlyStats(filteredRecords []TwoBulkOnlyRecord, highBulkSize int, lowBulkSize int, popStructure string, rep int) []TwoBulkOnlyRecord {
+	fmt.Println("Calculating BSA-seq Statistics SNPIndex, Delta SNPIndex, G-Statistics & Thresholds ... ")
+	statsStart := time.Now()
+	highSmAF := simulateAF(popStructure, float64(highBulkSize), rep)
+	lowSmAF := simulateAF(popStructure, float64(lowBulkSize), rep)
+
+	var statsRecords = make([]TwoBulkOnlyRecord, len(filteredRecords))
+	var g errgroup.Group
+
+	for i := range filteredRecords {
+		i := i
+		g.Go(func() error {
+			statsRecords[i] = calculateStatsRecordBulksOnly(filteredRecords[i], rep, highSmAF, lowSmAF)
 			return nil
 		})
 	}

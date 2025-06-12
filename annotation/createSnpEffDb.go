@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func check_err(err error) {
+func checkErr(err error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -35,6 +35,13 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	}
 
 	// ------------------------------------ Check if db is not already installed ------------------------------------ //
+	fmt.Printf("Checking if database %s is installed ...\n\n", species)
+	db := fmt.Sprintf("%s%s", species, version)
+	dbErr := checkSnpEffDB(db)
+	if dbErr == nil {
+		fmt.Printf("Database %s already. Database creation stopped.\n\n", db)
+		return dbErr
+	}
 
 	//------------------------------------------ Editing config file ------------------------------------------------ //
 	fmt.Printf("Editing snpEff config file ...\n\n")
@@ -45,10 +52,10 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	fmt.Printf("Adding %s to snpEff config file ...\n\n", secondLine)
 
 	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0644)
-	check_err(err)
+	checkErr(err)
 	defer f.Close()
 	_, err = f.WriteString(firstLine + "\n" + secondLine + "\n")
-	check_err(err)
+	checkErr(err)
 
 	//---------------------------------- Copying annotation files to snpEff data dir -------------------------------- //
 
@@ -57,13 +64,12 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	dataDir := filepath.Join(snpEffDir, "data")
 	fmt.Printf(" mkdir -p %s", dataDir)
 	err = os.MkdirAll(dataDir, 0755)
-	check_err(err)
+	checkErr(err)
 
-	db := fmt.Sprintf("%s%s", species, version)
 	dbDir := filepath.Join(dataDir, db)
 	fmt.Printf(" mkdir -p %s", dbDir)
 	err = os.MkdirAll(dbDir, 0755)
-	check_err(err)
+	checkErr(err)
 
 	fmt.Printf("Copying reference, cds and protein files ...\n\n")
 
@@ -91,15 +97,15 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 
 	fmt.Printf("Copying %s to %s ...\n\n", ref, seqs)
 	crErr := CopyFile(ref, seqs)
-	check_err(crErr)
+	checkErr(crErr)
 
 	fmt.Printf("Copying %s to %s ...\n\n", prot, pro)
 	err = CopyFile(prot, pro)
-	check_err(err)
+	checkErr(err)
 
 	fmt.Printf("Copying %s to %s ...\n\n", cds, cd)
 	ccErr := CopyFile(cds, cd)
-	check_err(ccErr)
+	checkErr(ccErr)
 
 	var gffreadCmd string
 	if strings.HasSuffix(gff, ".gz") {
@@ -144,6 +150,64 @@ func CopyFile(src, dst string) error {
 	_, err := io.Copy(dstFile, sourceFile)
 	if err != nil {
 		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
+}
+
+func CreateCustomDbFromConfig(configFile, species, version string) error {
+	fmt.Println("Reading config file ...")
+	cfg, err1 := utils.ReadConfig(configFile)
+	if err1 != nil {
+		fmt.Printf("Error reading config: %v\n", err1)
+		return err1
+	}
+	fmt.Println("Reference:", cfg.Reference)
+	fmt.Println("Proteins:", cfg.Proteins)
+	fmt.Println("CDS:", cfg.CDS)
+	fmt.Println("GFF:", cfg.GFF)
+
+	refFile := cfg.Reference
+	protein := cfg.Proteins
+	cds := cfg.CDS
+	gff := cfg.GFF
+	_, err := os.Stat(refFile)
+	if err != nil {
+		fmt.Printf("Reference file: %s is not a valid file path", refFile)
+		return err
+	}
+
+	_, err = os.Stat(protein)
+	if err != nil {
+		fmt.Printf("Protein file: %s is not a valid file path", protein)
+		return err
+	}
+
+	_, err = os.Stat(cds)
+	if err != nil {
+		fmt.Printf("CDS file: %s is not a valid file path", cds)
+		return err
+	}
+
+	_, err = os.Stat(gff)
+	if err != nil {
+		fmt.Printf("GFF file: %s is not a valid file path", gff)
+		return err
+	}
+
+	if species == "" {
+		fmt.Println("Please provide species name")
+		return err
+	}
+
+	if version == "" {
+		fmt.Println("Please provide version")
+		return err
+	}
+
+	err = CreateCustomDb(refFile, protein, cds, species, gff, version)
+	if err != nil {
+		return err
 	}
 
 	return nil
