@@ -38,7 +38,7 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 
 	//------------------------------------------ Editing config file ------------------------------------------------ //
 	fmt.Printf("Editing snpEff config file ...\n\n")
-	firstLine := fmt.Sprintf("g# %s genome, version %s%s", species, species, version)
+	firstLine := fmt.Sprintf("# %s genome, version %s%s", species, species, version)
 	secondLine := fmt.Sprintf("%s%s.genome : %s", species, version, species)
 
 	fmt.Printf("Adding %s to snpEff config file ...\n\n", firstLine)
@@ -91,32 +91,29 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 
 	fmt.Printf("Copying %s to %s ...\n\n", ref, seqs)
 	crErr := CopyFile(ref, seqs)
-	if crErr != nil {
-		fmt.Printf("failed to copy  %s to %s", ref, seqs)
-		return crErr
-	}
+	check_err(crErr)
 
 	fmt.Printf("Copying %s to %s ...\n\n", prot, pro)
-
-	cpErr := CopyFile(prot, pro)
-	if cpErr != nil {
-		fmt.Printf("failed to copy %s to %s", prot, pro)
-		return cpErr
-	}
+	err = CopyFile(prot, pro)
+	check_err(err)
 
 	fmt.Printf("Copying %s to %s ...\n\n", cds, cd)
-
 	ccErr := CopyFile(cds, cd)
-	if ccErr != nil {
-		fmt.Printf("failed to copy  %s: %v", cds, ccErr)
-		return ccErr
+	check_err(ccErr)
+
+	var gffreadCmd string
+	if strings.HasSuffix(gff, ".gz") {
+		// For gzipped files, pipe through gunzip
+		gffreadCmd = fmt.Sprintf(`gunzip -c %s | gffread - -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
+	} else {
+		// For uncompressed files, use direct gffread
+		gffreadCmd = fmt.Sprintf(`gffread %s -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
 	}
 
-	cmdStr3 := fmt.Sprintf(`gffread %s -T -o %s`, gff, filepath.Join(dataDir, "genes.gtf"))
-	fmt.Printf(cmdStr3)
-	err3 := utils.RunBashCmdVerbose(cmdStr3)
+	fmt.Printf("Running: %s\n", gffreadCmd)
+	err3 := utils.RunBashCmdVerbose(gffreadCmd)
 	if err3 != nil {
-		return err3
+		return fmt.Errorf("failed to convert GFF to GTF: %w", err3)
 	}
 
 	fmt.Printf("Building database ...")
@@ -132,16 +129,15 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 }
 
 func CopyFile(src, dst string) error {
-
 	sourceFile, sErr := os.Open(src)
 	if sErr != nil {
-		return fmt.Errorf("couldn't open reference file %s: %w", src, sErr)
+		return fmt.Errorf("couldn't open source file %s: %w", src, sErr)
 	}
 	defer sourceFile.Close()
 
-	dstFile, dstErr := os.Open(dst)
-	if dstFile != nil {
-		return fmt.Errorf("couldn't open sequences.fa: %w", dstErr)
+	dstFile, dErr := os.Create(dst)
+	if dErr != nil {
+		return fmt.Errorf("couldn't create destination file %s: %w", dst, dErr)
 	}
 	defer dstFile.Close()
 
@@ -151,5 +147,4 @@ func CopyFile(src, dst string) error {
 	}
 
 	return nil
-
 }
