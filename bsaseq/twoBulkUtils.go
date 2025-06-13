@@ -57,37 +57,6 @@ type TwoBulkTwoParentsRecord struct {
 	GsP95      float64
 }
 
-type TwoBulkOnlyRecord struct {
-	Chrom      string
-	Pos        float64
-	Ref        string
-	Alt        string
-	Type       string
-	HighBulkGT string
-	LowBulkGT  string
-	HighBulkDP int
-	LowBulkDP  int
-	HighBulkAD string
-	LowBulkAD  string
-	HighSI     float64
-	LowSI      float64
-	DSI        float64
-	GS         float64
-	HighP99    float64
-	HighP95    float64
-	HighMp99   float64
-	HighMp95   float64
-	LowP99     float64
-	LowP95     float64
-	LowMp99    float64
-	LowMp95    float64
-	DsiP99     float64
-	DsiP95     float64
-	DsiMp99    float64
-	DsiMp95    float64
-	GsP99      float64
-	GsP95      float64
-}
 type TwoBulkQtlRecord struct {
 	Chrom string
 	HIp99 string
@@ -184,7 +153,7 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 	return data
 }
 
-func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string) []TwoBulkOnlyRecord {
+func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string) []TwoBulkTwoParentsRecord {
 	file, err := os.Open(tsvFile)
 	if err != nil {
 		log.Fatal(err)
@@ -225,14 +194,14 @@ func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string)
 		colIndex[col] = i
 	}
 
-	var data []TwoBulkOnlyRecord
+	var data []TwoBulkTwoParentsRecord
 	for _, row := range records[1:] {
 		pos, _ := strconv.ParseFloat(row[colIndex["POS"]], 64)
 
 		hBdp, _ := strconv.Atoi(row[colIndex[highBulk+".DP"]])
 		lBdp, _ := strconv.Atoi(row[colIndex[lowBulk+".DP"]])
 
-		r := TwoBulkOnlyRecord{
+		r := TwoBulkTwoParentsRecord{
 			Chrom: row[colIndex["CHROM"]],
 			Pos:   pos,
 			Ref:   row[colIndex["REF"]],
@@ -382,7 +351,7 @@ func removeShortContigsTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, winSize
 	return bsaSeqRecords
 }
 
-func removeShortContigsTwoBulkOnly(variants []TwoBulkOnlyRecord, winSize int, stepSize int) []TwoBulkOnlyRecord {
+func removeShortContigsTwoBulkOnly(variants []TwoBulkTwoParentsRecord, winSize int, stepSize int) []TwoBulkTwoParentsRecord {
 	chromMax := make(map[string]float64)
 	for _, v := range variants {
 		if v.Pos > chromMax[v.Chrom] {
@@ -403,7 +372,7 @@ func removeShortContigsTwoBulkOnly(variants []TwoBulkOnlyRecord, winSize int, st
 
 	fmt.Printf("Chromosomes suitable for BSA-seq analysis: \n%s\n\n", chroms)
 
-	var bsaSeqRecords []TwoBulkOnlyRecord
+	var bsaSeqRecords []TwoBulkTwoParentsRecord
 	for _, v := range variants {
 		if goodChroms[v.Chrom] {
 			bsaSeqRecords = append(bsaSeqRecords, v)
@@ -473,7 +442,7 @@ func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowP
 
 }
 
-func writeTwoBulkOnly(variants []TwoBulkOnlyRecord, highBulk string, lowBulk string, outputFile string) {
+func writeTwoBulkOnly(variants []TwoBulkTwoParentsRecord, highBulk string, lowBulk string, outputFile string) {
 	file, err := os.Create(outputFile)
 	if err != nil {
 		log.Fatalf("Failed to create output CSV: %v", err)
@@ -599,7 +568,7 @@ func calculateStatsRecord(rec TwoBulkTwoParentsRecord, rep int, resSmAF float64,
 	return rec
 }
 
-func calculateStatsRecordBulksOnly(rec TwoBulkOnlyRecord, rep int, resSmAF float64, susSmAF float64) TwoBulkOnlyRecord {
+func calculateStatsRecordBulksOnly(rec TwoBulkTwoParentsRecord, rep int, resSmAF float64, susSmAF float64) TwoBulkTwoParentsRecord {
 
 	hBDP := rec.HighBulkDP
 	lBDP := rec.LowBulkDP

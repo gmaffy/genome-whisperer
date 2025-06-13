@@ -25,7 +25,7 @@ func checkSnpEffDB(db string) error {
 	if getDbErr != nil {
 		fmt.Printf("could not get database: %s\n", getDbErr)
 		if exitError, ok := getDbErr.(*exec.ExitError); ok {
-			// grep returns 1 if no lines are selected
+
 			if exitError.ExitCode() == 1 {
 				fmt.Printf("No database matching '%s' found by grep.\n", db)
 				return getDbErr

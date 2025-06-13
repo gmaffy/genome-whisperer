@@ -361,24 +361,46 @@ func OneBulkTwoParentsRun(
 	// ======================================== Filter vcf file ====================================================== #
 	fmt.Printf("================================== Filtering Start ======================================\n\n")
 	var filteredRecords []OneBulkTwoParentsRecord
-	if strings.ToLower(filepath.Ext(vcfFile)) == ".vcf" || strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
+	var tsvFile string
+	if strings.ToLower(filepath.Ext(vcfFile)) == ".vcf" { //|| strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
 		fmt.Printf("Working with VCF file ...\n\n")
+		tsvFile = strings.TrimSuffix(filepath.Base(vcfFile), ".vcf") + ".tsv"
+		cmd3 := exec.Command("gatk", "VariantsToTable", "-V", vcfFile, "-F",
+			"CHROM", "-F", "POS", "-F", "REF", "-F", "ALT", "-F", "QUAL", "-F", "TYPE", "-GF", "GT", "-GF", "AD", "-GF",
+			"DP", "-GF", "GQ", "-O", tsvFile)
 
-		filterStart := time.Now()
-		filteredRecords = oneBulkTwoParVcfFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, bulk, minBulkDepth, windowSize, stepSize, resultsDir)
-		filterEnd := time.Now()
+		varTabErr := cmd3.Run()
+		if varTabErr != nil {
+			log.Fatalf("error running gatk VariantsToTable: %s", varTabErr)
+		}
 
-		filterElapsed := filterEnd.Sub(filterStart)
-		fmt.Printf("Filtering VCF took ... %s\n", filterElapsed)
-		n := len(filteredRecords)
-		fmt.Printf("# Variants after filtering: %d\n\n", n)
+		//filterStart := time.Now()
+		//filteredRecords = oneBulkTwoParVcfFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, bulk, minBulkDepth, windowSize, stepSize, resultsDir)
+		//filterEnd := time.Now()
+
+		//filterElapsed := filterEnd.Sub(filterStart)
+		//fmt.Printf("Filtering VCF took ... %s\n", filterElapsed)
+		//n := len(filteredRecords)
+		//fmt.Printf("# Variants after filtering: %d\n\n", n)
+	} else if strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
+		tsvFile = strings.TrimSuffix(filepath.Base(vcfFile), ".vcf.gz") + ".tsv"
+		cmd3 := exec.Command("gatk", "VariantsToTable", "-V", vcfFile, "-F",
+			"CHROM", "-F", "POS", "-F", "REF", "-F", "ALT", "-F", "QUAL", "-F", "TYPE", "-GF", "GT", "-GF", "AD", "-GF",
+			"DP", "-GF", "GQ", "-O", tsvFile)
+		varTabErr := cmd3.Run()
+		if varTabErr != nil {
+			log.Fatalf("error running gatk VatiantsToTable: %s", varTabErr)
+		}
+
 	} else {
 		fmt.Println("Working with tsv file ...")
-		fmt.Printf("Filtering DF ...\n\n")
-		filteredRecords = oneBulkTwoParTsvFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, bulk, minBulkDepth, windowSize, stepSize, resultsDir)
-		fmt.Printf("# Variants after filtering: %d\n\n", len(filteredRecords))
+		tsvFile = vcfFile
+
 		//fmt.Printf("FilteredRecords: %v\n", filteredRecords)
 	}
+	fmt.Printf("Filtering DF ...\n\n")
+	filteredRecords = oneBulkTwoParTsvFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, bulk, minBulkDepth, windowSize, stepSize, resultsDir)
+	fmt.Printf("# Variants after filtering: %d\n\n", len(filteredRecords))
 	fmt.Printf("================================== Filtering End ======================================\n\n")
 
 	// ============================================= STATISTICS ====================================================== #
@@ -391,7 +413,7 @@ func OneBulkTwoParentsRun(
 	writeOneBulkTwoPar(statsRecords, highParent, lowParent, bulk, statsFile)
 
 	fmt.Printf("====================================== BSAseq Statistics End ========================================== \n\n")
-	// ============================================= PLOTTING ====================================================== #
+	// =============================================== PLOTTING ====================================================== #
 	fmt.Printf("====================================== BSAseq Plotting Start ========================================== \n\n")
 	fmt.Printf("Performing sliding window analysis for SNP ...\n\n")
 	slidingRecords := slidingWindowAnalysisOne(statsRecords, "SNP", windowSize, stepSize)
@@ -400,6 +422,19 @@ func OneBulkTwoParentsRun(
 	writeOneBulkTwoPar(slidingRecords, highParent, lowParent, bulk, filepath.Join(resultsDir, "sliding_window_stats.tsv"))
 
 	err := plottingChartsOne(slidingRecords, filepath.Join(resultsDir, "goBSAseq_plot.html"), filepath.Join(resultsDir, "goBSAseq_plot.tsv"), smoothing)
+	if err != nil {
+		fmt.Println("Error plotting charts: ", err)
+		return
+	}
+
+	fmt.Printf("====================================== BSAseq Plotting Start ========================================== \n\n")
+	fmt.Printf("Performing sliding window analysis for SNP ...\n\n")
+	slidingRecordsIndels := slidingWindowAnalysisOne(statsRecords, "INDEL", windowSize, stepSize)
+
+	fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, "sliding_window_stats_INDEL.tsv"))
+	writeOneBulkTwoPar(slidingRecordsIndels, highParent, lowParent, bulk, filepath.Join(resultsDir, "sliding_window_stats_INDEL.tsv"))
+
+	err = plottingChartsOne(slidingRecords, filepath.Join(resultsDir, "goBSAseq_plot_INDEL.html"), filepath.Join(resultsDir, "goBSAseq_plot_INDEL.tsv"), smoothing)
 	if err != nil {
 		fmt.Println("Error plotting charts: ", err)
 		return

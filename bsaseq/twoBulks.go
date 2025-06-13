@@ -157,7 +157,7 @@ func twoBulkTwoParTsvFilter(tsvFile string, highPar string, highParDP int, lowPa
 
 }
 
-func twoBulksOnlyFilter(tsvFile string, highBulk string, highBulkDP int, lowBulk string, lowBulkDP int, winSize int, stepSize int, resultsDir string) []TwoBulkOnlyRecord {
+func twoBulksOnlyFilter(tsvFile string, highBulk string, highBulkDP int, lowBulk string, lowBulkDP int, winSize int, stepSize int, resultsDir string) []TwoBulkTwoParentsRecord {
 	// ----------------------------------------------- Read to struct ------------------------------------------------//
 	fmt.Printf("Reading VCF file %s ...\n\n", tsvFile)
 	filterStart := time.Now()
@@ -173,7 +173,7 @@ func twoBulksOnlyFilter(tsvFile string, highBulk string, highBulkDP int, lowBulk
 
 	fmt.Printf("Filtering variants ...\n\n")
 	// ---------------------------------------------- Filter with Params -------------------------------------------- //
-	var filteredRecords []TwoBulkOnlyRecord
+	var filteredRecords []TwoBulkTwoParentsRecord
 	for _, rec := range bsaStruct {
 
 		hBGT := rec.HighBulkGT
@@ -239,13 +239,13 @@ func twoBulkTwoParStats(filteredRecords []TwoBulkTwoParentsRecord, highBulkSize 
 
 }
 
-func twoBulkOnlyStats(filteredRecords []TwoBulkOnlyRecord, highBulkSize int, lowBulkSize int, popStructure string, rep int) []TwoBulkOnlyRecord {
+func twoBulkOnlyStats(filteredRecords []TwoBulkTwoParentsRecord, highBulkSize int, lowBulkSize int, popStructure string, rep int) []TwoBulkTwoParentsRecord {
 	fmt.Println("Calculating BSA-seq Statistics SNPIndex, Delta SNPIndex, G-Statistics & Thresholds ... ")
 	statsStart := time.Now()
 	highSmAF := simulateAF(popStructure, float64(highBulkSize), rep)
 	lowSmAF := simulateAF(popStructure, float64(lowBulkSize), rep)
 
-	var statsRecords = make([]TwoBulkOnlyRecord, len(filteredRecords))
+	var statsRecords = make([]TwoBulkTwoParentsRecord, len(filteredRecords))
 	var g errgroup.Group
 
 	for i := range filteredRecords {
@@ -602,70 +602,9 @@ func plottingCharts(SmoothedSnps []TwoBulkTwoParentsRecord, outputHTML string, o
 			//fmt.Printf("%s, %v, %v, %v Low-SNP-index (99perc confidene)", chrom, li5Lstart, li5Lend, li5LpeakY)
 		}
 
-		/*
-			ds9QTL := string(rune(ds9start)) + "_" + string(rune(ds9end))
-			ds5QTL := string(rune(ds5start5)) + "_" + string(rune(ds5end5))
-			hi9QTL := string(rune(hi9start)) + "_" + string(rune(hi9end))
-			hi5QTL := string(rune(hi5start)) + "_" + string(rune(hi5end))
-			li9QTL := string(rune(li9start)) + "_" + string(rune(li9end))
-			li5QTL := string(rune(li5start)) + "_" + string(rune(li5end))
-			gs9QTL := string(rune(gs9start)) + "_" + string(rune(gs9end))
-			gs5QTL := string(rune(gs5start)) + "_" + string(rune(gs5end))
-			if ds9Found || ds5Found || gs9Found || gs5Found {
-				r := TwoBulkQtlRecord{
-					Chrom: chrom,
-					HIp99: hi9QTL,
-					HIp95: hi5QTL,
-					Lip99: li9QTL,
-					Lip95: li5QTL,
-					DSp99: ds9QTL,
-					DSp95: ds5QTL,
-					GSp99: gs9QTL,
-					GSp95: gs5QTL,
-				}
-			}
-
-			deltaWith95 := FindIntersections(x, DSy, DSp95y)
-			deltaWith99L := FindIntersections(x, DSy, DSp99Ly)
-			deltaWith95L := FindIntersections(x, DSy, DSp95Ly)
-
-			highWith99 := FindIntersections(x, HIy, HIp99y)
-			highWith95 := FindIntersections(x, HIy, HIp95y)
-			highWith99L := FindIntersections(x, HIy, HIp99Ly)
-			highWith95L := FindIntersections(x, HIy, HIp95Ly)
-
-			lowWith99 := FindIntersections(x, LIy, LIp99y)
-			lowWith95 := FindIntersections(x, LIy, LIp95y)
-			lowWith99L := FindIntersections(x, LIy, LIp99Ly)
-			lowWith95L := FindIntersections(x, LIy, LIp95Ly)
-
-			gWith99 := FindIntersections(x, GSy, GSp99y)
-			gWith95 := FindIntersections(x, GSy, GSp95y)
-
-			fmt.Printf("%s ΔSNP-index intersects 99percentile (peak) thresholds at %v ...\n", chrom, deltaWith99)
-			fmt.Printf("%s High-SNP-index intersects 99percentile (peak) thresholds at %v ...\n", chrom, highWith99)
-			fmt.Printf("%s Low-SNP-index intersects 99percentile (peak) thresholds at %v ...\n", chrom, lowWith99)
-			fmt.Printf("%s G-Statistics intersects 99percentile (peak) thresholds at %v ...\n", chrom, gWith99)
-
-			fmt.Printf("%s ΔSNP-index intersects 95percentile (peak) thresholds at %v ...\n", chrom, deltaWith95)
-			fmt.Printf("%s High-SNP-index intersects 95percentile (peak)thresholds at %v ...\n", chrom, highWith95)
-			fmt.Printf("%s Low-SNP-index intersects 95percentile (peak) thresholds at %v ...\n", chrom, lowWith95)
-			fmt.Printf("%s G-Statistics intersects 95percentile (peak) thresholds at %v ...\n", chrom, gWith95)
-
-			fmt.Printf("%s ΔSNP-index intersects 99percentile (valley) thresholds at %v ...\n", chrom, deltaWith99L)
-			fmt.Printf("%s High-SNP-index intersects 99percentile (valley) thresholds at %v ...\n", chrom, highWith99L)
-			fmt.Printf("%s Low-SNP-index intersects 99percentile (valley) thresholds at %v ...\n", chrom, lowWith99L)
-
-			fmt.Printf("%s ΔSNP-index intersects 95percentile (valley) thresholds at %v ...\n", chrom, deltaWith95L)
-			fmt.Printf("%s High-SNP-index intersects 95percentile (valley) thresholds at %v ...\n", chrom, highWith95L)
-			fmt.Printf("%s Low-SNP-index intersects 95percentile (valley) thresholds at %v ...\n", chrom, lowWith95L)*/
-
-		// Append 4 charts for this chromosome
 		page.SetLayout(components.PageFlexLayout)
 		page.AddCharts(hiChart, deltaChart, liChart, gChart)
 
-		// Add a horizontal rule (visual break)
-		//page.AddCharts((components)
 	}
 
 	f, err := os.Create(outputHTML)
@@ -741,6 +680,107 @@ func TwoBulkTwoParentsRun(
 	writeTwoBulkTwoPar(slidingRecords, highParent, lowParent, highBulk, lowBulk, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
 
 	err := plottingCharts(slidingRecords, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot.html"), filepath.Join(resultsDir, "goBSAseq.tsv"), smoothing)
+	if err != nil {
+		fmt.Println("Error plotting charts: ", err)
+		return
+	}
+	fmt.Printf("====================================== BSAseq Plotting End ========================================== \n\n")
+
+}
+
+func TwoBulkOnlyRun(
+	vcfFile string,
+	highBulk string,
+	lowBulk string,
+	minHighBulkDepth int,
+	minLowBulkDepth int,
+	highBulkSize int,
+	lowBulkSize int,
+	windowSize int,
+	stepSize int,
+	smoothing bool,
+	popStructure string,
+	rep int,
+) {
+	// ======================================== Create Results dir =================================================== #
+	resultsDir := createResultsDir()
+
+	// ======================================== Filter vcf file ====================================================== #
+	fmt.Printf("================================== Filtering Start ======================================\n\n")
+	var filteredRecords []TwoBulkTwoParentsRecord
+	var tsvFile string
+	if strings.ToLower(filepath.Ext(vcfFile)) == ".vcf" { //|| strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
+		fmt.Printf("Working with VCF file ...\n\n")
+		tsvFile = strings.TrimSuffix(vcfFile, ".vcf") + ".tsv"
+		cmd3 := exec.Command("gatk", "VariantsToTable", "-V", vcfFile, "-F",
+			"CHROM", "-F", "POS", "-F", "REF", "-F", "ALT", "-F", "QUAL", "-F", "TYPE", "-GF", "GT", "-GF", "AD", "-GF",
+			"DP", "-GF", "GQ", "-O", tsvFile)
+
+		varTabErr := cmd3.Run()
+		if varTabErr != nil {
+			log.Fatalf("error running gatk VariantsToTable: %s", varTabErr)
+		}
+
+		//filterStart := time.Now()
+		//filteredRecords = twoBulkTwoParVcfFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
+		//filterEnd := time.Now()
+
+		//filterElapsed := filterEnd.Sub(filterStart)
+		//fmt.Printf("Filtering VCF took ... %s\n", filterElapsed)
+		//n := len(filteredRecords)
+		//fmt.Printf("# Variants after filtering: %d\n\n", n)
+	} else if strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
+		tsvFile = strings.TrimSuffix(vcfFile, ".vcf.gz") + ".tsv"
+		cmd3 := exec.Command("gatk", "VariantsToTable", "-V", vcfFile, "-F",
+			"CHROM", "-F", "POS", "-F", "REF", "-F", "ALT", "-F", "QUAL", "-F", "TYPE", "-GF", "GT", "-GF", "AD", "-GF",
+			"DP", "-GF", "GQ", "-O", tsvFile)
+
+		varTabErr := cmd3.Run()
+		if varTabErr != nil {
+			log.Fatalf("error running gatk VariantsToTable: %s", varTabErr)
+		}
+
+	} else {
+		fmt.Println("Working with tsv file ...")
+		fmt.Printf("Filtering DF ...\n\n")
+
+	}
+	tsvFile = vcfFile
+	filteredRecords = twoBulksOnlyFilter(vcfFile, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
+	fmt.Printf("# Variants after filtering: %d\n\n", len(filteredRecords))
+	fmt.Printf("================================== Filtering End ======================================\n\n")
+
+	// ============================================= STATISTICS ====================================================== #
+
+	fmt.Printf("====================================== BSAseq Statistics Start ========================================== \n\n")
+	statsRecords := twoBulkOnlyStats(filteredRecords, highBulkSize, lowBulkSize, popStructure, rep)
+	statsFile := filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_stats.tsv")
+
+	fmt.Printf("Writing stats file to %s... \n\n", statsFile)
+	writeTwoBulkOnly(statsRecords, highBulk, lowBulk, statsFile)
+
+	fmt.Printf("====================================== BSAseq Statistics End ========================================== \n\n")
+	// ============================================= PLOTTING ====================================================== #
+	fmt.Printf("====================================== BSAseq Plotting Start ========================================== \n\n")
+	fmt.Printf("Performing sliding window analysis for SNP ...\n\n")
+	slidingRecords := slidingWindowAnalysis(statsRecords, "SNP", windowSize, stepSize)
+
+	fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
+	writeTwoBulkOnly(slidingRecords, highBulk, lowBulk, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
+
+	err := plottingCharts(slidingRecords, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot.html"), filepath.Join(resultsDir, "goBSAseq.tsv"), smoothing)
+	if err != nil {
+		fmt.Println("Error plotting charts: ", err)
+		return
+	}
+
+	fmt.Printf("Performing sliding window analysis for INDELs ...\n\n")
+	slidingRecordsIndels := slidingWindowAnalysis(statsRecords, "INDEL", windowSize, stepSize)
+
+	fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_INDELS.tsv"))
+	writeTwoBulkOnly(slidingRecordsIndels, highBulk, lowBulk, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_INDELS.tsv"))
+
+	err = plottingCharts(slidingRecords, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot_indel.html"), filepath.Join(resultsDir, "goBSAseq_indel.tsv"), smoothing)
 	if err != nil {
 		fmt.Println("Error plotting charts: ", err)
 		return

@@ -122,10 +122,10 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 		return
 	}
 
-	if highParentChoice == 0 {
-		fmt.Printf("HIGH PARENT number should not be None\n")
-		return
-	}
+	//if highParentChoice == 0 {
+	//	fmt.Printf("HIGH PARENT number should not be None\n")
+	//	return
+	//}
 
 	highParent := sampleParametersDic[highParentChoice]
 	fmt.Printf("HIGH Parent is: %s \n\n", highParent)
@@ -137,12 +137,12 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 		return
 	}
 
-	if lowParentChoice == 0 {
-		fmt.Printf("LOW PARENT number should not be None\n")
-		return
-	}
+	//if lowParentChoice == 0 {
+	//	fmt.Printf("LOW PARENT number should not be None\n")
+	//	return
+	//}
 
-	if lowParentChoice == highParentChoice {
+	if lowParentChoice == highParentChoice && lowParentChoice != 0 {
 		fmt.Println("LOW PARENT should not be the same as HIGH PARENT")
 		return
 	}
@@ -184,27 +184,87 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 
 	fmt.Printf("------------------------------------- PARENT DEPTHS ---------------------------------------\n\n")
 
-	fmt.Printf("Enter minimum depth for HIGH PARENT %s (integer): \n", highParent)
-	_, highParDepErr := fmt.Scan(&highParentDepth)
-	if highParDepErr != nil {
-		fmt.Println("Depth value must be numerical")
+	if highParentChoice != 0 {
+		fmt.Printf("Enter minimum depth for HIGH PARENT %s (integer): \n", highParent)
+		_, highParDepErr := fmt.Scan(&highParentDepth)
+		if highParDepErr != nil {
+			fmt.Println("Depth value must be numerical")
+		}
+
+		fmt.Printf("HIGH parent (%s) min depth is: %v \n\n", highParent, highParentDepth)
 	}
 
-	fmt.Printf("HIGH parent (%s) min depth is: %v \n\n", highParent, highParentDepth)
+	if lowBulkDepth != 0 {
+		fmt.Printf("Enter minimum depth for LOW PARENT %s (integer): \n", lowParent)
+		_, lowParDepErr := fmt.Scan(&lowParentDepth)
+		if lowParDepErr != nil {
+			fmt.Println("Depth value must be numerical")
+		}
 
-	fmt.Printf("Enter minimum depth for LOW PARENT %s (integer): \n", lowParent)
-	_, lowParDepErr := fmt.Scan(&lowParentDepth)
-	if lowParDepErr != nil {
-		fmt.Println("Depth value must be numerical")
+		fmt.Printf("LOW parent (%s) min depth: %v \n\n", lowParent, lowParentDepth)
+
 	}
-
-	fmt.Printf("LOW parent (%s) min depth: %v \n\n", lowParent, lowParentDepth)
 
 	fmt.Printf("--------------------------------------- BULK DEPTHS ---------------------------------------\n\n")
-	//var theBulk string
-	//var bulkDepth int
-	//var bulkSize int
-	if lowBulkChoice == 0 {
+
+	if lowBulkChoice != 0 && highBulkChoice != 0 && highParentChoice == 0 && lowParentChoice == 0 {
+		fmt.Println("Runnng bulks only")
+		fmt.Printf("Enter minimum depth for HIGH BULK %s (integer): \n", highBulk)
+
+		_, highBulkDepErr := fmt.Scan(&highBulkDepth)
+		if highBulkDepErr != nil {
+			fmt.Println("Depth value must be numerical")
+			return
+		}
+
+		fmt.Printf("HIGH bulk (%s) minimum depth is: %v \n\n", highBulk, highBulkDepth)
+
+		fmt.Printf("Enter minimum depth for LOW BULK %s (integer): \n", lowBulk)
+		_, lowBulkDepErr := fmt.Scan(&lowBulkDepth)
+		if lowBulkDepErr != nil {
+			fmt.Println("Depth value must be numerical")
+		}
+
+		fmt.Printf("LOW bulk (%s) minimum depth is: %v \n", lowBulk, lowBulkDepth)
+
+		fmt.Printf("\n\n--------------------------- BULK SIZES -----------------------------------\n\n")
+
+		fmt.Printf("Enter BULK SIZE for HIGH BULK: %s (integer): \n", highBulk)
+		_, highBulkSizeErr := fmt.Scan(&highBulkSize)
+		if highBulkSizeErr != nil {
+			fmt.Println("Depth value must be numerical")
+			return
+		}
+
+		fmt.Printf("(%s) Bulk size is: %v \n\n", highBulk, highBulkSize)
+
+		fmt.Printf("Enter BULK SIZE for LOW BULK %s (integer): \n", lowBulk)
+		_, lowBulkSizeErr := fmt.Scan(&lowBulkSize)
+		if lowBulkSizeErr != nil {
+			fmt.Println("Depth value must be numerical")
+		}
+
+		fmt.Printf("LOW BULK (%s) DEPTH: %v \n\n", lowBulk, lowBulkSize)
+
+		fmt.Printf("\n\n---------------------------------- PLOTTING PARAMETERS -------------------------------------\n\n")
+
+		fmt.Printf("Enter WINDOW SIZE for PLOTTING: (integer, e.g 2000000): \n")
+		_, winSizeErr := fmt.Scan(&windowSize)
+		if winSizeErr != nil {
+			fmt.Println("Window size value must be numerical")
+			return
+		}
+
+		fmt.Printf("Enter STEP SIZE for PLOTTING: (integer, e.g 10000): \n")
+		_, stepSizeErr := fmt.Scan(&stepSize)
+		if stepSizeErr != nil {
+			fmt.Println("Step size value must be numerical")
+			return
+		}
+
+		fmt.Println("LETS RUN ....")
+		TwoBulkOnlyRun(vcfFile, highBulk, lowBulk, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+	} else if lowBulkChoice == 0 && highBulkChoice != 0 && lowParentChoice != 0 && highParentChoice != 0 {
 		fmt.Println("Working with one bulk BSAseq (HIGH bulk)...")
 		fmt.Printf("Enter minimum depth for HIGH BULK %s (integer): \n", highBulk)
 		_, highBulkDepErr := fmt.Scan(&highBulkDepth)
@@ -245,7 +305,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 		outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
 		OneBulkTwoParentsRun(vcfFile, highParent, lowParent, highBulk, highParentDepth, lowParentDepth, highBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
 
-	} else if highBulkChoice == 0 {
+	} else if highBulkChoice == 0 && highParentChoice != 0 && lowParentChoice != 0 {
 		fmt.Println("Working with one bulk BSAseq (LOW bulk)...")
 		fmt.Printf("Enter minimum depth for LOW BULK %s (integer): \n ", lowBulk)
 		_, lowBulkDepErr := fmt.Scan(&lowBulkDepth)
