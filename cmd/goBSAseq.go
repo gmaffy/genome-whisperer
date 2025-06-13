@@ -131,6 +131,7 @@ var goBSAseqCmd = &cobra.Command{
 				fmt.Println("Running from vcf file")
 				if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
 					fmt.Println("Running 2 bulks only analysis")
+					bsaseq.TwoBulkOnlyRun(variantFile, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
 				} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
 					fmt.Println("Running 2 bulks 2 parents analysis")
 					bsaseq.TwoBulkTwoParentsRun(variantFile, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
