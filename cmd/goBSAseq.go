@@ -8,6 +8,7 @@ import (
 	"github.com/gmaffy/genome-whisperer/bsaseq"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -106,14 +107,34 @@ var goBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting interactive flag: %v", intErr)
 		}
 
+		bootstrap, bootErr := cmd.Flags().GetBool("bootstrap")
+		if bootErr != nil {
+			log.Fatalf("Error getting bootstrap flag: %v", intErr)
+		}
+
 		popStructure, popErr := cmd.Flags().GetString("pop_structure")
 		if popErr != nil {
 			log.Fatalf("Error getting pop_structure flag: %v", popErr)
 		}
 
+		configFile, cErr := cmd.Flags().GetString("config")
+		if cErr != nil {
+			log.Fatalf("Error getting config flag: %v", cErr)
+		}
+
 		rep, repErr := cmd.Flags().GetInt("rep")
 		if repErr != nil {
 			log.Fatalf("Error getting rep flag: %v", repErr)
+		}
+
+		threads, tErr := cmd.Flags().GetInt("threads")
+		if tErr != nil {
+			log.Fatalf("Error getting threads flag: %v", tErr)
+		}
+
+		species, sErr := cmd.Flags().GetString("species")
+		if sErr != nil {
+			log.Fatalf("Error getting species flag: %v", sErr)
 		}
 
 		//fmt.Printf("Running with the following parameters:\nVariant File: %s\nHigh Parent: %s\nLow Parent: %s\nHigh Bulk: %s\nLow Bulk: %s\nHigh Parent Depth: %v\nLow Parent Depth: %v\nHigh Bulk Depth: %v\nLow Bulk Depth: %v\nHigh Bulk Size: %v\nLow Bulk Size:  %v\nWin Size: %v\nStep Size: %v\nPop Struc: %s\nRep: %v\nSmoothing: %v\nInteractive: %v\n ...\n\n",
@@ -126,7 +147,18 @@ var goBSAseqCmd = &cobra.Command{
 		} else {
 			//fmt.Println("Running in non-interactive mode")
 			if variantFile == "" {
-				log.Fatal("Running from either bam or reads ...")
+				//log.Fatal("Running from either bam or reads ...")
+				fmt.Println("Reading config file ...")
+				_, confErr := os.Stat(configFile)
+				if confErr != nil {
+					log.Fatalf("Error reading config file: %v", confErr)
+				}
+
+				if species == "" {
+					log.Fatal("Please provide a species name")
+				}
+				fmt.Println("Running from config file")
+				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, bootstrap, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
 			} else {
 				fmt.Println("Running from vcf file")
 				if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
@@ -202,4 +234,9 @@ func init() {
 	// ------------------------------------------------ TOGGLES ----------------------------------------------------- //
 	goBSAseqCmd.Flags().BoolP("smooth", "s", false, "smooth your plot")
 	goBSAseqCmd.Flags().BoolP("interactive", "i", false, "interactive")
+	goBSAseqCmd.Flags().Bool("bootstrap", false, "BSQR bootstrap")
+
+	//----------------------------------------------- if config ----------------------------------------------------- //
+	goBSAseqCmd.Flags().Int("threads", 8, "number of threads")
+	goBSAseqCmd.Flags().String("species", "", "number of threads")
 }

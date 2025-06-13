@@ -1,0 +1,12 @@
+OutputDir: /mnt/f/GOWHISPERER_GO/PHY_TEST
+Reference: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_genome_v1.fa
+gff: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_gff3_v1.gff
+proteins: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_pep_v1.fa
+cds: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_CDS_v1.fa
+ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ReverseReads.fq.gz MOB176 LOW_PARENT
+ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ReverseReads.fq.gz BULK1 HIGH_BULK
+#ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLB_20A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLB_20A/ReverseReads.fq.gz BULK2 HIGH_BULK
+ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ReverseReads.fq.gz BULK3 LOW_BULK
+ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_TADAGIA/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_TADAGIA/ReverseReads.fq.gz SEOUL_TADADIA HIGH_PARENT
+known-sites: /mnt/y/VCFs/Squash/Moschata/v1/SHORT_READS/18_LINES/18_samples_all_chrom_SNPs_hard_filtered.vcf.gz
+known-sites: /mnt/y/VCFs/Squash/Moschata/v1/SHORT_READS/18_LINES/18_samples_all_chrom_INDELs_hard_filtered.vcf.gz

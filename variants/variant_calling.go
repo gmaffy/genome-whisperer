@@ -82,6 +82,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxParallelJobs)
+	var jointvSlice []string
 
 	for sc.Next() {
 		seq := sc.Seq().(*linear.Seq)
@@ -296,6 +297,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					return
 				}
 				log.Printf("%s\tMergeVcfs\tALL\tFINISHED\t%s\n", seq.ID, mergeCmdStr)
+				jointvSlice = append(jointvSlice, "-V "+hardFilteredVCF)
 
 			}
 
@@ -303,6 +305,17 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 	}
 	wg.Wait()
+	fmt.Println("All jobs completed.")
+	fmt.Println("Merging VCFs ...")
+	finalVcf := filepath.Join(out, species+"_"+".joint_hard_filtered.vcf.gz")
+	mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, strings.Join(jointvSlice, " "), finalVcf)
+	fmt.Println(mergeCmdStr)
+	mErr := utils.RunBashCmdVerbose(mergeCmdStr)
+	if mErr != nil {
+		fmt.Println(mErr)
+		return
+	}
+	fmt.Println("VCFs merged successfully.")
 
 }
 
