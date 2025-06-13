@@ -743,10 +743,11 @@ func TwoBulkOnlyRun(
 	} else {
 		fmt.Println("Working with tsv file ...")
 		fmt.Printf("Filtering DF ...\n\n")
+		tsvFile = vcfFile
 
 	}
-	tsvFile = vcfFile
-	filteredRecords = twoBulksOnlyFilter(vcfFile, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
+
+	filteredRecords = twoBulksOnlyFilter(tsvFile, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
 	fmt.Printf("# Variants after filtering: %d\n\n", len(filteredRecords))
 	fmt.Printf("================================== Filtering End ======================================\n\n")
 
