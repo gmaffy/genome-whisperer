@@ -149,3 +149,24 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 	wg.Wait()
 
 }
+
+func AlignShortReadsBt(ref string, fwd string, rev string, sn string, lb string, sampleDir string, threads int) error {
+	fmt.Println("Aligning reads using bowtie2 ...")
+
+	cmdStr := fmt.Sprintf(`bowtie2 -I 0 -X 1000 -x %s -1 %s -2 %s --end-to-end --sensitive --threads %v  --rg-id %s.1 --rg PL:BGISEQ --rg SM:%s --rg LB:%s | samtools sort -o %s/%s.sorted.bam`, ref, fwd, rev, threads, sn, sn, lb, sampleDir, sn)
+	fmt.Println(cmdStr)
+	bErr := utils.RunBashCmdVerbose(cmdStr)
+	if bErr != nil {
+		fmt.Printf("Error running bowtie2: %v\n", bErr)
+		return bErr
+	}
+
+	fmt.Printf("Indexing Bam ....")
+	mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" BuildBamIndex -I %s/%s.sorted.bam -O %s/%s.sorted.bai`, sampleDir, sn, sampleDir, sn)
+	mErr := utils.RunBashCmdVerbose(mDupCmdStr)
+	if mErr != nil {
+		fmt.Printf("Error indexing bam file: %v\n", mErr)
+		return mErr
+	}
+	return nil
+}
