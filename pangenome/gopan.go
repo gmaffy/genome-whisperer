@@ -37,6 +37,19 @@ func GoPan(config string, assembler string) {
 		fmt.Println("Log success if stats for", readPair[3], "have been generated. return if failed")
 
 		// -------------------------------------- Extract reads ----------------------------------------------------- //
+		fmt.Println("Check log to check if reads have been extracted for ", readPair[3], "")
+		fmt.Println("Extract reads for ", readPair[3], "from latest ref")
+		fmt.Println("Log success if reads have been extracted for", readPair[3], "return if failed")
+
+		// ---------------------------------- Convert unmapped bams to fasta ---------------------------------------- //
+		fmt.Println("Check log to check if unmapped bams have been converted to fasta for ", readPair[3], "")
+		fmt.Println("Convert unmapped bams to fasta for ", readPair[3], "from latest ref")
+		fmt.Println("Log success if unmapped bams have been converted to fasta for", readPair[3], "return if failed")
+
+		//---------------------------------- Assemble unmapped reads ------------------------------------------------ //
+		fmt.Println("Check log to check if unmapped reads have been assembled for ", readPair[3], "")
+		fmt.Println("Assemble unmapped reads for ", readPair[3], "from latest ref")
+		fmt.Println("Log success if unmapped reads have been assembled for", readPair[3], "return if failed")
 
 	}
 
