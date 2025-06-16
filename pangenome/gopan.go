@@ -1,12 +1,14 @@
 package pangenome
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/alignment"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -127,6 +129,78 @@ func ExtractUnmappedReads(bamFile, outDir string) error {
 	}
 	return nil
 
+}
+
+func RenameScaffs(trimedFasta string, renamedFasta string, sn string) error {
+	fmt.Println("Renaming scaffolds in fasta file")
+	f, err := os.Open(trimedFasta)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	r, rErr := os.Create(renamedFasta)
+	if rErr != nil {
+		return rErr
+	}
+	defer r.Close()
+
+	lineScanner := bufio.NewScanner(f)
+	i := 0
+	totalBytes := 0
+	for lineScanner.Scan() {
+		line := lineScanner.Text()
+		if strings.HasPrefix(line, ">") {
+			line = fmt.Sprintf(">%s_scaff_%d", sn, i+1)
+			bytes, _ := fmt.Fprintln(r, line)
+			totalBytes += bytes
+		} else {
+			bytes, _ := fmt.Fprintln(r, line)
+			totalBytes += bytes
+		}
+		i++
+
+	}
+	if err := lineScanner.Err(); err != nil {
+		return err
+	}
+	fmt.Printf("Total bytes written: %d\n", totalBytes)
+	return nil
+}
+
+func TrimFasta(fasta string, trimmedFasta string) error {
+	fmt.Println("Trimming fasta file")
+	f, err := os.Open(fasta)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return nil
+}
+
+func ConcatFasta(fastas []string, outFasta string) error {
+
+	outFile, err := os.Create(outFasta)
+	if err != nil {
+		log.Fatalf("Failed to create output file: %v", err)
+	}
+	defer outFile.Close()
+
+	fmt.Println("Concatenating fasta files")
+	for _, f := range fastas {
+		inFile, err := os.Open(f)
+		if err != nil {
+			log.Fatalf("Failed to open input file %s: %v", f, err)
+		}
+
+		_, err = io.Copy(outFile, inFile)
+		if err != nil {
+			log.Fatalf("Failed to copy contents from %s: %v", f, err)
+		}
+		inFile.Close()
+	}
+	return nil
 }
 
 func GoPan(config string, assembler string, threads int) {
@@ -310,9 +384,39 @@ func GoPan(config string, assembler string, threads int) {
 		}
 
 		//---------------------------------- Assemble unmapped reads ------------------------------------------------ //
+		var assembledContigs string
 		if assembler == "masurca" {
+			fmt.Printf("Assemble unmapped reads for %s with MASURCA only... \n", sn)
+			masurcaDir := filepath.Join(sampleDir, "MASURCA")
+			masurcaAssembly := filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta")
+			_, masurcaErr := os.Stat(masurcaAssembly)
+			if masurcaErr == nil {
+				fmt.Println("MASURCA assembly exists for ", sn, "skip")
+				continue
+			} else {
+				err := os.RemoveAll(masurcaDir)
+				if err != nil {
+					fmt.Printf("Error removing masurca directory: %v\n", err)
+					return
+				}
+				err = os.MkdirAll(masurcaDir, os.ModePerm)
+				if err != nil {
+					return
+				}
+				cmd := exec.Command("masurca", "-t", strconv.Itoa(32), "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
+				cmd.Dir = masurcaDir
+				fmt.Println(cmd.String())
+				err = cmd.Run()
+				if err != nil {
+					fmt.Printf("Error running masurca: %v\n", err)
+					log.Fatalf("%s\tMASURCA\t%v\t%sFAILED", sn, i, latestRef)
+				}
+			}
+			log.Printf("%s\tMASURCA\t%v\t%sFINISHED", sn, i, latestRef)
+			assembledContigs = masurcaAssembly
 
 		} else if assembler == "megahit" {
+			fmt.Printf("Assemble unmapped reads for %s with MEGAHIT only... \n", sn)
 			megahitDir := filepath.Join(sampleDir, "MegaHit")
 			megahitAssembly := filepath.Join(megahitDir, "final.contigs.fa")
 
@@ -334,19 +438,177 @@ func GoPan(config string, assembler string, threads int) {
 				mErr := utils.RunBashCmdVerbose(cmdStr)
 				if mErr != nil {
 					fmt.Printf("Error running megahit: %v\n", mErr)
-					log.Printf("%s\tMEGAHIT\t%v\t%sFAILED", sn, i, latestRef)
+					log.Fatalf("%s\tMEGAHIT\t%v\t%sFAILED", sn, i, latestRef)
+					return
+				}
+				log.Printf("%s\tMEGAHIT\t%v\t%sFINISHED", sn, i, latestRef)
+				assembledContigs = megahitAssembly
+			}
+
+		} else {
+			// --------------------------------------- BOTH ASSEMBLERS ---------------------------------------------- //
+
+			// --------------------------------------- Run Masurca first -------------------------------------------- //
+			fmt.Printf("Assemble unmapped reads for %s with MASURCA and MEGAHIT ... \n", sn)
+			masurcaDir := filepath.Join(sampleDir, "MASURCA")
+			masurcaAssembly := filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta")
+			_, masurcaErr := os.Stat(masurcaAssembly)
+			if masurcaErr == nil {
+				fmt.Println("MASURCA assembly exists for ", sn, "skip")
+				continue
+			} else {
+				err := os.RemoveAll(masurcaDir)
+				if err != nil {
+					fmt.Printf("Error removing masurca directory: %v\n", err)
+					return
+				}
+				err = os.MkdirAll(masurcaDir, os.ModePerm)
+				if err != nil {
+					return
+				}
+				cmd := exec.Command("masurca", "-t", "32", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
+				cmd.Dir = masurcaDir
+				fmt.Println(cmd.String())
+				err = cmd.Run()
+				if err != nil {
+					fmt.Printf("Error running masurca: %v\n", err)
+					log.Fatalf("%s\tMASURCA\t%v\t%sFAILED", sn, i, latestRef)
+				}
+			}
+			log.Printf("%s\tMASURCA\t%v\t%sFINISHED", sn, i, latestRef)
+
+			//--------------------------------------- Run MegaHit 2nd --------------------------------------------------- //
+
+			fmt.Printf("Assemble unmapped reads for %s with MEGAHIT only... \n", sn)
+			megahitDir := filepath.Join(sampleDir, "MegaHit")
+			megahitAssembly := filepath.Join(megahitDir, "final.contigs.fa")
+
+			_, megahitErr := os.Stat(megahitAssembly)
+			if megahitErr == nil {
+				fmt.Println("Megahit assembly exists for ", sn, "skip")
+				continue
+			} else {
+				err := os.RemoveAll(megahitDir)
+				if err != nil {
+					fmt.Printf("Error removing megahit directory: %v\n", err)
+					return
+				}
+				fmt.Printf("Megahit assembly does not exist for %s \n", sn)
+				fmt.Printf("Assemble unmapped reads for %s ... \n", sn)
+				log.Printf("%s\tMEGAHIT\t%v\t%sSTARTED", sn, i, latestRef)
+				cmdStr := fmt.Sprintf(`megahit  -1 %s -2 %s -o %s`, unmappedFwdReads, unmappedRevReads, megahitDir)
+				fmt.Println(cmdStr)
+				mErr := utils.RunBashCmdVerbose(cmdStr)
+				if mErr != nil {
+					fmt.Printf("Error running megahit: %v\n", mErr)
+					log.Fatalf("%s\tMEGAHIT\t%v\t%sFAILED", sn, i, latestRef)
 					return
 				}
 				log.Printf("%s\tMEGAHIT\t%v\t%sFINISHED", sn, i, latestRef)
 			}
 
-		} else if assembler == "both" {
-			fmt.Println("Invalid assembler")
+			// -------------------------------------------- MAC --------------------------------------------------------- //
+			macDir, err := filepath.Abs(filepath.Join(sampleDir, "MAC"))
+			if err != nil {
+				fmt.Printf("Error determining absolute path for MAC directory: %v\n", err)
+				return
+			}
 
-		} else {
-			fmt.Println("Invalid assembler")
+			macInputDir := filepath.Join(macDir, "input")
+			macOutputDir := filepath.Join(macDir, "output")
+			macTempDir := filepath.Join(macDir, "temp")
+			macAssembly := filepath.Join(macDir, "output", "scaffold.fasta")
+
+			_, macErr := os.Stat(macAssembly)
+			if macErr == nil {
+				fmt.Printf("MAC assembly exists for %s. Skipping...\n", sn)
+				continue
+			} else if !os.IsNotExist(macErr) {
+				fmt.Printf("Error checking MAC assembly: %v\n", macErr)
+				return
+			}
+
+			err = os.RemoveAll(macDir)
+			if err != nil {
+				fmt.Printf("Error removing MAC directory: %v\n", err)
+				return
+			}
+
+			macDirs := []string{macDir, macInputDir, macOutputDir, macTempDir}
+			for _, d := range macDirs {
+				err = os.MkdirAll(d, os.ModePerm)
+				if err != nil {
+					fmt.Printf("Error creating directory %s: %v\n", d, err)
+					return
+				}
+			}
+
+			err = utils.CopyFile(megahitAssembly, filepath.Join(macInputDir, "megahit_assembly.fa"))
+			if err != nil {
+				return
+			}
+			err = utils.CopyFile(masurcaAssembly, filepath.Join(macInputDir, "masurca_assembly.fa"))
+			if err != nil {
+				return
+			}
+
+			cmdMac := exec.Command("MAC2.0", "megahit_assembly.fa", "masurca_assembly.fa")
+			cmdMac.Dir = macDir
+			fmt.Println(cmdMac.String())
+			err = cmdMac.Run()
+			if err != nil {
+				fmt.Printf("Error running MAC: %v\n", err)
+				log.Fatalf("%s\tMAC\t%v\t%sFAILED", sn, i, latestRef)
+				return
+			}
+			log.Printf("%s\tMAC\t%v\t%sFINISHED", sn, i, latestRef)
+			assembledContigs = macAssembly
+
 		}
 
+		// ----------------------------------------- TRIM FASTA ----------------------------------------------------- //
+		fmt.Printf("Removing contigs less than 200bp from fasta: %s ... \n", assembledContigs)
+
+		trimmedContigs := filepath.Join(sampleDir, sn+".trimmed.fasta")
+		log.Printf("%s\tTRIM\t%v\t%sSTARTED", sn, i, latestRef)
+		trimCmdStr := fmt.Sprintf("seqtk seq -L 200 %s > %s", assembledContigs, trimmedContigs)
+		fmt.Println(trimCmdStr)
+		trimErr := utils.RunBashCmdVerbose(trimCmdStr)
+		if trimErr != nil {
+			fmt.Printf("Error trimming contigs: %v\n", trimErr)
+			log.Fatalf("%s\tTRIM\t%v\t%sFAILED", sn, i, latestRef)
+			return
+		}
+		log.Printf("%s\tTRIM\t%v\t%sFINISHED", sn, i, latestRef)
+
+		// ---------------------------------------- RENAME CONTIGS -------------------------------------------------- //
+		fmt.Printf("Renaming contigs in fasta: %s ... \n", trimmedContigs)
+		log.Printf("%s\tRENAME\t%v\t%sSTARTED", sn, i, latestRef)
+		renamedContigs := filepath.Join(sampleDir, sn+".renamed.fasta")
+		rErr := RenameScaffs(trimmedContigs, renamedContigs, sn)
+		if rErr != nil {
+			fmt.Printf("Error renaming contigs: %v\n", rErr)
+			log.Fatalf("%s\tRENAME\t%v\t%sFAILED", sn, i, latestRef)
+			return
+		}
+		log.Printf("%s\tRENAME\t%v\t%sFINISHED", sn, i, latestRef)
+
+		// ---------------------------------------- Update Reference ------------------------------------------------ //
+		log.Printf("%s\tUPDATE_REF\t%v\t%sSTARTED", sn, i, latestRef)
+		fastas := []string{latestRef, renamedContigs}
+		newRef := filepath.Join(sampleDir, fmt.Sprintf("%v_%s_updated_ref.fa", i, sn))
+		fErr := ConcatFasta(fastas, newRef)
+		if fErr != nil {
+			fmt.Printf("Error concatenating fasta files: %v\n", fErr)
+			log.Fatalf("%s\tUPDATE_REF\t%v\t%sFAILED", sn, i, latestRef)
+
+			return
+		}
+		latestRef = newRef
+		log.Printf("%s\tUPDATE_REF\t%v\t%sFINISHED", sn, i, latestRef)
+		fmt.Printf("Updated reference: %s\n", latestRef)
+		fmt.Println("-------------------------------------------------------")
+		i++
 	}
 
 }

@@ -297,7 +297,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					return
 				}
 				log.Printf("%s\tMergeVcfs\tALL\tFINISHED\t%s\n", seq.ID, mergeCmdStr)
-				jointvSlice = append(jointvSlice, "-V "+hardFilteredVCF)
+				jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
 
 			}
 
@@ -306,9 +306,11 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	}
 	wg.Wait()
 	fmt.Println("All jobs completed.")
+
 	fmt.Println("Merging VCFs ...")
 	finalVcf := filepath.Join(out, species+"_"+".joint_hard_filtered.vcf.gz")
-	mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, strings.Join(jointvSlice, " "), finalVcf)
+	mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs %s -O %s`, strings.Join(jointvSlice, " "), finalVcf)
+	log.Printf("ALL\tMergeFinalVcfs\tALL\tSTART\t%s\n", mergeCmdStr)
 	fmt.Println(mergeCmdStr)
 	mErr := utils.RunBashCmdVerbose(mergeCmdStr)
 	if mErr != nil {
@@ -316,6 +318,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 		return
 	}
 	fmt.Println("VCFs merged successfully.")
+	log.Printf("ALL\tMergeFinalVcfs\tALL\tSTART\t%s\n", mergeCmdStr)
 
 }
 

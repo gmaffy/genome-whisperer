@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -147,5 +148,26 @@ func RunBashCmdVerbose(cmdStr string) error {
 		fmt.Println("CMD error:", err)
 		return err
 	}
+	return nil
+}
+
+func CopyFile(src, dst string) error {
+	sourceFile, sErr := os.Open(src)
+	if sErr != nil {
+		return fmt.Errorf("couldn't open source file %s: %w", src, sErr)
+	}
+	defer sourceFile.Close()
+
+	dstFile, dErr := os.Create(dst)
+	if dErr != nil {
+		return fmt.Errorf("couldn't create destination file %s: %w", dst, dErr)
+	}
+	defer dstFile.Close()
+
+	_, err := io.Copy(dstFile, sourceFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
 	return nil
 }
