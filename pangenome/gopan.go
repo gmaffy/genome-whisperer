@@ -203,7 +203,7 @@ func ConcatFasta(fastas []string, outFasta string) error {
 	return nil
 }
 
-func GoPan(config string, assembler string, threads int) {
+func GoPan(config string, assembler string) {
 
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(config)
