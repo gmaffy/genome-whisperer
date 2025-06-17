@@ -18,13 +18,11 @@ import (
 func LatestRef(outputDir, ref string) (int, string, error) {
 	var pansList []string
 
-	// Check if outputDir exists and is a directory
 	info, err := os.Stat(outputDir)
 	if err != nil || !info.IsDir() {
-		return 0, ref, nil // If not a dir, return default
+		return 0, ref, nil
 	}
 
-	// Walk through outputDir
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		return 0, ref, err
@@ -46,7 +44,7 @@ func LatestRef(outputDir, ref string) (int, string, error) {
 		}
 	}
 
-	sort.Strings(pansList) // Ensure consistent ordering
+	sort.Strings(pansList)
 	fmt.Println("PAN LIST:", pansList)
 
 	if len(pansList) > 0 {
@@ -71,7 +69,6 @@ func LatestRef(outputDir, ref string) (int, string, error) {
 }
 
 func ExtractUnmappedReads(bamFile, outDir string) error {
-	//samtools flagstat $bam_file > ${bam_file%.bam}_flagstats.txt
 
 	cmdStr := fmt.Sprintf(`samtools view -u  -f 4 -F264 %s  > %s/tmps1.bam`, bamFile, outDir)
 	cmdStr1 := fmt.Sprintf(`samtools view -u -f 8 -F 260 %s  > %s/tmps2.bam`, bamFile, outDir)
@@ -211,9 +208,7 @@ func GoPan(config string, assembler string) {
 		fmt.Printf("Error reading config: %v\n", err)
 		return
 	}
-	fmt.Println("Reference:", cfg.Reference)
-	fmt.Println("Species:", cfg.Species)
-	fmt.Println("Read Pairs:", cfg.ReadPairs)
+
 	readPairs := cfg.ReadPairs
 	ref := cfg.Reference
 	out := cfg.OutputDir
@@ -224,6 +219,7 @@ func GoPan(config string, assembler string) {
 		fmt.Printf("Reference genome path: %s, is not valid\n", ref)
 		return
 	}
+
 	info, err := os.Stat(out)
 	if err != nil || !info.IsDir() {
 		fmt.Printf("Output directory: %s is not a valid path\n", out)
@@ -275,10 +271,11 @@ func GoPan(config string, assembler string) {
 	log.SetOutput(mw)
 	fmt.Println("Log file created.")
 	//--------------------------------------- Start goPan ----------------------------------------------------------- //
+	fmt.Println("Starting goPan")
 	i, latestRef, err := LatestRef(out, ref)
-	fmt.Println("Check log for latest reference genome ...")
+	fmt.Printf("Latest reference is: %s\n\n------------------------------------------\n\n", latestRef)
 	for i < len(readPairs) {
-		fmt.Println(i, readPairs[i])
+
 		// --------------------------- Align reads to latest reference ---------------------------------------------- //
 		fmt.Println("Aligning reads to latest reference")
 		fwd, rev, sn, lb := readPairs[i][0], readPairs[i][1], readPairs[i][2], readPairs[i][3]
@@ -291,50 +288,52 @@ func GoPan(config string, assembler string) {
 		_, bamErr := os.Stat(bamFile)
 		_, baiErr := os.Stat(baiFile)
 
-		fmt.Printf("Check log to see if alignment for %s is finished. If not, run alignment again. Otherwise skip\n", sn)
+		fmt.Printf("Checking log to see if alignment for %s is finished... \n\n", sn)
 
 		if bamErr == nil && baiErr == nil {
-			fmt.Println("Bam file and bai file exist for ", sn, "skip alignment")
-			continue
+			fmt.Printf("Bam file and bai file exist for: %s. Skip alignment....\n\n-------------------------------------------\n\n", sn)
+			//continue
 		} else {
 			fmt.Printf("Bam file and bai file do not exist for %s \n", sn)
 			fmt.Printf("Align %s and %s to  %s using bowtie2 \n", fwd, rev, sn)
-			log.Printf("%s\tBOWTIE2\t%v\t%sSTARTED", sn, i, latestRef)
+			log.Printf("%s\tBOWTIE2\t%v\t%s\tSTARTED", sn, i, latestRef)
 
 			aErr := alignment.AlignShortReadsBt(latestRef, fwd, rev, sn, lb, sampleDir, 8)
 			if aErr != nil {
 				fmt.Printf("Error aligning reads: %v\n", aErr)
-				log.Printf("%s\tBOWTIE2\t%v\t%sFAILED", sn, i, latestRef)
+				log.Printf("%s\tBOWTIE2\t%v\t%s\tFAILED", sn, i, latestRef)
 				return
 			}
-			log.Printf("%s\tBOWTIE2\t%v\t%sFINISHED", sn, i, latestRef)
+			log.Printf("%s\tBOWTIE2\t%v\t%s\tFINISHED", sn, i, latestRef)
 		}
 
 		// ---------------------------------- Alignment Statistics -------------------------------------------------- //
 
 		pdfFile, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_insert_size_histogram.pdf"))
-		alignMetrics, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_align_metrics.txt"))
+		alignMetrics, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_alignment_metrics.txt"))
 		insertMetrics, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_insert_metrics.txt"))
 		flagStats, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_flagstats.txt"))
+		//fmt.Printf("pdfFile: %s\n, alignMetrics:%s\n, insertMetrics:%s\n, flagStats:%s\n ", pdfFile, alignMetrics, insertMetrics, flagStats)
 
 		_, pdfErr := os.Stat(pdfFile)
 		_, alignErr := os.Stat(alignMetrics)
 		_, insertErr := os.Stat(insertMetrics)
 		_, flagErr := os.Stat(flagStats)
+		//fmt.Printf("pdfErr: %s\n, alignErr:%s\n, insertErr:%s\n, flagErr:%s\n\n\n----------------\n\n ", pdfErr, alignErr, insertErr, flagErr)
 		if pdfErr == nil && alignErr == nil && insertErr == nil && flagErr == nil {
 			fmt.Println("Alignment stats for ", sn, "exist. skip")
-			continue
+			//continue
 		} else {
-			fmt.Printf("Alignment stats files do not exist for %s \n", sn)
+			fmt.Printf("Alignment stats files do not exist for %s \n\n", sn)
 			fmt.Printf("Getting alignment stats for %s ... \n", sn)
-			log.Printf("%s\tALIGNMENT_STATS\t%v\t%sSTARTED", sn, i, latestRef)
+			log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tSTARTED", sn, i, latestRef)
 			sErr := alignment.AlignmentStats(ref, bamFile)
 			if sErr != nil {
 				fmt.Printf("Error getting alignment stats: %v\n", sErr)
-				log.Printf("%s\tALIGNMENT_STATS\t%v\t%sFAILED", sn, i, latestRef)
+				log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tFAILED", sn, i, latestRef)
 				return
 			}
-			log.Printf("%s\tALIGNMENT_STATS\t%v\t%sFINISHED", sn, i, latestRef)
+			log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tFINISHED", sn, i, latestRef)
 
 		}
 
@@ -344,18 +343,18 @@ func GoPan(config string, assembler string) {
 
 		if unmappedBamErr == nil {
 			fmt.Println("Unmapped bam and bai files exist for ", sn, "skip")
-			continue
+			//continue
 		} else {
 			fmt.Printf("Unmapped bam and bai files do not exist for %s \n", sn)
 			fmt.Printf("Extract unmapped reads for %s ... \n", sn)
-			log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%sSTARTED", sn, i, latestRef)
-			eErr := ExtractUnmappedReads(unmappedBam, sampleDir)
+			log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tSTARTED", sn, i, latestRef)
+			eErr := ExtractUnmappedReads(bamFile, sampleDir)
 			if eErr != nil {
 				fmt.Printf("Error extracting unmapped reads: %v\n", eErr)
-				log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%sFAILED", sn, i, latestRef)
+				log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tFAILED", sn, i, latestRef)
 				return
 			}
-			log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%sFINISHED", sn, i, latestRef)
+			log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tFINISHED", sn, i, latestRef)
 		}
 
 		// ---------------------------------- Convert unmapped bams to fasta ---------------------------------------- //
@@ -367,20 +366,20 @@ func GoPan(config string, assembler string) {
 
 		if unmappedFwdReadsErr == nil && unmappedRevReadsErr == nil {
 			fmt.Println("Unmapped fastq files exist for ", sn, "skip")
-			continue
+			//continue
 		} else {
-			fmt.Printf("Unmapped bam and bai files do not exist for %s \n", sn)
+			fmt.Printf("Unmapped fastq files do not exist for %s \n", sn)
 			fmt.Printf("Extract unmapped reads for %s ... \n", sn)
-			log.Printf("%s\tBAM_TO_FASTQ\t%v\t%sSTARTED", sn, i, latestRef)
+			log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tSTARTED", sn, i, latestRef)
 			cmdStr := fmt.Sprintf(`bedtools bamtofastq -i %s -fq %s -fq2 %s`, unmappedBam, unmappedFwdReads, unmappedRevReads)
 			fmt.Println(cmdStr)
 			bErr := utils.RunBashCmdVerbose(cmdStr)
 			if bErr != nil {
 				fmt.Printf("Error running bedtools bamtofastq: %v\n", bErr)
-				log.Printf("%s\tBAM_TO_FASTQ\t%v\t%sFAILED", sn, i, latestRef)
+				log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tFAILED", sn, i, latestRef)
 				return
 			}
-			log.Printf("%s\tBAM_TO_FASTQ\t%v\t%sFINISHED", sn, i, latestRef)
+			log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tFINISHED", sn, i, latestRef)
 		}
 
 		//---------------------------------- Assemble unmapped reads ------------------------------------------------ //
@@ -392,16 +391,20 @@ func GoPan(config string, assembler string) {
 			_, masurcaErr := os.Stat(masurcaAssembly)
 			if masurcaErr == nil {
 				fmt.Println("MASURCA assembly exists for ", sn, "skip")
-				continue
+				//continue
 			} else {
+				log.Printf("%s\tMASURCA\t%v\t%s\tSTARTED", sn, i, latestRef)
 				err := os.RemoveAll(masurcaDir)
 				if err != nil {
 					fmt.Printf("Error removing masurca directory: %v\n", err)
-					return
+					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
 				err = os.MkdirAll(masurcaDir, os.ModePerm)
 				if err != nil {
-					return
+					fmt.Printf("Error creating masurca directory: %v\n", err)
+					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
 				cmd := exec.Command("masurca", "-t", strconv.Itoa(32), "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
 				cmd.Dir = masurcaDir
@@ -409,13 +412,14 @@ func GoPan(config string, assembler string) {
 				err = cmd.Run()
 				if err != nil {
 					fmt.Printf("Error running masurca: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%sFAILED", sn, i, latestRef)
+					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
 				}
+				log.Printf("%s\tMASURCA\t%v\t%s\tFINISHED", sn, i, latestRef)
+				assembledContigs = masurcaAssembly
 			}
-			log.Printf("%s\tMASURCA\t%v\t%sFINISHED", sn, i, latestRef)
-			assembledContigs = masurcaAssembly
 
 		} else if assembler == "megahit" {
+
 			fmt.Printf("Assemble unmapped reads for %s with MEGAHIT only... \n", sn)
 			megahitDir := filepath.Join(sampleDir, "MegaHit")
 			megahitAssembly := filepath.Join(megahitDir, "final.contigs.fa")
@@ -423,25 +427,27 @@ func GoPan(config string, assembler string) {
 			_, megahitErr := os.Stat(megahitAssembly)
 			if megahitErr == nil {
 				fmt.Println("Megahit assembly exists for ", sn, "skip")
-				continue
+				//continue
 			} else {
+				log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
 				err := os.RemoveAll(megahitDir)
 				if err != nil {
 					fmt.Printf("Error removing megahit directory: %v\n", err)
+					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
 					return
 				}
 				fmt.Printf("Megahit assembly does not exist for %s \n", sn)
 				fmt.Printf("Assemble unmapped reads for %s ... \n", sn)
-				log.Printf("%s\tMEGAHIT\t%v\t%sSTARTED", sn, i, latestRef)
+				log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
 				cmdStr := fmt.Sprintf(`megahit  -1 %s -2 %s -o %s`, unmappedFwdReads, unmappedRevReads, megahitDir)
 				fmt.Println(cmdStr)
 				mErr := utils.RunBashCmdVerbose(cmdStr)
 				if mErr != nil {
 					fmt.Printf("Error running megahit: %v\n", mErr)
-					log.Fatalf("%s\tMEGAHIT\t%v\t%sFAILED", sn, i, latestRef)
+					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
 					return
 				}
-				log.Printf("%s\tMEGAHIT\t%v\t%sFINISHED", sn, i, latestRef)
+				log.Printf("%s\tMEGAHIT\t%v\t%s\tFINISHED", sn, i, latestRef)
 				assembledContigs = megahitAssembly
 			}
 
@@ -452,19 +458,24 @@ func GoPan(config string, assembler string) {
 			fmt.Printf("Assemble unmapped reads for %s with MASURCA and MEGAHIT ... \n", sn)
 			masurcaDir := filepath.Join(sampleDir, "MASURCA")
 			masurcaAssembly := filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta")
+
 			_, masurcaErr := os.Stat(masurcaAssembly)
 			if masurcaErr == nil {
 				fmt.Println("MASURCA assembly exists for ", sn, "skip")
-				continue
+				//continue
 			} else {
+				log.Printf("%s\tMASURCA\t%v\t%s\tSTARTED", sn, i, latestRef)
 				err := os.RemoveAll(masurcaDir)
 				if err != nil {
 					fmt.Printf("Error removing masurca directory: %v\n", err)
-					return
+					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
 				err = os.MkdirAll(masurcaDir, os.ModePerm)
 				if err != nil {
-					return
+					fmt.Printf("Error creating masurca directory: %v\n", err)
+					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
 				cmd := exec.Command("masurca", "-t", "32", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
 				cmd.Dir = masurcaDir
@@ -472,10 +483,10 @@ func GoPan(config string, assembler string) {
 				err = cmd.Run()
 				if err != nil {
 					fmt.Printf("Error running masurca: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%sFAILED", sn, i, latestRef)
+					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
 				}
 			}
-			log.Printf("%s\tMASURCA\t%v\t%sFINISHED", sn, i, latestRef)
+			log.Printf("%s\tMASURCA\t%v\t%s\tFINISHED", sn, i, latestRef)
 
 			//--------------------------------------- Run MegaHit 2nd --------------------------------------------------- //
 
@@ -486,32 +497,35 @@ func GoPan(config string, assembler string) {
 			_, megahitErr := os.Stat(megahitAssembly)
 			if megahitErr == nil {
 				fmt.Println("Megahit assembly exists for ", sn, "skip")
-				continue
+				//continue
 			} else {
+				log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
 				err := os.RemoveAll(megahitDir)
 				if err != nil {
 					fmt.Printf("Error removing megahit directory: %v\n", err)
-					return
+					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
 				fmt.Printf("Megahit assembly does not exist for %s \n", sn)
 				fmt.Printf("Assemble unmapped reads for %s ... \n", sn)
-				log.Printf("%s\tMEGAHIT\t%v\t%sSTARTED", sn, i, latestRef)
+				//log.Printf("%s\tMEGAHIT\t%v\t%sSTARTED", sn, i, latestRef)
 				cmdStr := fmt.Sprintf(`megahit  -1 %s -2 %s -o %s`, unmappedFwdReads, unmappedRevReads, megahitDir)
 				fmt.Println(cmdStr)
 				mErr := utils.RunBashCmdVerbose(cmdStr)
 				if mErr != nil {
 					fmt.Printf("Error running megahit: %v\n", mErr)
-					log.Fatalf("%s\tMEGAHIT\t%v\t%sFAILED", sn, i, latestRef)
-					return
+					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
-				log.Printf("%s\tMEGAHIT\t%v\t%sFINISHED", sn, i, latestRef)
+				log.Printf("%s\tMEGAHIT\t%v\t%s\tFINISHED", sn, i, latestRef)
 			}
 
 			// -------------------------------------------- MAC --------------------------------------------------------- //
 			macDir, err := filepath.Abs(filepath.Join(sampleDir, "MAC"))
 			if err != nil {
 				fmt.Printf("Error determining absolute path for MAC directory: %v\n", err)
-				return
+				log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+				//return
 			}
 
 			macInputDir := filepath.Join(macDir, "input")
@@ -522,47 +536,51 @@ func GoPan(config string, assembler string) {
 			_, macErr := os.Stat(macAssembly)
 			if macErr == nil {
 				fmt.Printf("MAC assembly exists for %s. Skipping...\n", sn)
-				continue
-			} else if !os.IsNotExist(macErr) {
-				fmt.Printf("Error checking MAC assembly: %v\n", macErr)
-				return
-			}
-
-			err = os.RemoveAll(macDir)
-			if err != nil {
-				fmt.Printf("Error removing MAC directory: %v\n", err)
-				return
-			}
-
-			macDirs := []string{macDir, macInputDir, macOutputDir, macTempDir}
-			for _, d := range macDirs {
-				err = os.MkdirAll(d, os.ModePerm)
+				//continue
+			} else {
+				log.Printf("%s\tMAC\t%v\t%s\tSTARTED", sn, i, latestRef)
+				err = os.RemoveAll(macDir)
 				if err != nil {
-					fmt.Printf("Error creating directory %s: %v\n", d, err)
-					return
+					fmt.Printf("Error removing MAC directory: %v\n", err)
+					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
 				}
-			}
 
-			err = utils.CopyFile(megahitAssembly, filepath.Join(macInputDir, "megahit_assembly.fa"))
-			if err != nil {
-				return
-			}
-			err = utils.CopyFile(masurcaAssembly, filepath.Join(macInputDir, "masurca_assembly.fa"))
-			if err != nil {
-				return
-			}
+				macDirs := []string{macDir, macInputDir, macOutputDir, macTempDir}
+				for _, d := range macDirs {
+					err = os.MkdirAll(d, os.ModePerm)
+					if err != nil {
+						fmt.Printf("Error creating directory %s: %v\n", d, err)
+						log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+						//return
+					}
+				}
 
-			cmdMac := exec.Command("MAC2.0", "megahit_assembly.fa", "masurca_assembly.fa")
-			cmdMac.Dir = macDir
-			fmt.Println(cmdMac.String())
-			err = cmdMac.Run()
-			if err != nil {
-				fmt.Printf("Error running MAC: %v\n", err)
-				log.Fatalf("%s\tMAC\t%v\t%sFAILED", sn, i, latestRef)
-				return
+				err = utils.CopyFile(megahitAssembly, filepath.Join(macInputDir, "megahit_assembly.fa"))
+				if err != nil {
+					fmt.Printf("Error copying megahit assembly to MAC directory: %v\n", err)
+					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
+				}
+				err = utils.CopyFile(masurcaAssembly, filepath.Join(macInputDir, "masurca_assembly.fa"))
+				if err != nil {
+					fmt.Printf("Error copying masurca assembly to MAC directory: %v\n", err)
+					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
+				}
+
+				cmdMac := exec.Command("MAC2.0", "megahit_assembly.fa", "masurca_assembly.fa")
+				cmdMac.Dir = macDir
+				fmt.Println(cmdMac.String())
+				err = cmdMac.Run()
+				if err != nil {
+					fmt.Printf("Error running MAC: %v\n", err)
+					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+					//return
+				}
+				log.Printf("%s\tMAC\t%v\t%s\tFINISHED", sn, i, latestRef)
+				assembledContigs = macAssembly
 			}
-			log.Printf("%s\tMAC\t%v\t%sFINISHED", sn, i, latestRef)
-			assembledContigs = macAssembly
 
 		}
 
@@ -570,42 +588,49 @@ func GoPan(config string, assembler string) {
 		fmt.Printf("Removing contigs less than 200bp from fasta: %s ... \n", assembledContigs)
 
 		trimmedContigs := filepath.Join(sampleDir, sn+".trimmed.fasta")
-		log.Printf("%s\tTRIM\t%v\t%sSTARTED", sn, i, latestRef)
-		trimCmdStr := fmt.Sprintf("seqtk seq -L 200 %s > %s", assembledContigs, trimmedContigs)
-		fmt.Println(trimCmdStr)
-		trimErr := utils.RunBashCmdVerbose(trimCmdStr)
-		if trimErr != nil {
-			fmt.Printf("Error trimming contigs: %v\n", trimErr)
-			log.Fatalf("%s\tTRIM\t%v\t%sFAILED", sn, i, latestRef)
-			return
+
+		_, trimmedContigsErr := os.Stat(trimmedContigs)
+		if trimmedContigsErr == nil {
+			fmt.Printf("Trimmed contigs exist for %s. Skipping...\n", sn)
+		} else {
+			log.Printf("%s\tTRIM\t%v\t%s\tSTARTED", sn, i, latestRef)
+			trimCmdStr := fmt.Sprintf("seqtk seq -L 200 %s > %s", assembledContigs, trimmedContigs)
+			fmt.Println(trimCmdStr)
+			trimErr := utils.RunBashCmdVerbose(trimCmdStr)
+			if trimErr != nil {
+				fmt.Printf("Error trimming contigs: %v\n", trimErr)
+				log.Fatalf("%s\tTRIM\t%v\t%sFAILED", sn, i, latestRef)
+				return
+			}
+			log.Printf("%s\tTRIM\t%v\t%sFINISHED", sn, i, latestRef)
+
 		}
-		log.Printf("%s\tTRIM\t%v\t%sFINISHED", sn, i, latestRef)
 
 		// ---------------------------------------- RENAME CONTIGS -------------------------------------------------- //
 		fmt.Printf("Renaming contigs in fasta: %s ... \n", trimmedContigs)
-		log.Printf("%s\tRENAME\t%v\t%sSTARTED", sn, i, latestRef)
+		log.Printf("%s\tRENAME\t%v\t%s\tSTARTED", sn, i, latestRef)
 		renamedContigs := filepath.Join(sampleDir, sn+".renamed.fasta")
 		rErr := RenameScaffs(trimmedContigs, renamedContigs, sn)
 		if rErr != nil {
 			fmt.Printf("Error renaming contigs: %v\n", rErr)
-			log.Fatalf("%s\tRENAME\t%v\t%sFAILED", sn, i, latestRef)
+			log.Fatalf("%s\tRENAME\t%v\t%s\tFAILED", sn, i, latestRef)
 			return
 		}
-		log.Printf("%s\tRENAME\t%v\t%sFINISHED", sn, i, latestRef)
+		log.Printf("%s\tRENAME\t%v\t%s\tFINISHED", sn, i, latestRef)
 
 		// ---------------------------------------- Update Reference ------------------------------------------------ //
-		log.Printf("%s\tUPDATE_REF\t%v\t%sSTARTED", sn, i, latestRef)
+		log.Printf("%s\tUPDATE_REF\t%v\t%s\tSTARTED", sn, i, latestRef)
 		fastas := []string{latestRef, renamedContigs}
 		newRef := filepath.Join(sampleDir, fmt.Sprintf("%v_%s_updated_ref.fa", i, sn))
 		fErr := ConcatFasta(fastas, newRef)
 		if fErr != nil {
 			fmt.Printf("Error concatenating fasta files: %v\n", fErr)
-			log.Fatalf("%s\tUPDATE_REF\t%v\t%sFAILED", sn, i, latestRef)
+			log.Fatalf("%s\tUPDATE_REF\t%v\t%s\tFAILED", sn, i, latestRef)
 
 			return
 		}
 		latestRef = newRef
-		log.Printf("%s\tUPDATE_REF\t%v\t%sFINISHED", sn, i, latestRef)
+		log.Printf("%s\tUPDATE_REF\t%v\t%s\tFINISHED", sn, i, latestRef)
 		fmt.Printf("Updated reference: %s\n", latestRef)
 		fmt.Println("-------------------------------------------------------")
 		i++

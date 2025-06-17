@@ -39,7 +39,7 @@ type Config struct {
 }
 
 func CheckDeps() error {
-	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread"}
+	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread", "masurca", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
 
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {
@@ -47,6 +47,11 @@ func CheckDeps() error {
 			return fmt.Errorf("%s not found: %w", dep, err)
 		}
 		fmt.Printf("%s OK\n", dep)
+	}
+
+	for _, prog := range deps {
+		path, _ := exec.LookPath(prog)
+		fmt.Printf("Using %s at %s\n", prog, path)
 	}
 
 	return nil

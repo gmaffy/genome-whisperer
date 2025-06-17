@@ -13,12 +13,14 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "genome-whisperer",
 	Short: "A toolkit for genome analysis",
-	Long: `A multi-purpose tool for performing:
-    1. Alignment
-    2. Variant calling
-    3. Variant annotation.
-    4. BSAseq
-    5. Other Utils`,
+	Long: `A multi-purpose genome analysis tool for performing:
+1.	Read alignment: ( bwa, bowtie2 and pbmm2)
+2.	Variant calling & Variant Filtration : (GATK best practices)
+3.	Variant annotation: ( SnpEff)
+4.	BSAseq
+5.	Pangenome analysis 
+6.	Other utils
+`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },

@@ -1,11 +1,12 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 Godwin Mafireyi <mafireyi@gmail.com>
 */
 package cmd
 
 import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/pangenome"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"log"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,13 @@ var goPanCmd = &cobra.Command{
 	Long:  `Creates a pangenome using the iterative mapping approach. Inputs are short reads and reference genome.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("goPan called")
+		fmt.Printf("Checking dependencies ...\n\n")
+
+		if err := utils.CheckDeps(); err != nil {
+			log.Fatalf("Dependency check failed: %v", err)
+		}
+
+		fmt.Printf("Dependencies OK\n\n----------------------------------------------------------\n\n")
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
 			log.Fatalf("Error getting config flag: %v", cErr)

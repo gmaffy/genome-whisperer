@@ -1,12 +1,33 @@
-OutputDir: /mnt/f/GOWHISPERER_GO/PHY_TEST
+OutputDir: /mnt/f/GOWHISPERER_GO/GOPAN
+snpEff: /home/godwin/Tools/snpEff
+GATK3: /home/godwin/Tools/GenomeAnalysisTK-3.8-1
+java_8: /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
+parallisation: 4
+
 Reference: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_genome_v1.fa
 gff: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_gff3_v1.gff
 proteins: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_pep_v1.fa
 cds: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_CDS_v1.fa
-ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ReverseReads.fq.gz MOB176 LOW_PARENT
-ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ReverseReads.fq.gz BULK1 HIGH_BULK
+#ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ReverseReads.fq.gz MOB176 LOW_PARENT
+#ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ReverseReads.fq.gz BULK1 HIGH_BULK
 #ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLB_20A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLB_20A/ReverseReads.fq.gz BULK2 HIGH_BULK
-ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ReverseReads.fq.gz BULK3 LOW_BULK
-ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_TADAGIA/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_TADAGIA/ReverseReads.fq.gz SEOUL_TADADIA HIGH_PARENT
+#ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ReverseReads.fq.gz BULK3 LOW_BULK
+#ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_TADAGIA/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_TADAGIA/ReverseReads.fq.gz SEOUL_TADADIA HIGH_PARENT
+#ReadPair: /mnt/h/READS/Squash/Moschata/WGS/AVPU1508/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/AVPU1508/ReverseReads.fq.gz AVPU1508 AVPU1508
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Atlas/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Atlas/ReverseReads.fq.gz ATLAS ATLAS
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Cosmos/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Cosmos/ReverseReads.fq.gz COSMOS COSMOS
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MO794/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MO794/ReverseReads.fq.gz MO794 MO794
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MO795/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MO795/ReverseReads.fq.gz MO795 MO795
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MO867/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MO867/ReverseReads.fq.gz MO867 MO867
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MO910/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MO910/ReverseReads.fq.gz MO910 MO910
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MOB69_CONCAT/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MOB69_CONCAT/ReverseReads.fq.gz MOB69 MOB69
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MOB75/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MOB75/ReverseReads.fq.gz MOB75 MOB75
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/MOB76/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/MOB76/ReverseReads.fq.gz MOB76 MOB76
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Menina/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Menina/ReverseReads.fq.gz MENINA MENINA
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/NigerianLocal/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/NigerianLocal/ReverseReads.fq.gz NL NL
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Pluto/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Pluto/ReverseReads.fq.gz PLUTO PLUTO
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Quantum/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Quantum/ReverseReads.fq.gz QUANTUM QUANTUM
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Seoul/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Seoul/ReverseReads.fq.gz SEOUL SEOUL
+ReadPair: /mnt/h/READS/Squash/Moschata/WGS/Sunset/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/WGS/Sunset/ReverseReads.fq.gz SUNSET SUNSET
 known-sites: /mnt/y/VCFs/Squash/Moschata/v1/SHORT_READS/18_LINES/18_samples_all_chrom_SNPs_hard_filtered.vcf.gz
 known-sites: /mnt/y/VCFs/Squash/Moschata/v1/SHORT_READS/18_LINES/18_samples_all_chrom_INDELs_hard_filtered.vcf.gz

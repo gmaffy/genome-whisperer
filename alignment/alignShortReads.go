@@ -3,16 +3,19 @@ package alignment
 import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/utils"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
 )
 
-func AlignShortReadsMem(referencePath string, forwardPath string, reversePath string, sampleName string, libName string, outputDir string, threads int) {
+func AlignShortReadsMem(referencePath string, forwardPath string, reversePath string, sampleName string, libName string, outputDir string, threads int) error {
+
 	fmt.Println("Reading ...")
-	fmt.Printf("ReferencePath: %s\nFwd: %s\nRev: %s\nSample Name: %s\nlib Name: %s\nOuDir: %s\n", referencePath, forwardPath, reversePath, sampleName, libName, outputDir)
+	//fmt.Printf("ReferencePath: %s\nFwd: %s\nRev: %s\nSample Name: %s\nlib Name: %s\nOuDir: %s\n", referencePath, forwardPath, reversePath, sampleName, libName, outputDir)
 
 	lineDir := fmt.Sprintf("%s/%s", outputDir, sampleName)
 	bErr := os.MkdirAll(lineDir, 0755)
@@ -33,7 +36,7 @@ func AlignShortReadsMem(referencePath string, forwardPath string, reversePath st
 
 	err := cmd.Run()
 	if err != nil {
-		return
+		return err
 	}
 	fmt.Printf("Marking duplicates ....")
 	mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s`, sortedBam, rgmdBam, rgmdMetrics)
@@ -43,7 +46,7 @@ func AlignShortReadsMem(referencePath string, forwardPath string, reversePath st
 
 	mErr := mDupCmd.Run()
 	if mErr != nil {
-		return
+		return mErr
 	}
 
 	fmt.Printf("Index Bam ....")
@@ -54,21 +57,92 @@ func AlignShortReadsMem(referencePath string, forwardPath string, reversePath st
 
 	iErr := indexCmd.Run()
 	if iErr != nil {
-		return
+		return iErr
 	}
+	return nil
 
 }
 
 func AlignShortReadsConfig(configPath string, threadsPerSample int) {
+
+	// ---------------------------------------- Check Paths --------------------------------------------------------- //
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configPath)
 	if err != nil {
 		fmt.Printf("Error reading config: %v\n", err)
 		return
 	}
+
+	ref := cfg.Reference
+	_, refErr := os.Stat(ref)
+	if refErr != nil {
+		fmt.Printf("Reference genome path: %s, is not valid\n", ref)
+		return
+	}
+
+	out := cfg.OutputDir
+	outInfo, outErr := os.Stat(out)
+	if outErr != nil || !outInfo.IsDir() {
+		fmt.Printf("Output directory: %s is not a valid directory path\n", out)
+		return
+	}
+
+	i := 0
+	for _, pair := range cfg.ReadPairs {
+		if len(pair) < 4 {
+			fmt.Printf("This read pair is wrongly formated %s\n", pair)
+			fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
+			continue
+		}
+
+		fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
+
+		_, fwdErr := os.Stat(fwd)
+		_, revErr := os.Stat(rev)
+
+		if fwdErr != nil {
+			fmt.Printf("Forward reads path %s, is not valid\n", fwd)
+			return
+		}
+
+		if revErr != nil {
+			fmt.Printf("Reverse reads path %s, is not valid\n", rev)
+			return
+		}
+
+		if sn == "" {
+			fmt.Println("Please provide sample name ")
+			fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
+			return
+		}
+		if lb == "" {
+			fmt.Println("Please provide library name  ")
+			fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
+			return
+		}
+		i++
+	}
+
 	fmt.Println("Reference:", cfg.Reference)
-	fmt.Println("Species:", cfg.Species)
-	fmt.Println("Read Pairs:", cfg.ReadPairs)
+	fmt.Println("Output directory:", cfg.OutputDir)
+
+	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
+	fmt.Println("Reading log file ...")
+	logFilePath := filepath.Join(out, "alignMem.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	defer logFile.Close()
+
+	mw := io.MultiWriter(logFile, os.Stdout)
+	log.SetOutput(mw)
+	fmt.Println("Log file created.")
+
+	fmt.Printf("Running short read alignment for %v read pairs", i)
+
+	// ============================================== Run Alignments ================================================ //
+
 	fmt.Println("Threads", cfg.Threads)
 	totalCores := runtime.NumCPU()
 	fmt.Printf("Available CPU cores: %d\n", totalCores)
@@ -81,53 +155,6 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 
 	fmt.Printf("Running up to %d jobs in parallel with %d threads each\n", maxParallelJobs, threadsPerSample)
 
-	for _, pair := range cfg.ReadPairs {
-		if len(pair) < 4 {
-			fmt.Printf("This read pair is wrongly formated %s\n", pair)
-			fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
-			continue
-		}
-		ref := cfg.Reference
-		out := cfg.OutputDir
-		fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
-		_, refErr := os.Stat(ref)
-		_, fwdErr := os.Stat(fwd)
-		_, revErr := os.Stat(rev)
-		outInfo, outErr := os.Stat(out)
-		if refErr != nil {
-			fmt.Printf("Reference genome path: %s, is not valid\n", ref)
-			return
-		}
-
-		if fwdErr != nil {
-			fmt.Printf("Forward reads path %s, is not valid\n", fwd)
-			return
-		}
-
-		if revErr != nil {
-			fmt.Printf("Reverse reads path %s, is not valid\n", rev)
-			return
-		}
-
-		if outErr != nil {
-			fmt.Printf("Output directory: %s is not a valid path\n", out)
-			return
-		}
-		if !outInfo.IsDir() {
-			fmt.Printf("Output Directory %s file path is not a directory", out)
-			return
-		}
-		if sn == "" {
-			fmt.Println("Please provide sample name is flag -s ")
-			return
-		}
-		if lb == "" {
-			fmt.Println("Please provide library name is flag -l ")
-			return
-		}
-	}
-
-	// ============================================== Run Alignments ================================================ //
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxParallelJobs)
 	for _, pair := range cfg.ReadPairs {
@@ -136,13 +163,18 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 		sem <- struct{}{}
 		go func(pair []string) {
 			defer wg.Done()
-			defer func() { <-sem }() // release slot
+			defer func() { <-sem }()
 
-			ref := cfg.Reference
-			out := cfg.OutputDir
 			fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
-
-			AlignShortReadsMem(ref, fwd, rev, sn, lb, out, threadsPerSample)
+			lineDir := fmt.Sprintf("%s/%s", out, sn)
+			rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
+			log.Printf("%s\tBWA_MEM\t%s\tSTARTED\tbwa_mem", sn, rgmdBam)
+			alErr := AlignShortReadsMem(ref, fwd, rev, sn, lb, out, threadsPerSample)
+			if alErr != nil {
+				log.Printf("%s\tBWA_MEM\t%s\tFAILED\tError: %v", sn, rgmdBam, alErr)
+				return
+			}
+			log.Printf("%s\tBWA_MEM\t%s\tFINISHED\tbwa_mem", sn, rgmdBam)
 		}(pair)
 
 	}
