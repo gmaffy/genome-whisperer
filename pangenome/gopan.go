@@ -406,7 +406,7 @@ func GoPan(config string, assembler string) {
 					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
 					//return
 				}
-				cmd := exec.Command("masurca", "-t", strconv.Itoa(32), "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
+				cmd := exec.Command("masurca", "-t", "32", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
 				cmd.Dir = masurcaDir
 				fmt.Println(cmd.String())
 				err = cmd.Run()

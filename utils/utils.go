@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,16 @@ type Config struct {
 	GVCFsDir   string
 	CallerName string
 	GVCFs      []string
+}
+
+type LogEntry struct {
+	Timestamp  string
+	Tool       string
+	Program    string
+	Sample     string
+	Chromosome string
+	Status     string
+	Cmd        string
 }
 
 func CheckDeps() error {
@@ -156,6 +167,20 @@ func RunBashCmdVerbose(cmdStr string) error {
 	return nil
 }
 
+//type LogEntry struct {
+//	Timestamp  string
+//	Chromosome string
+//	Program    string
+//	Bam        string
+//	Status     string
+//	Cmd        string
+//}
+//
+//type ChromosomeSamplePair struct {
+//	Chromosome string
+//	Sample     string
+//}
+
 func CopyFile(src, dst string) error {
 	sourceFile, sErr := os.Open(src)
 	if sErr != nil {
@@ -176,3 +201,167 @@ func CopyFile(src, dst string) error {
 
 	return nil
 }
+
+func ParseLogFile(logFilePath string) []LogEntry {
+	var data []LogEntry
+	file, err := os.Open(logFilePath)
+	if err != nil {
+		fmt.Printf("Log file '%s' not found, starting fresh or assuming no previous runs.\n", logFilePath)
+		return data
+	}
+	defer file.Close()
+	fmt.Println("Parsing log file ...")
+
+	scanner := bufio.NewScanner(file)
+	if !scanner.Scan() {
+		return data
+	}
+
+	for scanner.Scan() {
+		var entry map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue // skip malformed line
+		}
+		timestamp, timeOk := entry["time"]
+		tool, toolOk := entry["msg"]
+		chromVal, chromOk := entry["CHROM"]
+		statusVal, statusOk := entry["STATUS"]
+		sampleVal, sampleOk := entry["SAMPLE"]
+		programVal, programOk := entry["PROGRAM"]
+		if chromOk && statusOk && sampleOk && programOk && timeOk && toolOk {
+			r := LogEntry{
+				Timestamp:  timestamp.(string),
+				Tool:       tool.(string),
+				Program:    programVal.(string),
+				Sample:     sampleVal.(string),
+				Chromosome: chromVal.(string),
+				Status:     statusVal.(string),
+			}
+			data = append(data, r)
+		}
+
+	}
+	//for scanner.Scan() {
+	//	line := strings.Split(scanner.Text(), "\t")
+	//	if len(line) != 5 {
+	//		fmt.Printf("Skipping malformed log line: '%s', Expected 5 columns, got %d\n", scanner.Text(), len(line))
+	//		continue
+	//	}
+	//
+	//	timeStampChrom := strings.Split(line[0], " ")
+	//	timeStamp := strings.Join(timeStampChrom[:len(timeStampChrom)-1], " ")
+	//
+	//	chromID := timeStampChrom[len(timeStampChrom)-1]
+	//	stage := line[1]
+	//	bam := line[2]
+	//	status := line[3]
+	//	details := line[4]
+	//
+	//	r := LogEntry{
+	//		Timestamp:  timeStamp,
+	//		Chromosome: chromID,
+	//		Program:    stage,
+	//		Bam:        bam,
+	//		Status:     status,
+	//		Cmd:        details,
+	//	}
+	//	data = append(data, r)
+	//}
+	return data
+}
+
+func StageHasCompleted(logEntries []LogEntry, prog string, sample string, chrom string) bool {
+	for _, entry := range logEntries {
+		if entry.Program == prog && entry.Sample == sample && entry.Chromosome == chrom && entry.Status == "COMPLETED" {
+			return true
+		}
+	}
+	return false
+}
+
+//
+//func GetHapFinished(logEntries []LogEntry) []ChromosomeSamplePair {
+//	var hapFinished []ChromosomeSamplePair
+//	for _, entry := range logEntries {
+//		if entry.Program == "HaplotypeCaller" && entry.Status == "FINISHED" {
+//			pair := ChromosomeSamplePair{Chromosome: entry.Chromosome, Sample: entry.Bam}
+//			hapFinished = append(hapFinished, pair)
+//		}
+//	}
+//	return hapFinished
+//}
+//
+//func GetCompletedStages(logEntries []LogEntry) map[string]map[string]bool {
+//	cs := make(map[string]map[string]bool)
+//	for _, entry := range logEntries {
+//
+//		if entry.Program == "GenomicsDBImport" && entry.Status == "FINISHED" {
+//			if _, ok := cs["GenomicsDBImport"]; !ok {
+//				cs["GenomicsDBImport"] = make(map[string]bool)
+//			}
+//			cs["GenomicsDBImport"][entry.Chromosome] = true
+//		} else if entry.Program == "GenotypeGVCFs" && entry.Status == "FINISHED" {
+//			if _, ok := cs["GenotypeGVCFs"]; !ok {
+//				cs["GenotypeGVCFs"] = make(map[string]bool)
+//			}
+//			cs["GenotypeGVCFs"][entry.Chromosome] = true
+//		} else if entry.Program == "SELECT_SNPS" && entry.Status == "FINISHED" {
+//			if _, ok := cs["SELECT_SNPS"]; !ok {
+//				cs["SELECT_SNPS"] = make(map[string]bool)
+//			}
+//			cs["SELECT_SNPS"][entry.Chromosome] = true
+//
+//		} else if entry.Program == "SELECT_INDELS" && entry.Status == "FINISHED" {
+//			if _, ok := cs["SELECT_INDELS"]; !ok {
+//				cs["SELECT_INDELS"] = make(map[string]bool)
+//			}
+//			cs["SELECT_INDELS"][entry.Chromosome] = true
+//		} else if entry.Program == "HardFilteringSNPS" && entry.Status == "FINISHED" {
+//			if _, ok := cs["HardFilteringSNPS"]; !ok {
+//				cs["HardFilteringSNPS"] = make(map[string]bool)
+//			}
+//			cs["HardFilteringSNPS"][entry.Chromosome] = true
+//		} else if entry.Program == "HardFilteringINDELS" && entry.Status == "FINISHED" {
+//			if _, ok := cs["HardFilteringINDELS"]; !ok {
+//				cs["HardFilteringINDELS"] = make(map[string]bool)
+//			}
+//			cs["HardFilteringINDELS"][entry.Chromosome] = true
+//		} else if entry.Program == "MergeVcfs" && entry.Status == "FINISHED" {
+//			if _, ok := cs["MergeVcfs"]; !ok {
+//				cs["MergeVcfs"] = make(map[string]bool)
+//			}
+//			cs["MergeVcfs"][entry.Chromosome] = true
+//		}
+//	}
+//	return cs
+//}
+
+//func hasCompletedStatus(logFile string, targetChrom int) (bool, error) {
+//	file, err := os.Open(logFile)
+//	if err != nil {
+//		return false, err
+//	}
+//	defer file.Close()
+//
+//	scanner := bufio.NewScanner(file)
+//	for scanner.Scan() {
+//		var entry map[string]interface{}
+//		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+//			continue // skip malformed line
+//		}
+//
+//		chromVal, chromOk := entry["CHROM"]
+//		statusVal, statusOk := entry["STATUS"]
+//
+//		// Check CHROM and STATUS
+//		if chromOk && statusOk {
+//			if intVal, ok := toInt(chromVal); ok && intVal == targetChrom {
+//				if statusStr, ok := statusVal.(string); ok && statusStr == "COMPLETED" {
+//					return true, nil
+//				}
+//			}
+//		}
+//	}
+//
+//	return false, scanner.Err()
+//}
