@@ -3,7 +3,6 @@ package alignment
 import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/utils"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -135,8 +134,8 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 	}
 	defer logFile.Close()
 
-	mw := io.MultiWriter(logFile, os.Stdout)
-	log.SetOutput(mw)
+	//mw := io.MultiWriter(logFile, os.Stdout)
+	//log.SetOutput(mw)
 	fmt.Println("Log file created.")
 
 	fmt.Printf("Running short read alignment for %v read pairs", i)

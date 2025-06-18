@@ -213,15 +213,17 @@ func ParseLogFile(logFilePath string) []LogEntry {
 	fmt.Println("Parsing log file ...")
 
 	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return data
-	}
-
 	for scanner.Scan() {
 		var entry map[string]interface{}
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+		lineBytes := scanner.Bytes()
+		if len(lineBytes) == 0 { // Skip empty lines
+			continue
+		}
+		if err := json.Unmarshal(lineBytes, &entry); err != nil {
+			fmt.Printf("Warning: Skipping malformed log line: %v - Line: %s\n", err, string(lineBytes))
 			continue // skip malformed line
 		}
+
 		timestamp, timeOk := entry["time"]
 		tool, toolOk := entry["msg"]
 		chromVal, chromOk := entry["CHROM"]
@@ -241,32 +243,7 @@ func ParseLogFile(logFilePath string) []LogEntry {
 		}
 
 	}
-	//for scanner.Scan() {
-	//	line := strings.Split(scanner.Text(), "\t")
-	//	if len(line) != 5 {
-	//		fmt.Printf("Skipping malformed log line: '%s', Expected 5 columns, got %d\n", scanner.Text(), len(line))
-	//		continue
-	//	}
-	//
-	//	timeStampChrom := strings.Split(line[0], " ")
-	//	timeStamp := strings.Join(timeStampChrom[:len(timeStampChrom)-1], " ")
-	//
-	//	chromID := timeStampChrom[len(timeStampChrom)-1]
-	//	stage := line[1]
-	//	bam := line[2]
-	//	status := line[3]
-	//	details := line[4]
-	//
-	//	r := LogEntry{
-	//		Timestamp:  timeStamp,
-	//		Chromosome: chromID,
-	//		Program:    stage,
-	//		Bam:        bam,
-	//		Status:     status,
-	//		Cmd:        details,
-	//	}
-	//	data = append(data, r)
-	//}
+
 	return data
 }
 
