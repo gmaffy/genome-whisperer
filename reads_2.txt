@@ -1,5 +1,5 @@
 Reference: /mnt/d/PhD/Genomes/Cucurbita_moschata/v1/Cmoschata_genome_v1.fa
-OutputDir: /mnt/d/PhD/GOPAN
+OutputDir: /mnt/d/PhD/GOPAN2
 #ReadPair: /mnt/d/PhD/Reads/MO834/ForwardReads.fq.gz /mnt/d/PhD/Reads/MO834/ReverseReads.fq.gz MO834 
 ReadPair: /mnt/d/PhD/Reads/AVPU1508/ForwardReads.fq.gz /mnt/d/PhD/Reads/AVPU1508/ReverseReads.fq.gz AVPU1508 AVPU1508
 ReadPair: /mnt/d/PhD/Reads/Seoul_Tadagi/ForwardReads.fq.gz /mnt/d/PhD/Reads/Seoul_Tadagi/ReverseReads.fq.gz Seoul Seoul
@@ -20,3 +20,5 @@ ReadPair: /mnt/d/PhD/Reads/MO867/ForwardReads.fq.gz /mnt/d/PhD/Reads/MO867/Rever
 ReadPair: /mnt/d/PhD/Reads/MO795/ForwardReads.fq.gz /mnt/d/PhD/Reads/MO795/ReverseReads.fq.gz MO795 MO795
 ReadPair: /mnt/d/PhD/Reads/Sunset/ForwardReads.fq.gz /mnt/d/PhD/Reads/Sunset/ReverseReads.fq.gz Sunset Sunset
 ReadPair: /mnt/d/PhD/Reads/MO794/ForwardReads.fq.gz /mnt/d/PhD/Reads/MO794/ReverseReads.fq.gz MO794 MO794
+bam: /mnt/d/PhD/MAP_TO_REF/NIGERIAN_LOCAL/NIGERIAN_LOCAL.RGMD.bam
+bam: /mnt/d/PhD/MAP_TO_REF/SEOL_TAGADI/SEOL_TAGADI.RGMD.bam

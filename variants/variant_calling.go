@@ -67,6 +67,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
 
 	logged := utils.ParseLogFile(logFilePath)
+	fmt.Println("Log file parsed.", logged, "\n-----------------------------------\n\n")
 	//completed := utils.GetCompletedStages(logged)
 	//hapPairCompleted := utils.GetHapFinished(logged)
 

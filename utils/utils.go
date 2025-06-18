@@ -50,7 +50,7 @@ type LogEntry struct {
 }
 
 func CheckDeps() error {
-	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread", "masurca", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
+	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread"} //, "masurca", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
 
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {
@@ -226,7 +226,7 @@ func ParseLogFile(logFilePath string) []LogEntry {
 
 		timestamp, timeOk := entry["time"]
 		tool, toolOk := entry["msg"]
-		chromVal, chromOk := entry["CHROM"]
+		chromVal, chromOk := entry["CHROMOSOME"]
 		statusVal, statusOk := entry["STATUS"]
 		sampleVal, sampleOk := entry["SAMPLE"]
 		programVal, programOk := entry["PROGRAM"]
