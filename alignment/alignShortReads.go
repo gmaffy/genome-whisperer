@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"log"
+	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -14,55 +14,51 @@ import (
 func AlignShortReadsMem(referencePath string, forwardPath string, reversePath string, sampleName string, libName string, outputDir string, threads int) error {
 
 	fmt.Println("Reading ...")
-	//fmt.Printf("ReferencePath: %s\nFwd: %s\nRev: %s\nSample Name: %s\nlib Name: %s\nOuDir: %s\n", referencePath, forwardPath, reversePath, sampleName, libName, outputDir)
-
+	// ----------------------------------------- Output Paths ------------------------------------------------------- //
 	lineDir := fmt.Sprintf("%s/%s", outputDir, sampleName)
+	rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sampleName)
+	rgmdMetrics := fmt.Sprintf("%s/%s.RGMD.metrics.txt", lineDir, sampleName)
+	rgmdIndex := fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sampleName)
+	sortedBam := fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
+
+	// ----------------------------------------- Run bwa mem -------------------------------------------------------- //
 	bErr := os.MkdirAll(lineDir, 0755)
 	if bErr != nil {
 		log.Fatalf("Error creating results directory: %s\n", bErr)
 	}
 	readGroup := fmt.Sprintf("@RG\\tID:%s.1\\tSM:%s\\tLB:%s\\tPL:BGISEQ", sampleName, sampleName, libName)
-	sortedBam := fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
-	rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sampleName)
-	rgmdMetrics := fmt.Sprintf("%s/%s.RGMD.metrics.txt", lineDir, sampleName)
-	rgmdIndex := fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sampleName)
-
 	cmdStr := fmt.Sprintf(`bwa mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortedBam)
-	fmt.Println(cmdStr)
-	cmd := exec.Command("bash", "-c", cmdStr)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
 
-	err := cmd.Run()
+	err := utils.RunBashCmdVerbose(cmdStr)
 	if err != nil {
 		return err
 	}
+
+	// ------------------------------------------- Mark Duplicates -------------------------------------------------- //
 	fmt.Printf("Marking duplicates ....")
 	mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s`, sortedBam, rgmdBam, rgmdMetrics)
-	mDupCmd := exec.Command("bash", "-c", mDupCmdStr)
-	mDupCmd.Stdout = os.Stdout
-	mDupCmd.Stderr = os.Stderr
+	fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
 
-	mErr := mDupCmd.Run()
-	if mErr != nil {
-		return mErr
+	err = utils.RunBashCmdVerbose(mDupCmdStr)
+	if err != nil {
+		return err
 	}
 
+	// ------------------------------------------------- Index Bam -------------------------------------------------- //
 	fmt.Printf("Index Bam ....")
 	indexCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" BuildBamIndex -I %s -O %s`, rgmdBam, rgmdIndex)
-	indexCmd := exec.Command("bash", "-c", indexCmdStr)
-	indexCmd.Stdout = os.Stdout
-	indexCmd.Stderr = os.Stderr
+	fmt.Printf("%s\n-----------------------------------------------\n\n", indexCmdStr)
 
-	iErr := indexCmd.Run()
-	if iErr != nil {
-		return iErr
+	err = utils.RunBashCmdVerbose(indexCmdStr)
+	if err != nil {
+		return err
 	}
 	return nil
 
 }
 
-func AlignShortReadsConfig(configPath string, threadsPerSample int) {
+func AlignShortReadsConfig(configPath string, threadsPerSample int, knownsites []string, bqsr bool, bootsrap bool) {
 
 	// ---------------------------------------- Check Paths --------------------------------------------------------- //
 	fmt.Println("Reading config file ...")
@@ -81,8 +77,22 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 
 	out := cfg.OutputDir
 	outInfo, outErr := os.Stat(out)
-	if outErr != nil || !outInfo.IsDir() {
-		fmt.Printf("Output directory: %s is not a valid directory path\n", out)
+
+	if outErr != nil {
+
+		if os.IsNotExist(outErr) {
+			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", out)
+			if createErr := os.MkdirAll(out, 0755); createErr != nil {
+				fmt.Printf("Failed to create output directory %s: %v\n", out, createErr)
+				return
+			}
+			fmt.Printf("Output directory %s created successfully.\n", out)
+		} else {
+			fmt.Printf("Error accessing output directory %s: %v\n", out, outErr)
+			return
+		}
+	} else if !outInfo.IsDir() {
+		fmt.Printf("Output Directory %s file path is not a directory\n", out)
 		return
 	}
 
@@ -124,6 +134,7 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 
 	fmt.Println("Reference:", cfg.Reference)
 	fmt.Println("Output directory:", cfg.OutputDir)
+	fmt.Printf("Running short read alignment for %v read pairs", i)
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
 	fmt.Println("Reading log file ...")
@@ -138,11 +149,14 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 	//log.SetOutput(mw)
 	fmt.Println("Log file created.")
 
-	fmt.Printf("Running short read alignment for %v read pairs", i)
+	jsonHandler := slog.NewJSONHandler(logFile, nil)
+
+	jlog := slog.New(jsonHandler)
+
+	logged := utils.ParseLogFile(logFilePath)
 
 	// ============================================== Run Alignments ================================================ //
 
-	fmt.Println("Threads", cfg.Threads)
 	totalCores := runtime.NumCPU()
 	fmt.Printf("Available CPU cores: %d\n", totalCores)
 
@@ -156,6 +170,14 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxParallelJobs)
+
+	// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
+	if bqsr {
+		fmt.Println("Skipping BQSR")
+		
+		return
+	}
+	var bams []string
 	for _, pair := range cfg.ReadPairs {
 
 		wg.Add(1)
@@ -167,13 +189,32 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int) {
 			fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
 			lineDir := fmt.Sprintf("%s/%s", out, sn)
 			rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
-			log.Printf("%s\tBWA_MEM\t%s\tSTARTED\tbwa_mem", sn, rgmdBam)
-			alErr := AlignShortReadsMem(ref, fwd, rev, sn, lb, out, threadsPerSample)
-			if alErr != nil {
-				log.Printf("%s\tBWA_MEM\t%s\tFAILED\tError: %v", sn, rgmdBam, alErr)
-				return
+			rgmdBai := fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sn)
+
+			jlog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+			slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "STATUS", "STARTED")
+
+			_, rgmdBamErr := os.Stat(rgmdBam)
+			_, rgmdBaiErr := os.Stat(rgmdBai)
+
+			isDone := utils.StageHasCompleted(logged, "BWA_MEM", sn, "ALL")
+			if isDone && rgmdBamErr == nil && rgmdBaiErr == nil {
+				msg := fmt.Sprintf("Bwa and MarkDuplicates already completed for %s. Skipping.\n\n------------------------------\n\n", sn)
+				slog.Info(msg)
+
+			} else {
+				alErr := AlignShortReadsMem(ref, fwd, rev, sn, lb, out, threadsPerSample)
+				if alErr != nil {
+					jlog.Error("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", alErr))
+					slog.Error("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED- %v", alErr))
+
+					return
+				}
+				jlog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "STATUS", "COMPLETED")
 			}
-			log.Printf("%s\tBWA_MEM\t%s\tFINISHED\tbwa_mem", sn, rgmdBam)
+			bams = append(bams, rgmdBam)
+
 		}(pair)
 
 	}

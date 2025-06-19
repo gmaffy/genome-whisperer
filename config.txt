@@ -1,4 +1,4 @@
-OutputDir: /mnt/f/GOWHISPERER_GO/
+OutputDir: /mnt/f/GOWHISPERER_GO/VARCALL_TEST
 Reference: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v2/Cmoschata_Rifu_v2_genome.fa
 gff: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v1/Cmoschata_v1.gff3.gz
 proteins: /mnt/f/CucurbitGenomes/Cucurbita_moschata/v1/Cmoschata_pep_v1.fa.gz
@@ -7,7 +7,7 @@ ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-16A/ForwardReads.fq.gz /mnt/h/RE
 ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-32A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-32A/ReverseReads.fq.gz BULK2 LOW_BULK
 ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-1A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-1A/ReverseReads.fq.gz MO1057 HIGH_PARENT
 ReadPair: /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-2A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/MWMV/BNT-CN-2A/ReverseReads.fq.gz MOB31 LOW_PARENT
-#bam: /mnt/f/GOWHISPERER_GO/MOB31.RGMD.bam
-#bam: /mnt/f/GOWHISPERER_GO/MO1057_MVMV.RGMD.bam
+bam: /mnt/f/GOWHISPERER_GO/MOB31.RGMD.bam
+bam: /mnt/f/GOWHISPERER_GO/MO1057_MVMV.RGMD.bam
 known-sites: /mnt/y/VCFs/Squash/Moschata/v2/2025/GATK/Moschata_AllChroms.joint_SNPs_hard_filtered.vcf.gz
 known-sites: /mnt/y/VCFs/Squash/Moschata/v2/2025/GATK/Moschata_AllChroms.joint_INDELs_hard_filtered.vcf.gz

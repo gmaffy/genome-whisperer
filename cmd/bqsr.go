@@ -24,10 +24,14 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("bqsr called")
 
-		// Grab flags
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
 			log.Fatalf("Error getting config flag: %v", cErr)
+		}
+
+		logFile, logErr := cmd.Flags().GetString("config")
+		if logErr != nil {
+			log.Fatalf("Error getting log flag: %v", cErr)
 		}
 
 		bootstrap, bErr := cmd.Flags().GetBool("bootstrap")
@@ -40,16 +44,21 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting bootstrap flag: %v", jErr)
 		}
 
-		fmt.Printf("Reference file: %s\n %v bootstrap", refFile, bootstrap)
-
 		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
 		if ksErr != nil {
 			log.Fatalf("Error getting known-sites flag: %v", ksErr)
 		}
 
+		_, lErr := os.Stat(logFile)
+		if lErr != nil {
+			fmt.Printf("Log file: %s does not exist", logFile)
+			fmt.Println("Provide a valid log file path using --log flag")
+			return
+		}
+
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
-			alignment.BQSRconfig(configFile, bootstrap, jobs)
+			alignment.BQSRconfig(configFile, bootstrap, jobs, logFile)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
@@ -84,7 +93,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				return
 			} else if len(knownSites) == 0 && bootstrap == true {
 				fmt.Println("Running with bootstrap method")
-				alignment.BootstrapBqsr(refFile, bams, jobs)
+				alignment.BootstrapBqsr(refFile, bams, jobs, logFile)
 			} else if len(knownSites) > 0 {
 				fmt.Println("Running with known-sites flag")
 				// ------------------------ Checking Known sites file paths ----------------------------------------- //
@@ -97,7 +106,10 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				}
 
 				// --------------------------- Running dbSnpBQSR ---------------------------------------------------- //
-				alignment.DbSnpBqsr(refFile, bams, knownSites, jobs)
+				err := alignment.DbSnpBqsr(refFile, bams, knownSites, jobs, logFile)
+				if err != nil {
+					return
+				}
 
 			} else {
 				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
@@ -125,5 +137,6 @@ func init() {
 	bqsrCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
 	bqsrCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
 	bqsrCmd.Flags().IntP("jobs", "j", 4, "Number of jobs per run")
+	bqsrCmd.Flags().String("log", "", "log file path")
 
 }

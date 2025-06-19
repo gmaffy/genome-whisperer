@@ -18,7 +18,7 @@ var alignSrMemCmd = &cobra.Command{
 	Short: "Short read alignment",
 	Long:  `Aligns short PE reads to reference genome using bwa mem.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("alignSrMem called")
+
 		fmt.Printf("Checking dependencies ...\n\n")
 
 		if err := utils.CheckDeps(); err != nil {
@@ -68,13 +68,28 @@ var alignSrMemCmd = &cobra.Command{
 			log.Fatalf("Error getting threads flag: %v", tErr)
 		}
 
+		bootsrap, bErr := cmd.Flags().GetBool("bootstrap")
+		if tErr != nil {
+			log.Fatalf("Error getting bootstrap flag: %v", bErr)
+		}
+
+		bqsr, bqsrErr := cmd.Flags().GetBool("bqsr")
+		if tErr != nil {
+			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
+		}
+
+		knownsites, ksErr := cmd.Flags().GetStringSlice("known-sites")
+		if ksErr != nil {
+			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
+		}
+
 		if configFile != "" {
 			fmt.Println("Reading config file ...")
 			_, confErr := os.Stat(configFile)
 			if confErr != nil {
 				log.Fatalf("Error reading config file: %v", confErr)
 			}
-			alignment.AlignShortReadsConfig(configFile, threads)
+			alignment.AlignShortReadsConfig(configFile, threads, knownsites, bqsr, bootsrap)
 		} else {
 			fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
@@ -139,5 +154,9 @@ func init() {
 	alignSrMemCmd.Flags().StringP("library", "l", "", "Library name")
 	alignSrMemCmd.Flags().StringP("output_dir", "o", "", "output directory")
 	alignSrMemCmd.Flags().IntP("threads", "t", 8, "number of threads")
+	alignSrMemCmd.Flags().Bool("bqsr", false, "verbose")
+	alignSrMemCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
+	alignSrMemCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
+
 	//alignSrMemCmd.Flags().Int32P("jobs", "j", 4, "Library name")
 }

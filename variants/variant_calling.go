@@ -67,9 +67,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
 
 	logged := utils.ParseLogFile(logFilePath)
-	fmt.Println("Log file parsed.", logged, "\n-----------------------------------\n\n")
-	//completed := utils.GetCompletedStages(logged)
-	//hapPairCompleted := utils.GetHapFinished(logged)
 
 	if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", "ALL") {
 		fmt.Println("All stages  completed. Skipping.")
@@ -87,13 +84,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 	for sc.Next() {
 		seq := sc.Seq().(*linear.Seq)
-
-		// ----------------------- Check if MergeVcfs already completed for this chromosome ------------------------- //
-
-		//if _, exists := completed["MergeVcfs"][seq.ID]; exists {
-		//	slog.Info("Chromosome %s already processed all steps. Skipping\n", seq.ID)
-		//	continue
-		//}
 
 		if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", seq.ID) {
 			slog.Info("Chromosome %s already processed all steps. Skipping\n", seq.ID)
@@ -123,7 +113,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				if _, err := os.Stat(dir); os.IsNotExist(err) {
 					cErr := os.MkdirAll(dir, 0755)
 					if cErr != nil {
-						//log.Printf("Dir:%s\tDir creation\tNA\tFAILED\tNA - Error: %v\n", seq.ID, cErr)
+
 						slog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "ERROR", "CMD", cErr)
 						jlog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "ERROR", "CMD", cErr)
 
@@ -134,43 +124,27 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 			// ------------------------------------ HAPLOTYPE CALLER (Skip completed) ------------------------------- //
 			var vSlice []string
-			//hapCompletedMap := make(map[string]map[string]bool)
-			//for _, hap := range hapPairCompleted {
-			//	if hapCompletedMap[hap.Chromosome] == nil {
-			//		hapCompletedMap[hap.Chromosome] = make(map[string]bool)
-			//	}
-			//	hapCompletedMap[hap.Chromosome][hap.Sample] = true
-			//}
 
 			for _, bam := range bams {
 				bamName := filepath.Base(bam)
 				//    fmt.Println(bamName)
 				theGVCF := filepath.Join(gvcfPath, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDir), 1))
 
-				//if hapCompletedMap[seq.ID] != nil && hapCompletedMap[seq.ID][bamName] {
-				//	msg := fmt.Sprintf("HaplotypeCaller already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
-				//	slog.Info(msg)
-				//	vSlice = append(vSlice, "-V "+theGVCF)
-				//	continue
-				//}
-
 				if utils.StageHasCompleted(logged, "HaplotypeCaller", bamName, seq.ID) {
 					msg := fmt.Sprintf("HaplotypeCaller already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
 					slog.Info(msg)
-					//continue
 				} else {
 					hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, seq.ID, theGVCF, verbosity)
 					vSlice = append(vSlice, "-V "+theGVCF)
-					//fmt.Println(hapCmdStr)
-					//log.Printf("%s\tHaplotypeCaller\t%s\tSTARTED\t%s\n", seq.ID, bamName, hapCmdStr)
+
 					jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
 					slog.Info(hapCmdStr)
 					hapErr := utils.RunBashCmdVerbose(hapCmdStr)
-					//fmt.Println(hapErr)
+
 					if hapErr != nil {
 						jlog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "FAILED", "CMD", hapErr)
 						slog.Error("VARIANT CALLING", "STATUS", hapErr)
-						log.Printf("%s\tHaplotypeCaller\t%s\tFAILED\t%s - Error: %v\n", seq.ID, bamName, hapErr) // Use Printf
+
 						return
 					}
 
@@ -187,10 +161,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 			hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 			theDB := filepath.Join(chromDirPath, chromDir+"DB")
 
-			// ------------------------------------ GENOMICSDBIMPORT (Skip completed) ------------------------------- //
-
-			//if _, exists := completed["GenomicsDBImport"][seq.ID]; exists {
-			//	fmt.Printf("GenomicsDBImport already completed for %s. Skipping.\n\n----------------------------\n\n", seq.ID)
+			// ---------------------------------- GENOMICS DB IMPORT (Skip completed) ------------------------------- //
 
 			if utils.StageHasCompleted(logged, "GenomicsDBImport", "ALL", seq.ID) {
 				msg := fmt.Sprintf("GenomicsDBImport already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
@@ -212,19 +183,18 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				// -------------------------------------------------------------------------------------------------- //
 
 				gDBImpCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s --genomicsdb-workspace-path %s --tmp-dir %s -L %s --genomicsdb-shared-posixfs-optimizations true --batch-size 50  --bypass-feature-reader`, vArgs, theDB, tmpPath, seq.ID)
-				//fmt.Println(gDBImpCmdStr)
-				//log.Printf("%s\tGenomicsDBImport\tALL\tSTARTED\t%s\n", seq.ID, gDBImpCmdStr)
+
 				jlog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
 				slog.Info(gDBImpCmdStr)
 
 				gErr := utils.RunBashCmdVerbose(gDBImpCmdStr)
 				if gErr != nil {
-					//log.Printf("%s\tGenomicsDBImport\tALL\tFAILED\t%s - Error: %v\n", seq.ID, gDBImpCmdStr, gErr)
+
 					jlog.Error("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "FAILED")
 					slog.Error("VARIANT CALLING", "STATUS", gErr)
 					return
 				}
-				//log.Printf("%s\tGenomicsDBImport\tALL\tFINISHED\t%s\n", seq.ID, gDBImpCmdStr)
+
 				jlog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 				slog.Info("CMD", gDBImpCmdStr, "STATUS", "COMPLETED")
 
@@ -232,23 +202,19 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 			// --------------------------------------- GENOTYPE GVCFS (Skip completed) ------------------------------ //
 
-			//if _, exists := completed["GenotypeGVCFs"][seq.ID]; exists {
-			//	fmt.Printf("GenomicsDBImport already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
 			if utils.StageHasCompleted(logged, "GenotypeGVCFs", "ALL", seq.ID) {
 				msg := fmt.Sprintf("GenotypeGVCFs already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
 				slog.Info(msg)
 
 			} else {
 				genoCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s`, refFile, theDB, jointVCF, tmpPath)
-				//fmt.Println(genoCmdStr)
-				//log.Printf("%s\tGenotypeGVCFs\tALL\tSTARTED\t%s\n", seq.ID, genoCmdStr)
+
 				jlog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
 				slog.Info(genoCmdStr)
 
 				gtErr := utils.RunBashCmdVerbose(genoCmdStr)
 				if gtErr != nil {
-					//fmt.Println(gtErr)
-					//log.Printf("%s\tGenotypeGVCFs\tALL\tFAILED\t%s - Error: %v\n", seq.ID, genoCmdStr, gtErr)
+
 					jlog.Error("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "FAILED")
 					slog.Error("VARIANT CALLING", "STATUS", gtErr)
 					return
@@ -262,8 +228,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 			fmt.Println("Hard filtered  joint VCF ...")
 
-			//if _, exists := completed["SELECT_SNPS"][seq.ID]; exists {
-			//	fmt.Printf("SELECT_SNPS already completed for %s. Skipping.\n\n", seq.ID)
 			if utils.StageHasCompleted(logged, "SelectSNPs", "ALL", seq.ID) {
 				msg := fmt.Sprintf("SELECT_SNPS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
 				slog.Info(msg)
@@ -273,42 +237,34 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
 				slog.Info("gatk SelectVariants --select-type-to-include SNP")
 
-				//log.Printf("%s\tSELECT_SNPS\tALL\tSTARTED\tSNPS\n", seq.ID)
 				sErr := GetVariantType(jointVCF, "SNP")
 				if sErr != nil {
-					//log.Printf("%s\tSELECT_SNPS\tALL\tFAILED\tSNPS - Error: %v\n", seq.ID, sErr)
+
 					jlog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "FAILED")
 					slog.Error("VARIANT CALLING", "STATUS", sErr)
 					return
 				}
-				//log.Printf("%s\tSELECT_SNPS\tALL\tFINISHED\tSNPS\n", seq.ID)
 				jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 				slog.Info("CMD", "gatk SelectVariants --select-type-to-include SNP", "STATUS", "COMPLETED")
 
 			}
 
 			// -------------------------------------- SELECT INDELS (Skip completed) -------------------------------- //
-
-			//if _, exists := completed["SELECT_INDELS"][seq.ID]; exists {
-			//	fmt.Printf("SELECT_INDELS already completed for %s. Skipping.\n", seq.ID)
 			if utils.StageHasCompleted(logged, "SelectINDELs", "ALL", seq.ID) {
 				msg := fmt.Sprintf("SELECT_INDELS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
 				slog.Info(msg)
 
 			} else {
-				//log.Printf("%s\tSELECT_INDELS\tALL\tSTARTED\tINDELs\n", seq.ID)
 
 				jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 				slog.Info("gatk SelectVariants --select-type-to-include INDEL")
 
 				iErr := GetVariantType(jointVCF, "INDEL")
 				if iErr != nil {
-					//log.Printf("%s\tSELECT_INDELS\tALL\tFAILED\tINDELs - Error: %v\n", seq.ID, iErr)
 					jlog.Error("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "FAILED")
 					slog.Error("VARIANT CALLING", "STATUS", iErr)
 					return
 				}
-				//log.Printf("%s\tSELECT_INDELS\tALL\tFINISHED\tINDELs\n", seq.ID)
 				jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "FAILED")
 				slog.Info("CMD", "gatk SelectVariants --select-type-to-include INDEL", "STATUS", "COMPLETED")
 
