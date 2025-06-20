@@ -58,7 +58,7 @@ func AlignShortReadsMem(referencePath string, forwardPath string, reversePath st
 
 }
 
-func AlignShortReadsConfig(configPath string, threadsPerSample int, knownsites []string, bqsr bool, bootsrap bool) {
+func AlignShortReadsConfig(configPath string, threadsPerSample int, knownSites []string, bqsr bool, bootstrap bool) {
 
 	// ---------------------------------------- Check Paths --------------------------------------------------------- //
 	fmt.Println("Reading config file ...")
@@ -174,9 +174,26 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int, knownsites [
 	// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
 	if bqsr {
 		fmt.Println("Skipping BQSR")
-		
-		return
+		if len(knownSites) == 0 && bootstrap == false {
+			fmt.Println("Either pass a known-sites file or enable bootstrap method")
+			return
+		} else if len(knownSites) > 0 {
+			fmt.Println("Running with known-sites flag")
+			// ---------------------------- Checking Known sites file paths ----------------------------------------- //
+			for j, _ := range knownSites {
+				_, err := os.Stat(knownSites[j])
+				if err != nil {
+					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
+					log.Fatal(err)
+				}
+			}
+			if bootstrap == true {
+				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
+				return
+			}
+		}
 	}
+	//------------------------------------------ Run alignment ------------------------------------------------------ //
 	var bams []string
 	for _, pair := range cfg.ReadPairs {
 
@@ -219,6 +236,25 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int, knownsites [
 
 	}
 	wg.Wait()
+	bqsrLogFile := filepath.Join(out, "bqsr.log")
+	if bqsr {
+		fmt.Println("Running BQSR")
+		if len(knownSites) == 0 && bootstrap == true {
+			fmt.Println("Running with bootstrap method")
+			err := BootstrapBqsr(ref, bams, maxParallelJobs, bqsrLogFile)
+			if err != nil {
+				fmt.Println("BQSR failed", err)
+				return
+			}
+		} else if len(knownSites) > 0 && bootstrap == false {
+			err := DbSnpBqsr(ref, bams, knownSites, maxParallelJobs, bqsrLogFile)
+			if err != nil {
+				fmt.Println("BQSR failed", err)
+				return
+			}
+
+		}
+	}
 
 }
 

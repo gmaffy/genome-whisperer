@@ -93,7 +93,10 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				return
 			} else if len(knownSites) == 0 && bootstrap == true {
 				fmt.Println("Running with bootstrap method")
-				alignment.BootstrapBqsr(refFile, bams, jobs, logFile)
+				err := alignment.BootstrapBqsr(refFile, bams, jobs, logFile)
+				if err != nil {
+					return
+				}
 			} else if len(knownSites) > 0 {
 				fmt.Println("Running with known-sites flag")
 				// ------------------------ Checking Known sites file paths ----------------------------------------- //

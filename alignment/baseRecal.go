@@ -299,7 +299,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 
 }
 
-func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) {
+func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) error {
 	fmt.Println("bootstrapBqsr")
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -346,10 +346,11 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) {
 	if err != nil {
 		jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
-		return
+		return err
 	}
 	jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 	slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "COMPLETED")
+	return nil
 }
 
 func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string) {
