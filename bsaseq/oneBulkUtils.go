@@ -41,7 +41,8 @@ type OneBulkTwoParentsRecord struct {
 	Mp95      float64
 }
 
-func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string, bulk string) []OneBulkTwoParentsRecord {
+func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string, bulk string) ([]OneBulkTwoParentsRecord, error) {
+	var data []OneBulkTwoParentsRecord
 	file, err := os.Open(tsvFile)
 	if err != nil {
 		log.Fatal(err)
@@ -55,9 +56,12 @@ func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string,
 	records, err := reader.ReadAll()
 	if err != nil {
 		log.Fatal(err)
+		return data, err
 	}
+
 	if len(records) < 2 {
-		log.Fatalf("Expected at least 2 rows, got %d", len(records))
+		// log.Fatalf("Expected at least 2 rows, got %d", len(records))
+		return data, fmt.Errorf("Expected at least 2 rows, got %d", len(records))
 	}
 
 	header := records[0]
@@ -74,7 +78,8 @@ func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string,
 			}
 		}
 		if !found {
-			log.Fatalf("required column %s not found in header", col)
+			//log.Fatalf("required column %s not found in header", col)
+			return data, fmt.Errorf("required column %s not found in header", col)
 		}
 	}
 
@@ -82,7 +87,6 @@ func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string,
 		colIndex[col] = i
 	}
 
-	var data []OneBulkTwoParentsRecord
 	for _, row := range records[1:] {
 		pos, _ := strconv.ParseFloat(row[colIndex["POS"]], 64)
 		hPdp, _ := strconv.Atoi(row[colIndex[highPar+".DP"]])
@@ -110,7 +114,7 @@ func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string,
 		}
 		data = append(data, r)
 	}
-	return data
+	return data, nil
 }
 
 func removeShortContigsOneBulkTwoPar(variants []OneBulkTwoParentsRecord, winSize int, stepSize int) []OneBulkTwoParentsRecord {

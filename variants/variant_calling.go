@@ -51,18 +51,12 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	}
 	defer logFile.Close()
 
-	//mw := io.MultiWriter(logFile, os.Stdout)
-	//log.SetOutput(mw)
-	//fmt.Println("Log file created.")
-
 	jsonHandler := slog.NewJSONHandler(logFile, nil)
 
 	jlog := slog.New(jsonHandler)
 
 	jlog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 	slog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-
-	// loG key values:
 
 	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
 
@@ -127,7 +121,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 			for _, bam := range bams {
 				bamName := filepath.Base(bam)
-				//    fmt.Println(bamName)
 				theGVCF := filepath.Join(gvcfPath, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDir), 1))
 
 				if utils.StageHasCompleted(logged, "HaplotypeCaller", bamName, seq.ID) {

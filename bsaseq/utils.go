@@ -9,12 +9,13 @@ import (
 	"time"
 )
 
-func createResultsDir(outputDir string) string {
+func createResultsDir(outputDir string) (string, error) {
 
 	baseDir := filepath.Join(outputDir, "goBSAseqResults")
 	bErr := os.MkdirAll(filepath.Join(outputDir, "goBSAseqResults"), 0755)
 	if bErr != nil {
 		log.Fatalf("Error creating results directory: %s\n", bErr)
+		return "", bErr
 	}
 
 	now := time.Now()
@@ -23,11 +24,12 @@ func createResultsDir(outputDir string) string {
 	err := os.MkdirAll(resultsDir, 0755)
 	if err != nil {
 		log.Fatalf("Error creating results directory: %s\n", err)
+		return "", err
 
 	}
 	fmt.Printf("Created results directory at %s ..\n\n", resultsDir)
 
-	return resultsDir
+	return resultsDir, nil
 }
 
 func simulateAF(popStruc string, bulkSize float64, rep int) float64 {

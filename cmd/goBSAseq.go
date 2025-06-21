@@ -37,6 +37,11 @@ var goBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting vcf flag: %v", varErr)
 		}
 
+		outputDir, outErr := cmd.Flags().GetString("vcf")
+		if outErr != nil {
+			log.Fatalf("Error getting vcf flag: %v", outErr)
+		}
+
 		highParent, hpErr := cmd.Flags().GetString("high_parent")
 		if hpErr != nil {
 			log.Fatalf("Error getting high_parent flag: %v", hpErr)
@@ -137,8 +142,25 @@ var goBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting species flag: %v", sErr)
 		}
 
-		//fmt.Printf("Running with the following parameters:\nVariant File: %s\nHigh Parent: %s\nLow Parent: %s\nHigh Bulk: %s\nLow Bulk: %s\nHigh Parent Depth: %v\nLow Parent Depth: %v\nHigh Bulk Depth: %v\nLow Bulk Depth: %v\nHigh Bulk Size: %v\nLow Bulk Size:  %v\nWin Size: %v\nStep Size: %v\nPop Struc: %s\nRep: %v\nSmoothing: %v\nInteractive: %v\n ...\n\n",
-		//	variantFile, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, popStructure, rep, smoothing, interactive)
+		outInfo, outErr := os.Stat(outputDir)
+
+		if outErr != nil {
+
+			if os.IsNotExist(outErr) {
+				fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outputDir)
+				if createErr := os.MkdirAll(outputDir, 0755); createErr != nil {
+					fmt.Printf("Failed to create output directory %s: %v\n", outputDir, createErr)
+					return
+				}
+				fmt.Printf("Output directory %s created successfully.\n", outputDir)
+			} else {
+				fmt.Printf("Error accessing output directory %s: %v\n", outputDir, outErr)
+				return
+			}
+		} else if !outInfo.IsDir() {
+			fmt.Printf("Output Directory %s file path is not a directory\n", outputDir)
+			return
+		}
 
 		if interactive {
 			fmt.Println("Running in interactive mode")
@@ -166,7 +188,7 @@ var goBSAseqCmd = &cobra.Command{
 					bsaseq.TwoBulkOnlyRun(variantFile, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
 				} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
 					fmt.Println("Running 2 bulks 2 parents analysis")
-					bsaseq.TwoBulkTwoParentsRun(variantFile, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+					bsaseq.TwoBulkTwoParentsRun(variantFile, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputDir)
 
 				} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
 					fmt.Println("Running 1 high bulk, 2 parent analysis")
@@ -203,6 +225,7 @@ func init() {
 	// goBSAseqCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	// ------------------------------------------------ VCF FILE ---------------------------------------------------- //
 	goBSAseqCmd.Flags().StringP("vcf", "V", "", "Path to target vcf file or vcf table")
+	goBSAseqCmd.Flags().StringP("out", "o", "", "Output directory")
 	// ------------------------------------------ PARENTS & BULKS --------------------------------------------------- //
 	goBSAseqCmd.Flags().StringP("high_parent", "H", "", "Name of high parent/resistant parent")
 	goBSAseqCmd.Flags().StringP("low_parent", "L", "", "Name of low parent/susceptible parent")

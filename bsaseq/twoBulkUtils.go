@@ -76,7 +76,9 @@ type TwoBulkQtlRecord struct {
 	GSp95  string
 }
 
-func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string, highBulk string, lowBulk string) []TwoBulkTwoParentsRecord {
+func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string, highBulk string, lowBulk string) ([]TwoBulkTwoParentsRecord, error) {
+
+	var data []TwoBulkTwoParentsRecord
 	file, err := os.Open(tsvFile)
 	if err != nil {
 		log.Fatal(err)
@@ -92,7 +94,8 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 		log.Fatal(err)
 	}
 	if len(records) < 2 {
-		log.Fatalf("Expected at least 2 rows, got %d", len(records))
+		//log.Fatalf("Expected at least 2 rows, got %d", len(records))
+		return data, fmt.Errorf("Expected at least 2 rows, got %d", len(records))
 	}
 
 	header := records[0]
@@ -109,7 +112,8 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 			}
 		}
 		if !found {
-			log.Fatalf("required column %s not found in header", col)
+			//log.Fatalf("required column %s not found in header", col)
+			return data, fmt.Errorf("required column %s not found in header", col)
 		}
 	}
 
@@ -117,7 +121,6 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 		colIndex[col] = i
 	}
 
-	var data []TwoBulkTwoParentsRecord
 	for _, row := range records[1:] {
 		pos, _ := strconv.ParseFloat(row[colIndex["POS"]], 64)
 		hPdp, _ := strconv.Atoi(row[colIndex[highPar+".DP"]])
@@ -150,7 +153,7 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 		}
 		data = append(data, r)
 	}
-	return data
+	return data, nil
 }
 
 func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string) []TwoBulkTwoParentsRecord {
@@ -320,7 +323,7 @@ func twoBulkThresholds(highBulkDP int, lowBulkDP int, highSmAF float64, lowSmAF 
 
 }
 
-func removeShortContigsTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, winSize int, stepSize int) []TwoBulkTwoParentsRecord {
+func removeShortContigsTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, winSize int, stepSize int) ([]TwoBulkTwoParentsRecord, error) {
 	chromMax := make(map[string]float64)
 	for _, v := range variants {
 		if v.Pos > chromMax[v.Chrom] {
@@ -348,7 +351,7 @@ func removeShortContigsTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, winSize
 		}
 	}
 
-	return bsaSeqRecords
+	return bsaSeqRecords, nil
 }
 
 func removeShortContigsTwoBulkOnly(variants []TwoBulkTwoParentsRecord, winSize int, stepSize int) []TwoBulkTwoParentsRecord {
@@ -382,7 +385,7 @@ func removeShortContigsTwoBulkOnly(variants []TwoBulkTwoParentsRecord, winSize i
 	return bsaSeqRecords
 }
 
-func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowPar string, highBulk string, lowBulk string, outputFile string) {
+func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowPar string, highBulk string, lowBulk string, outputFile string) error {
 	file, err := os.Create(outputFile)
 	if err != nil {
 		log.Fatalf("Failed to create output CSV: %v", err)
@@ -439,6 +442,7 @@ func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowP
 			log.Fatalf("Error: %s\n", wErr)
 		}
 	}
+	return nil
 
 }
 
