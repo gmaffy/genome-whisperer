@@ -167,6 +167,19 @@ func RunBashCmdVerbose(cmdStr string) error {
 	return nil
 }
 
+func RunBashCmd(cmdStr string) error {
+	cmd := exec.Command("bash", "-c", cmdStr)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("CMD error:", err)
+		return err
+	}
+	return nil
+}
+
 //type LogEntry struct {
 //	Timestamp  string
 //	Chromosome string

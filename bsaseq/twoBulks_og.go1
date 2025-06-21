@@ -18,7 +18,105 @@ import (
 	"time"
 )
 
-// =================================================== Filtering ==================================================== //
+// =================================================== Filtering ======================================================//
+func twoBulkTwoParVcfFilter(vcfFile string, highPar string, highParDP int, lowPar string, lowParDP int, highBulk string, highBulkDP int, lowBulk string, lowBulkDP int, winSize int, stepSize int, resultsDir string) []TwoBulkTwoParentsRecord {
+	// ------------------------------------- BSA SEQ LOG FILES ------------------------------------------------------ //
+	fmt.Println("Reading log file ...")
+	logFilePath := filepath.Join(resultsDir, "bsaseq.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	defer logFile.Close()
+
+	jsonHandler := slog.NewJSONHandler(logFile, nil)
+
+	jlog := slog.New(jsonHandler)
+
+	jlog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+	slog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+
+	// loG key values:
+
+	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
+
+	//logged := utils.ParseLogFile(logFilePath)
+
+	fmt.Printf("Reading file %s ...\n", vcfFile)
+	// ----------------------------------------------- Count Variants ------------------------------------------------//
+	jlog.Info("BSASEQ", "PROGRAM", "CountVariants", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+	slog.Info("BSASEQ", "PROGRAM", "CountVariants", "STATUS", "STARTED")
+	countCMD := exec.Command("gatk", "CountVariants", "-V", vcfFile)
+	var out bytes.Buffer
+	countCMD.Stdout = &out
+
+	var stderr bytes.Buffer
+	countCMD.Stderr = &stderr
+	countErr := countCMD.Run()
+
+	if countErr != nil {
+		jlog.Error("BSASEQ", "PROGRAM", "CountVariants", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAIL-%v", countErr))
+		slog.Error("BSASEQ", "PROGRAM", "CountVariants", "STATUS", fmt.Sprintf("FAIL-%v", countErr))
+		log.Fatalf("Stderr: %s\nError: %v\n", stderr.String(), countErr)
+	}
+
+	output := out.String()
+	count := strings.Replace(output, "Tool returned:", "", 1)
+	count = strings.TrimSpace(count)
+	jlog.Info("BSASEQ", "PROGRAM", "CountVariants", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+	slog.Info("BSASEQ", "PROGRAM", "CountVariants", "STATUS", "COMPLETED")
+	fmt.Printf("Original #Variants: %s\n", count)
+
+	// ------------------------------------------- Filter with params (GATK) -----------------------------------------//
+	filterStart := time.Now()
+	selectExpression := fmt.Sprintf(`vc.isBiallelic() && vc.getGenotype("%s").isHom() && vc.getGenotype("%s").isHom() && !vc.getGenotype("%s").sameGenotype(vc.getGenotype("%s")) && vc.getGenotype("%s").getDP() >= %d && vc.getGenotype("%s").getDP() >= %d && vc.getGenotype("%s").getDP() >= %d && vc.getGenotype("%s").getDP() >= %d && vc.getGenotype("%s").isCalled() && vc.getGenotype("%s").isCalled() && vc.getGenotype("%s").isCalled() && vc.getGenotype("%s").isCalled()`,
+		highPar, lowPar, highPar, lowPar,
+		highPar, highParDP,
+		lowPar, lowParDP,
+		highBulk, highBulkDP,
+		lowBulk, lowBulkDP,
+		highPar, lowPar, highBulk, lowBulk)
+
+	fmt.Printf("Running GATK with Select Expression:\n\n%s\n\n", selectExpression)
+
+	cmd := exec.Command("gatk", "SelectVariants", "-V", vcfFile, "-select", selectExpression, "-O", filepath.Join(resultsDir, "filtered.vcf"))
+
+	err = cmd.Run()
+	if err != nil {
+		log.Fatalf("error running gatk SelectVariants: %s", err)
+
+	}
+
+	fmt.Println("Filtered vcf file saved at: ", filepath.Join(resultsDir, "filtered.vcf"))
+
+	filterEnd := time.Now()
+	filterElapsed := filterEnd.Sub(filterStart)
+	fmt.Printf("Filtering took %s\n\n", filterElapsed)
+
+	// ----------------------------------------------- Convert to table --------------------------------------------- //
+
+	fmt.Println("Running gatk VariantsToTable ...")
+	filteredTable := filepath.Join(resultsDir, "filtered.table")
+	cmd3 := exec.Command("gatk", "VariantsToTable", "-V", filepath.Join(resultsDir, "filtered.vcf"), "-F",
+		"CHROM", "-F", "POS", "-F", "REF", "-F", "ALT", "-F", "QUAL", "-F", "TYPE", "-GF", "GT", "-GF", "AD", "-GF",
+		"DP", "-GF", "GQ", "-O", filteredTable)
+
+	varTabErr := cmd3.Run()
+	if varTabErr != nil {
+		log.Fatalf("error running gatk SelectVariants: %s", varTabErr)
+	}
+
+	// ---------------------------------------------- Remove short contigs ------------------------------------------ //
+	fmt.Println("Removing short contigs ...")
+	variantRecords := readTsvToStructTwoBulkTwoPar(filteredTable, highPar, lowPar, highBulk, lowBulk)
+	bsaSeqRecords := removeShortContigsTwoBulkTwoPar(variantRecords, winSize, stepSize)
+	fmt.Printf("# Variants after removing short contigs: %d\n\n", len(bsaSeqRecords))
+	// ---------------------------------------------- Write to file ------------------------------------------------- //
+	writeTwoBulkTwoPar(bsaSeqRecords, highPar, lowPar, highBulk, lowBulk, filepath.Join(resultsDir, "filtered.tsv"))
+	fmt.Println("Filtered tsv file saved at: ", filepath.Join(resultsDir, "filtered.tsv"))
+	return bsaSeqRecords
+}
+
 func twoBulkTwoParTsvFilter(tsvFile string, highPar string, highParDP int, lowPar string, lowParDP int, highBulk string, highBulkDP int, lowBulk string, lowBulkDP int, winSize int, stepSize int, resultsDir string) []TwoBulkTwoParentsRecord {
 	// ----------------------------------------------- Read to struct ------------------------------------------------//
 	fmt.Printf("Reading VCF file %s ...\n\n", tsvFile)
@@ -565,37 +663,31 @@ func TwoBulkTwoParentsRun(
 
 	popStructure string,
 	rep int,
-	outDir string,
 ) {
-	// ======================================== Create Results dir ================================================== //
-	resultsDir := createResultsDir(outDir)
+	// ======================================== Create Results dir =================================================== #
+	resultsDir := createResultsDir()
 
-	// ========================================= Get tsv table ====================================================== //
+	// ======================================== Filter vcf file ====================================================== #
 	fmt.Printf("================================== Filtering Start ======================================\n\n")
-	var tsvFile string
+	var filteredRecords []TwoBulkTwoParentsRecord
 	if strings.ToLower(filepath.Ext(vcfFile)) == ".vcf" || strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
 		fmt.Printf("Working with VCF file ...\n\n")
 
-		fmt.Println("Running gatk VariantsToTable ...")
-		tsvFile = filepath.Join(resultsDir, "raw.txt")
-		cmd3 := exec.Command("gatk", "VariantsToTable", "-V", filepath.Join(resultsDir, "filtered.vcf"), "-F",
-			"CHROM", "-F", "POS", "-F", "REF", "-F", "ALT", "-F", "QUAL", "-F", "TYPE", "-GF", "GT", "-GF", "AD", "-GF",
-			"DP", "-GF", "GQ", "-O", tsvFile)
+		filterStart := time.Now()
+		filteredRecords = twoBulkTwoParVcfFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
+		filterEnd := time.Now()
 
-		varTabErr := cmd3.Run()
-		if varTabErr != nil {
-			log.Fatalf("error running gatk SelectVariants: %s", varTabErr)
-		}
-
+		filterElapsed := filterEnd.Sub(filterStart)
+		fmt.Printf("Filtering VCF took ... %s\n", filterElapsed)
+		n := len(filteredRecords)
+		fmt.Printf("# Variants after filtering: %d\n\n", n)
 	} else {
 		fmt.Println("Working with tsv file ...")
-		tsvFile = vcfFile
+		fmt.Printf("Filtering DF ...\n\n")
+		filteredRecords = twoBulkTwoParTsvFilter(vcfFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
+		fmt.Printf("# Variants after filtering: %d\n\n", len(filteredRecords))
+		//fmt.Printf("FilteredRecords: %v\n", filteredRecords)
 	}
-
-	fmt.Printf("Filtering DF ...\n\n")
-	filteredRecords := twoBulkTwoParTsvFilter(tsvFile, highParent, minHighParentDepth, lowParent, minLowParentDepth, highBulk, minHighBulkDepth, lowBulk, minLowBulkDepth, windowSize, stepSize, resultsDir)
-
-	fmt.Printf("# Variants after filtering: %d\n\n", len(filteredRecords))
 	fmt.Printf("================================== Filtering End ======================================\n\n")
 
 	// ============================================= STATISTICS ====================================================== #
@@ -726,3 +818,4 @@ func TwoBulkOnlyRun(
 	fmt.Printf("====================================== BSAseq Plotting End ========================================== \n\n")
 
 }
+

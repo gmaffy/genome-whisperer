@@ -9,13 +9,14 @@ import (
 	"time"
 )
 
-func createResultsDir() string {
-	bErr := os.MkdirAll("goBSAseqResults", 0755)
+func createResultsDir(outputDir string) string {
+
+	baseDir := filepath.Join(outputDir, "goBSAseqResults")
+	bErr := os.MkdirAll(filepath.Join(outputDir, "goBSAseqResults"), 0755)
 	if bErr != nil {
 		log.Fatalf("Error creating results directory: %s\n", bErr)
 	}
 
-	baseDir := "goBSAseqResults"
 	now := time.Now()
 	resultsDir := filepath.Join(baseDir, fmt.Sprintf("%02d_%02d_%04d_%02d_%02d_%02d", now.Day(), now.Month(), now.Year(), now.Hour(), now.Minute(), now.Second()))
 
