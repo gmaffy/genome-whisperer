@@ -6,6 +6,7 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ func RunBsaSeqFromConfig(
 	configFile string,
 	threads int,
 	species string,
-	bootstrap bool,
+
 	minHighParentDepth int,
 	minLowParentDepth int,
 	minHighBulkDepth int,
@@ -29,21 +30,19 @@ func RunBsaSeqFromConfig(
 	stepSize int,
 	smoothing bool,
 	popStructure string,
-	rep int) {
+	rep int,
+	bootstrap bool) {
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configFile)
 	if err != nil {
 		fmt.Printf("Error reading config: %v\n", err)
 		return
 	}
-	fmt.Println("Reference:", cfg.Reference)
-	fmt.Println("Species:", cfg.Species)
-	fmt.Println("Read Pairs:", cfg.ReadPairs)
-	fmt.Println("Threads", threads)
-	fmt.Println("Output directory:", cfg.OutputDir)
-	fmt.Println("Bams: ", cfg.Bams)
+
 	totalCores := runtime.NumCPU()
 	fmt.Printf("Available CPU cores: %d\n", totalCores)
+
+	// ------------------------------------------ Check Paths ------------------------------------------------------- //
 
 	knownSites := cfg.KnownSites
 
@@ -87,6 +86,23 @@ func RunBsaSeqFromConfig(
 
 	libSampleMap := make(map[string]string)
 
+	// --------------------------------------------- Log file ------------------------------------------------------- //
+	fmt.Println("Reading log file ...")
+	logFilePath := filepath.Join(outDir, "bsaseq.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	defer logFile.Close()
+
+	jsonHandler := slog.NewJSONHandler(logFile, nil)
+	jlog := slog.New(jsonHandler)
+
+	logged := utils.ParseLogFile(logFilePath)
+
+	jlog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+	slog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+
 	var rgmdBams []string
 	var bqsrBams []string
 	if len(readPairs) == 0 && len(configBams) == 0 {
@@ -108,7 +124,7 @@ func RunBsaSeqFromConfig(
 			fmt.Println("We will run BQSR using known-sites")
 			// ------------------------ Checking Known sites file paths ----------------------------------------- //
 			for j, _ := range knownSites {
-				_, err := os.Stat(knownSites[j])
+				_, err = os.Stat(knownSites[j])
 				if err != nil {
 					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
 					log.Fatal(err)
@@ -178,23 +194,71 @@ func RunBsaSeqFromConfig(
 				rgmdBams = append(rgmdBams, rgmdBam)
 				bqsrBams = append(bqsrBams, bqsrBam)
 
-				alignment.AlignShortReadsMem(refFile, fwd, rev, sn, lb, outDir, threads)
+				// --------------------------------------------- Log file ------------------------------------------------------- //
+				fmt.Println("Reading log file ...")
+
+				if utils.StageHasCompleted(logged, "BWA_MEM", sn, "ALL") {
+					fmt.Println("BWA_MEM has already completed. Skipping.")
+					//return
+				} else {
+					jlog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+					slog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+
+					err = alignment.AlignShortReadsMem(refFile, fwd, rev, sn, lb, outDir, threads)
+					if err != nil {
+						jlog.Error("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Errorf("FAILED: %v", err), "CMD", "ALL")
+						slog.Error("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Errorf("FAILED- %v", err), "CMD", "ALL")
+						return
+					}
+					jlog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
+					slog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
+
+				}
+
 			}(pair)
 
 		}
 		wg.Wait()
 
 		// --------------------------------------- Recalibrating Bams ----------------------------------------------- //
-		if len(knownSites) == 0 && bootstrap == false {
-			fmt.Println("Either pass a known-sites file or enable bootstrap method")
-			return
-		} else if len(knownSites) == 0 && bootstrap == true {
+		if len(knownSites) == 0 && bootstrap == true {
 			fmt.Println("Running with bootstrap method")
-			alignment.BootstrapBqsr(refFile, rgmdBams, maxParallelJobs)
+
+			if utils.StageHasCompleted(logged, "BQSR_BOOTSTRAP", "ALL", "ALL") {
+				fmt.Println("BQSR_BOOTSTRAP has already completed. Skipping.")
+
+			} else {
+				jlog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+				slog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+				err = alignment.BootstrapBqsr(refFile, rgmdBams, maxParallelJobs, logFilePath)
+				if err != nil {
+					jlog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
+					slog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
+					return
+				}
+				jlog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
+				slog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
+
+			}
+
 		} else if len(knownSites) > 0 {
 			fmt.Println("Running with known-sites flag")
 			// ---------------------------------- Running dbSnpBQSR ------------------------------------------------- //
-			alignment.DbSnpBqsr(refFile, rgmdBams, knownSites, maxParallelJobs)
+			if utils.StageHasCompleted(logged, "BQSRDB", "ALL", "ALL") {
+				fmt.Println("BQSRDB has already completed. Skipping.")
+
+			} else {
+				jlog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+				slog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+				err = alignment.DbSnpBqsr(refFile, rgmdBams, knownSites, maxParallelJobs, logFilePath)
+				if err != nil {
+					jlog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
+					slog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
+					return
+				}
+				jlog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
+				slog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
+			}
 
 		} else {
 			fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
@@ -222,20 +286,20 @@ func RunBsaSeqFromConfig(
 		}
 		if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
 			fmt.Println("Running 2 bulks only analysis")
-			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
 			fmt.Println("Running 2 bulks 2 parents analysis")
-			TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+			TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 
 		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
 			fmt.Println("Running 1 high bulk, 2 parent analysis")
 			outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 		} else if highParent != "" && lowParent != "" && highBulk == "" && lowBulk != "" {
 			fmt.Println("Running 1 low bulk, 2 parent analysis")
 			outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_low_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 		} else {
 			log.Fatal("Invalid parameters. Valid combinations are:\n" +
@@ -267,20 +331,20 @@ func RunBsaSeqFromConfig(
 		}
 		if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
 			fmt.Println("Running 2 bulks only analysis")
-			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
 			fmt.Println("Running 2 bulks 2 parents analysis")
-			TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+			TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 
 		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
 			fmt.Println("Running 1 high bulk, 2 parent analysis")
 			outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 		} else if highParent != "" && lowParent != "" && highBulk == "" && lowBulk != "" {
 			fmt.Println("Running 1 low bulk, 2 parent analysis")
 			outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_low_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 		} else {
 			log.Fatal("Invalid parameters. Valid combinations are:\n" +

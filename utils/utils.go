@@ -50,7 +50,7 @@ type LogEntry struct {
 }
 
 func CheckDeps() error {
-	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread"} //, "masurca", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
+	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
 
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {

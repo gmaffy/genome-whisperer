@@ -14,9 +14,13 @@ import (
 	"strings"
 )
 
-func InteractiveRun(vcfFile string, popStructure string, rep int) {
+func InteractiveRun(vcfFile string, popStructure string, rep int, outDir string) {
 	// ======================================== Create Results dir =================================================== #
-	resultsDir := createResultsDir()
+	resultsDir, err := createResultsDir(outDir)
+	if err != nil {
+		fmt.Println("Error creating results directory:", err)
+		return
+	}
 	// =========================================== Convert VCF to Tsv ================================================ #
 	fmt.Printf("Converting table to dataframe ...\n\n")
 	var tsvFile string
@@ -263,7 +267,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 		}
 
 		fmt.Println("LETS RUN ....")
-		TwoBulkOnlyRun(vcfFile, highBulk, lowBulk, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+		TwoBulkOnlyRun(vcfFile, highBulk, lowBulk, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 	} else if lowBulkChoice == 0 && highBulkChoice != 0 && lowParentChoice != 0 && highParentChoice != 0 {
 		fmt.Println("Working with one bulk BSAseq (HIGH bulk)...")
 		fmt.Printf("Enter minimum depth for HIGH BULK %s (integer): \n", highBulk)
@@ -303,7 +307,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 			return
 		}
 		outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
-		OneBulkTwoParentsRun(vcfFile, highParent, lowParent, highBulk, highParentDepth, lowParentDepth, highBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+		OneBulkTwoParentsRun(vcfFile, highParent, lowParent, highBulk, highParentDepth, lowParentDepth, highBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 	} else if highBulkChoice == 0 && highParentChoice != 0 && lowParentChoice != 0 {
 		fmt.Println("Working with one bulk BSAseq (LOW bulk)...")
@@ -342,7 +346,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 			return
 		}
 		outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_low_bsaseq_stats.tsv"
-		OneBulkTwoParentsRun(vcfFile, highParent, lowParent, lowBulk, highParentDepth, lowParentDepth, lowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+		OneBulkTwoParentsRun(vcfFile, highParent, lowParent, lowBulk, highParentDepth, lowParentDepth, lowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 	} else {
 		fmt.Println("Working with two bulks")
@@ -401,7 +405,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int) {
 
 		fmt.Println("LETS RUN ....")
 
-		TwoBulkTwoParentsRun(vcfFile, highParent, lowParent, highBulk, lowBulk, highParentDepth, lowParentDepth, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+		TwoBulkTwoParentsRun(vcfFile, highParent, lowParent, highBulk, lowBulk, highParentDepth, lowParentDepth, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 
 	}
 }

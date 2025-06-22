@@ -164,7 +164,7 @@ var goBSAseqCmd = &cobra.Command{
 
 		if interactive {
 			fmt.Println("Running in interactive mode")
-			bsaseq.InteractiveRun(variantFile, popStructure, rep)
+			bsaseq.InteractiveRun(variantFile, popStructure, rep, outputDir)
 
 		} else {
 			//fmt.Println("Running in non-interactive mode")
@@ -180,12 +180,12 @@ var goBSAseqCmd = &cobra.Command{
 					log.Fatal("Please provide a species name")
 				}
 				fmt.Println("Running from config file")
-				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, bootstrap, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap)
 			} else {
 				fmt.Println("Running from vcf file")
 				if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
 					fmt.Println("Running 2 bulks only analysis")
-					bsaseq.TwoBulkOnlyRun(variantFile, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep)
+					bsaseq.TwoBulkOnlyRun(variantFile, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputDir)
 				} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
 					fmt.Println("Running 2 bulks 2 parents analysis")
 					bsaseq.TwoBulkTwoParentsRun(variantFile, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputDir)
@@ -193,12 +193,12 @@ var goBSAseqCmd = &cobra.Command{
 				} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
 					fmt.Println("Running 1 high bulk, 2 parent analysis")
 					outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
-					bsaseq.OneBulkTwoParentsRun(variantFile, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+					bsaseq.OneBulkTwoParentsRun(variantFile, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outputDir)
 
 				} else if highParent != "" && lowParent != "" && highBulk == "" && lowBulk != "" {
 					fmt.Println("Running 1 low bulk, 2 parent analysis")
 					outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_low_bsaseq_stats.tsv"
-					bsaseq.OneBulkTwoParentsRun(variantFile, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName)
+					bsaseq.OneBulkTwoParentsRun(variantFile, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outputDir)
 
 				} else {
 					log.Fatal("Invalid parameters. Valid combinations are:\n" +
@@ -258,6 +258,7 @@ func init() {
 	goBSAseqCmd.Flags().BoolP("smooth", "s", false, "smooth your plot")
 	goBSAseqCmd.Flags().BoolP("interactive", "i", false, "interactive")
 	goBSAseqCmd.Flags().Bool("bootstrap", false, "BSQR bootstrap")
+	//goBSAseqCmd.Flags().Bool("bqsr", false, "enable base quality score recalibration")
 
 	//----------------------------------------------- if config ----------------------------------------------------- //
 	goBSAseqCmd.Flags().Int("threads", 8, "number of threads")

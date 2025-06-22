@@ -68,7 +68,7 @@ var alignSrMemCmd = &cobra.Command{
 			log.Fatalf("Error getting threads flag: %v", tErr)
 		}
 
-		bootsrap, bErr := cmd.Flags().GetBool("bootstrap")
+		bootstrap, bErr := cmd.Flags().GetBool("bootstrap")
 		if tErr != nil {
 			log.Fatalf("Error getting bootstrap flag: %v", bErr)
 		}
@@ -78,7 +78,7 @@ var alignSrMemCmd = &cobra.Command{
 			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
 		}
 
-		knownsites, ksErr := cmd.Flags().GetStringSlice("known-sites")
+		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
 		if ksErr != nil {
 			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
 		}
@@ -89,7 +89,7 @@ var alignSrMemCmd = &cobra.Command{
 			if confErr != nil {
 				log.Fatalf("Error reading config file: %v", confErr)
 			}
-			alignment.AlignShortReadsConfig(configFile, threads, knownsites, bqsr, bootsrap)
+			alignment.AlignShortReadsConfig(configFile, threads, bqsr, bootstrap)
 		} else {
 			fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
@@ -128,6 +128,28 @@ var alignSrMemCmd = &cobra.Command{
 				return
 			}
 			fmt.Printf("All paths PASSED...\n ")
+			// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
+			if bqsr {
+				fmt.Println("Skipping BQSR")
+				if len(knownSites) == 0 && bootstrap == false {
+					fmt.Println("Either pass a known-sites file or enable bootstrap method")
+					return
+				} else if len(knownSites) > 0 {
+					fmt.Println("Running with known-sites flag")
+					// ---------------------------- Checking Known sites file paths ----------------------------------------- //
+					for j, _ := range knownSites {
+						_, err := os.Stat(knownSites[j])
+						if err != nil {
+							fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
+							log.Fatal(err)
+						}
+					}
+					if bootstrap == true {
+						fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
+						return
+					}
+				}
+			}
 			alignment.AlignShortReadsMem(referencePath, forwardPath, reversePath, sampleName, libName, outDir, threads)
 		}
 	},

@@ -731,15 +731,35 @@ func TwoBulkTwoParentsRun(
 			return
 		}
 
-		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
+		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_snp.tsv"))
 
-		err = writeTwoBulkTwoPar(slidingRecordsSNPs, highParent, lowParent, highBulk, lowBulk, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
+		err = writeTwoBulkTwoPar(slidingRecordsSNPs, highParent, lowParent, highBulk, lowBulk, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_snp.tsv"))
 		if err != nil {
 			fmt.Println("Error writing stats file to file")
 			return
 		}
 		jlog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+
+	}
+
+	if utils.StageHasCompleted(logged, "PLOTTING", "SNP", "ALL") {
+		fmt.Println("Plotting is SNPs already done. Skipping ...")
+		return
+	} else {
+		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+
+		err = plottingCharts(slidingRecordsSNPs, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot_snp.html"), filepath.Join(resultsDir, "goBSAseq_snp.tsv"), smoothing)
+		if err != nil {
+			fmt.Println("Error plotting charts: ", err)
+			jlog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "FAILED")
+			slog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "FAILED")
+			return
+		}
+		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		fmt.Printf("====================================== BSAseq Plotting End ========================================== \n\n")
 
 	}
 
@@ -749,53 +769,33 @@ func TwoBulkTwoParentsRun(
 	} else {
 		jlog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slidingRecordsSNPs = slidingWindowAnalysis(statsRecords, "INDEL", windowSize, stepSize)
-		if len(slidingRecordsSNPs) == 0 {
+		slidingRecordsINDELs = slidingWindowAnalysis(statsRecords, "INDEL", windowSize, stepSize)
+		if len(slidingRecordsINDELs) == 0 {
 			jlog.Error("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "FAILED")
 			slog.Error("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "FAILED")
 			return
 		}
 
-		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
+		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_indel.tsv"))
 
-		err = writeTwoBulkTwoPar(slidingRecordsSNPs, highParent, lowParent, highBulk, lowBulk, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
+		err = writeTwoBulkTwoPar(slidingRecordsINDELs, highParent, lowParent, highBulk, lowBulk, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_indel.tsv"))
 		if err != nil {
 			fmt.Println("Error writing stats file to file")
 			return
 		}
-		jlog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-		slog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		jlog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		slog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 
 	}
 
-	if utils.StageHasCompleted(logged, "PLOTTING", statsFile, "ALL") {
-		fmt.Println("Plotting is already done. Skipping ...")
+	if utils.StageHasCompleted(logged, "PLOTTING", "INDEL", "INDEL") {
+		fmt.Println("Plotting SNPs is already done. Skipping ...")
 		return
 	} else {
-		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-		err = plottingCharts(slidingRecords, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot.html"), filepath.Join(resultsDir, "goBSAseq.tsv"), smoothing)
-		if err != nil {
-			fmt.Println("Error plotting charts: ", err)
-			jlog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "FAILED")
-			slog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "FAILED")
-			return
-		}
-		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-		fmt.Printf("====================================== BSAseq Plotting End ========================================== \n\n")
-
-	}
-
-	if utils.StageHasCompleted(logged, "PLOTTING", statsFile, "INDEL") {
-		fmt.Println("Plotting is already done. Skipping ...")
-		return
-	} else {
-		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-
-		err = plottingCharts(slidingRecords, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot.html"), filepath.Join(resultsDir, "goBSAseq.tsv"), smoothing)
+		err = plottingCharts(slidingRecordsINDELs, filepath.Join(resultsDir, highParent+"_samp_"+lowParent+"_samp_"+highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot.html"), filepath.Join(resultsDir, "goBSAseq.tsv"), smoothing)
 		if err != nil {
 			fmt.Println("Error plotting charts: ", err)
 			jlog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", statsFile, "CHROMOSOME", "ALL", "STATUS", "FAILED")
@@ -902,7 +902,7 @@ func TwoBulkOnlyRun(
 	} else {
 		jlog.Info("BSASEQ", "PROGRAM", "STATS", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 		slog.Info("BSASEQ", "PROGRAM", "STATS", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-		statsRecords, err := twoBulkOnlyStats(filteredRecords, highBulkSize, lowBulkSize, popStructure, rep)
+		statsRecords, err = twoBulkOnlyStats(filteredRecords, highBulkSize, lowBulkSize, popStructure, rep)
 		if err != nil {
 			jlog.Error("BSASEQ", "PROGRAM", "STATS", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BSASEQ", "PROGRAM", "STATS", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -971,11 +971,11 @@ func TwoBulkOnlyRun(
 
 	}
 
-	if utils.StageHasCompleted(logged, "SLIDING_WINDOW", "SNP", "ALL") {
+	if utils.StageHasCompleted(logged, "SLIDING_WINDOW", "INDEL", "ALL") {
 		fmt.Println("SLIDING_WINDOW has already completed. Skipping.")
 	} else {
-		jlog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-		slog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+		jlog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+		slog.Info("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
 		fmt.Printf("Performing sliding window analysis for INDELs ...\n\n")
 		slidingRecordsIndels := slidingWindowAnalysis(statsRecords, "INDEL", windowSize, stepSize)

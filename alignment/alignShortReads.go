@@ -13,6 +13,8 @@ import (
 
 func AlignShortReadsMem(referencePath string, forwardPath string, reversePath string, sampleName string, libName string, outputDir string, threads int) error {
 
+	// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
+
 	fmt.Println("Reading ...")
 	// ----------------------------------------- Output Paths ------------------------------------------------------- //
 	lineDir := fmt.Sprintf("%s/%s", outputDir, sampleName)
@@ -54,11 +56,12 @@ func AlignShortReadsMem(referencePath string, forwardPath string, reversePath st
 	if err != nil {
 		return err
 	}
+
 	return nil
 
 }
 
-func AlignShortReadsConfig(configPath string, threadsPerSample int, knownSites []string, bqsr bool, bootstrap bool) {
+func AlignShortReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool) {
 
 	// ---------------------------------------- Check Paths --------------------------------------------------------- //
 	fmt.Println("Reading config file ...")
@@ -172,6 +175,7 @@ func AlignShortReadsConfig(configPath string, threadsPerSample int, knownSites [
 	sem := make(chan struct{}, maxParallelJobs)
 
 	// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
+	knownSites := cfg.KnownSites
 	if bqsr {
 		fmt.Println("Skipping BQSR")
 		if len(knownSites) == 0 && bootstrap == false {

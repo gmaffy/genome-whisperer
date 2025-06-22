@@ -148,13 +148,13 @@ func removeShortContigsOneBulkTwoPar(variants []OneBulkTwoParentsRecord, winSize
 	return bsaSeqRecords
 }
 
-func writeOneBulkTwoPar(variants []OneBulkTwoParentsRecord, highPar string, lowPar string, bulk string, outputFile string) {
+func writeOneBulkTwoPar(variants []OneBulkTwoParentsRecord, highPar string, lowPar string, bulk string, outputFile string) error {
 	file, err := os.Create(outputFile)
 	if err != nil {
 		log.Fatalf("Failed to create output CSV: %v", err)
 	}
 	defer func(file *os.File) {
-		err := file.Close()
+		err = file.Close()
 		if err != nil {
 			panic(err)
 		}
@@ -174,6 +174,7 @@ func writeOneBulkTwoPar(variants []OneBulkTwoParentsRecord, highPar string, lowP
 	}
 	if hErr := writer.Write(header); hErr != nil {
 		log.Fatalf("Failed to write header: %v", hErr)
+		return hErr
 	}
 
 	for _, rec := range variants {
@@ -189,8 +190,10 @@ func writeOneBulkTwoPar(variants []OneBulkTwoParentsRecord, highPar string, lowP
 		}
 		if wErr := writer.Write(record); wErr != nil {
 			log.Fatalf("Error: %s\n", wErr)
+			return wErr
 		}
 	}
+	return nil
 
 }
 
