@@ -52,14 +52,12 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	defer logFile.Close()
 
 	jsonHandler := slog.NewJSONHandler(logFile, nil)
-
 	jlog := slog.New(jsonHandler)
 
 	jlog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 	slog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
 	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
-
 	logged := utils.ParseLogFile(logFilePath)
 
 	if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", "ALL") {

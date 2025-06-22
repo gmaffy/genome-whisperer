@@ -156,7 +156,7 @@ func readTsvToStructTwoBulkTwoPar(tsvFile string, highPar string, lowPar string,
 	return data, nil
 }
 
-func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string) []TwoBulkTwoParentsRecord {
+func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string) ([]TwoBulkTwoParentsRecord, error) {
 	file, err := os.Open(tsvFile)
 	if err != nil {
 		log.Fatal(err)
@@ -172,7 +172,8 @@ func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string)
 		log.Fatal(err)
 	}
 	if len(records) < 2 {
-		log.Fatalf("Expected at least 2 rows, got %d", len(records))
+		//log.Fatalf("Expected at least 2 rows, got %d", len(records))
+		return nil, fmt.Errorf("Expected at least 2 rows, got %d", len(records))
 	}
 
 	header := records[0]
@@ -189,7 +190,8 @@ func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string)
 			}
 		}
 		if !found {
-			log.Fatalf("required column %s not found in header", col)
+			//log.Fatalf("required column %s not found in header", col)
+			return nil, fmt.Errorf("required column %s not found in header", col)
 		}
 	}
 
@@ -221,7 +223,7 @@ func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string)
 		}
 		data = append(data, r)
 	}
-	return data
+	return data, nil
 }
 
 func gStatistic(a1, b1, a2, b2 int) float64 {
@@ -354,7 +356,7 @@ func removeShortContigsTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, winSize
 	return bsaSeqRecords, nil
 }
 
-func removeShortContigsTwoBulkOnly(variants []TwoBulkTwoParentsRecord, winSize int, stepSize int) []TwoBulkTwoParentsRecord {
+func removeShortContigsTwoBulkOnly(variants []TwoBulkTwoParentsRecord, winSize int, stepSize int) ([]TwoBulkTwoParentsRecord, error) {
 	chromMax := make(map[string]float64)
 	for _, v := range variants {
 		if v.Pos > chromMax[v.Chrom] {
@@ -382,7 +384,7 @@ func removeShortContigsTwoBulkOnly(variants []TwoBulkTwoParentsRecord, winSize i
 		}
 	}
 
-	return bsaSeqRecords
+	return bsaSeqRecords, nil
 }
 
 func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowPar string, highBulk string, lowBulk string, outputFile string) error {
@@ -439,14 +441,16 @@ func writeTwoBulkTwoPar(variants []TwoBulkTwoParentsRecord, highPar string, lowP
 			strconv.FormatFloat(rec.GsP99, 'f', 6, 64), strconv.FormatFloat(rec.GsP95, 'f', 6, 64),
 		}
 		if wErr := writer.Write(record); wErr != nil {
-			log.Fatalf("Error: %s\n", wErr)
+			//log.Fatalf("Error: %s\n", wErr)
+			fmt.Println("Error: ", wErr)
+			return wErr
 		}
 	}
 	return nil
 
 }
 
-func writeTwoBulkOnly(variants []TwoBulkTwoParentsRecord, highBulk string, lowBulk string, outputFile string) {
+func writeTwoBulkOnly(variants []TwoBulkTwoParentsRecord, highBulk string, lowBulk string, outputFile string) error {
 	file, err := os.Create(outputFile)
 	if err != nil {
 		log.Fatalf("Failed to create output CSV: %v", err)
@@ -497,8 +501,10 @@ func writeTwoBulkOnly(variants []TwoBulkTwoParentsRecord, highBulk string, lowBu
 		}
 		if wErr := writer.Write(record); wErr != nil {
 			log.Fatalf("Error: %s\n", wErr)
+			return wErr
 		}
 	}
+	return nil
 
 }
 
