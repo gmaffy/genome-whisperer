@@ -186,14 +186,14 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 
 	// --------------------------------------------- Output Paths --------------------------------------------------- //
 	rawVCF := strings.TrimSuffix(bam, ".bam") + ".raw.vcf.gz"
-	snpVCF := strings.TrimSuffix(bam, ".bam") + ".SNP.vcf.gz"
-	indelVCF := strings.TrimSuffix(bam, ".bam") + ".INDEL.vcf.gz"
-	hardFilteredSnpVCF := strings.TrimSuffix(bam, ".bam") + ".hard_filtered.SNP.vcf.gz"
-	hardFilteredIndelVCF := strings.TrimSuffix(bam, ".bam") + ".hard_filtered.INDEL.vcf.gz"
+	snpVCF := strings.TrimSuffix(bam, ".bam") + ".raw.SNP.vcf.gz"
+	indelVCF := strings.TrimSuffix(bam, ".bam") + ".raw.INDEL.vcf.gz"
+	hardFilteredSnpVCF := strings.TrimSuffix(bam, ".bam") + ".raw.SNP.hard_filtered.vcf.gz"
+	hardFilteredIndelVCF := strings.TrimSuffix(bam, ".bam") + ".raw.INDEL.hard_filtered.vcf.gz"
 
 	// --------------------------------------------- Haplotype Caller ----------------------------------------------- //
 	if utils.StageHasCompleted(logged, "HaplotypeCaller", bam, "ALL") {
-		msg := fmt.Sprintf("HaplotypeCaller already completed for bam file: %s. Skipping\n", bam)
+		msg := fmt.Sprintf("HaplotypeCaller already completed for bam file: %s. Skipping\n\n---------------------------\n\n", bam)
 		slog.Info(msg)
 
 	} else {
@@ -311,6 +311,8 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) e
 
 	jlog := slog.New(jsonHandler)
 
+	logged := utils.ParseLogFile(logFilePath)
+
 	jlog.Info("BQSR", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 	slog.Info("BQSR", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 	var wg sync.WaitGroup
@@ -324,32 +326,48 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) e
 		go func(bam string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-			slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "COMPLETED")
-			knownSites, err = CreateKnownVariants(ref, bam, logFilePath)
-			if err != nil {
-				jlog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
-				slog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
-				return
+			if utils.StageHasCompleted(logged, "CREATE_KNOWN_VARIANTS", bam, "ALL") {
+				msg := fmt.Sprintf("CREATE_KNOWN_VARIANTS already completed for bam file: %s. Skipping\n", bam)
+				slog.Info(msg)
+			} else {
+				fmt.Printf("Creating known variants for bam file: %s\n", bam)
+				jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+				slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "STARTED")
+				knownSites, err = CreateKnownVariants(ref, bam, logFilePath)
+				if err != nil {
+					jlog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
+					slog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
+					return
+				}
+				jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "COMPLETED")
+
 			}
-			jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-			slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "COMPLETED")
 
 		}(bam)
 	}
 	wg.Wait()
 
 	// --------------------------------------------- Run BQSR ------------------------------------------------------- //
-	jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
-	slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
-	err = DbSnpBqsr(ref, bams, knownSites, numJobs, logFilePath)
-	if err != nil {
-		jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
-		return err
+
+	if utils.StageHasCompleted(logged, "BQSR", "ALL", "ALL") {
+		msg := fmt.Sprintf("BQSR already completed for ALL samples. Skipping\n")
+		slog.Info(msg)
+		//return nil
+	} else {
+		jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+		slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
+		err = DbSnpBqsr(ref, bams, knownSites, numJobs, logFilePath)
+		if err != nil {
+			jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+			slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
+			return err
+		}
+		jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "COMPLETED")
+
 	}
-	jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-	slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "COMPLETED")
+
 	return nil
 }
 

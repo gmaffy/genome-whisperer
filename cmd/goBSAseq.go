@@ -37,7 +37,7 @@ var goBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting vcf flag: %v", varErr)
 		}
 
-		outputDir, outErr := cmd.Flags().GetString("vcf")
+		outputDir, outErr := cmd.Flags().GetString("out")
 		if outErr != nil {
 			log.Fatalf("Error getting vcf flag: %v", outErr)
 		}
@@ -142,26 +142,6 @@ var goBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting species flag: %v", sErr)
 		}
 
-		outInfo, outErr := os.Stat(outputDir)
-
-		if outErr != nil {
-
-			if os.IsNotExist(outErr) {
-				fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outputDir)
-				if createErr := os.MkdirAll(outputDir, 0755); createErr != nil {
-					fmt.Printf("Failed to create output directory %s: %v\n", outputDir, createErr)
-					return
-				}
-				fmt.Printf("Output directory %s created successfully.\n", outputDir)
-			} else {
-				fmt.Printf("Error accessing output directory %s: %v\n", outputDir, outErr)
-				return
-			}
-		} else if !outInfo.IsDir() {
-			fmt.Printf("Output Directory %s file path is not a directory\n", outputDir)
-			return
-		}
-
 		if interactive {
 			fmt.Println("Running in interactive mode")
 			bsaseq.InteractiveRun(variantFile, popStructure, rep, outputDir)
@@ -182,6 +162,29 @@ var goBSAseqCmd = &cobra.Command{
 				fmt.Println("Running from config file")
 				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap)
 			} else {
+				if outputDir == "" {
+					fmt.Println("No output directory provided. Supply path to output directory with -o flag")
+					return
+				}
+				outInfo, outErr := os.Stat(outputDir)
+
+				if outErr != nil {
+
+					if os.IsNotExist(outErr) {
+						fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outputDir)
+						if createErr := os.MkdirAll(outputDir, 0755); createErr != nil {
+							fmt.Printf("Failed to create output directory %s: %v\n", outputDir, createErr)
+							return
+						}
+						fmt.Printf("Output directory %s created successfully.\n", outputDir)
+					} else {
+						fmt.Printf("Error accessing output directory %s: %v\n", outputDir, outErr)
+						return
+					}
+				} else if !outInfo.IsDir() {
+					fmt.Printf("Output Directory %s file path is not a directory\n", outputDir)
+					return
+				}
 				fmt.Println("Running from vcf file")
 				if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
 					fmt.Println("Running 2 bulks only analysis")

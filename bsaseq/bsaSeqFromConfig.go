@@ -54,6 +54,7 @@ func RunBsaSeqFromConfig(
 	}
 
 	outDir := cfg.OutputDir
+	fmt.Printf("Output Directory: %s\n", outDir)
 	outInfo, outErr := os.Stat(outDir)
 	if outErr != nil {
 
@@ -176,7 +177,7 @@ func RunBsaSeqFromConfig(
 				libSampleMap[lb] = sn
 			}
 		}
-
+		fmt.Printf("\n\n--------------------------------------- RUNNING BQSR ---------------------------------------\n\n")
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, maxParallelJobs)
 		for _, pair := range cfg.ReadPairs {
@@ -195,10 +196,10 @@ func RunBsaSeqFromConfig(
 				bqsrBams = append(bqsrBams, bqsrBam)
 
 				// --------------------------------------------- Log file ------------------------------------------------------- //
-				fmt.Println("Reading log file ...")
+				//fmt.Println("Reading log file ...")
 
 				if utils.StageHasCompleted(logged, "BWA_MEM", sn, "ALL") {
-					fmt.Println("BWA_MEM has already completed. Skipping.")
+					fmt.Printf("BWA_MEM for %s has already completed. Skipping...\n---------------------------------------\n\n", sn)
 					//return
 				} else {
 					jlog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
