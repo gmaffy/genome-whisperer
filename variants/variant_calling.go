@@ -89,11 +89,11 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 		hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 		theDB := filepath.Join(chromDirPath, chromDir+"DB")
 
-		if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", seq.ID) {
-			slog.Info(fmt.Sprintf("Chromosome %s already processed all steps. Skipping\n", seq.ID))
-			jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
-			continue
-		}
+		//if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", seq.ID) {
+		//	slog.Info(fmt.Sprintf("Chromosome %s already processed all steps. Skipping\n", seq.ID))
+		//	jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
+		//	continue
+		//}
 
 		sem <- struct{}{}
 		wg.Add(1)
@@ -142,7 +142,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					if hapErr != nil {
 						jlog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
 						slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
-
+						log.Fatalf("FAILED: %v", hapErr)
 						return
 					}
 
@@ -167,6 +167,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				if dErr != nil {
 					fmt.Println("Error removing directory:", dErr)
 					slog.Error("VARIANT CALLING", "PROGRAM", "rm ", "SAMPLE", theDB, "CHROMOSOME", seq.ID, "STATUS", "ERROR", "CMD", fmt.Sprintf("%v", dErr))
+					log.Fatalf("Error removing directory: %v", dErr)
 					return
 				} else {
 					fmt.Println("Directory removed successfully (if it existed).")
@@ -184,6 +185,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 					jlog.Error("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", gErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", gErr))
+					log.Fatalf("FAILED: %v", gErr)
 					return
 				}
 
@@ -209,6 +211,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 					jlog.Error("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", gtErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", gtErr))
+					log.Fatalf("FAILED: %v", gtErr)
 					return
 				}
 				jlog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
@@ -234,6 +237,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 					jlog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", sErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", sErr))
+					log.Fatalf("FAILED: %v", sErr)
 					return
 				}
 				jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
@@ -255,6 +259,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				if iErr != nil {
 					jlog.Error("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", iErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", iErr))
+					log.Fatalf("FAILED: %v", iErr)
 					return
 				}
 				jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
@@ -280,6 +285,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					//log.Printf("%s\tHardFilteringSNPS\tALL\tFAILED\tSNPs - Error: %v\n", seq.ID, hsErr)
 					jlog.Error("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hsErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", hsErr))
+					log.Fatalf("FAILED: %v", hsErr)
 					return
 				}
 				//log.Printf("%s\tHardFilteringSNPS\tALL\tFINISHED\tSNPs\n", seq.ID)
@@ -306,6 +312,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					//log.Printf("%s\tHardFilteringINDELS\tALL\tFAILED\tINDELs - Error: %v\n", seq.ID, hiErr)
 					jlog.Error("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hiErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", hiErr))
+					log.Fatalf("FAILED: %v", hiErr)
 					return
 				}
 				//log.Printf("%s\tHardFilteringINDELS\tALL\tFINISHED\tINDELs\n", seq.ID)
@@ -334,7 +341,9 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					//log.Printf("%s\tMergeVcfs\tALL\tFAILED\t%s - Error: %v\n", seq.ID, mergeCmdStr, mErr)
 					jlog.Error("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", mErr))
 					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", mErr))
+					log.Fatalf("FAILED: %v", mErr)
 					return
+
 				}
 				//log.Printf("%s\tMergeVcfs\tALL\tFINISHED\t%s\n", seq.ID, mergeCmdStr)
 				jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
