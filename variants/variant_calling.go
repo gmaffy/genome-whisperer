@@ -76,9 +76,22 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 	for sc.Next() {
 		seq := sc.Seq().(*linear.Seq)
+		chromDir := strings.ReplaceAll(seq.ID, ".", "_")
+		chromDirPath := filepath.Join(out, chromDir)
+		gvcfPath := filepath.Join(chromDirPath, "gvcfs")
+		tmpPath := filepath.Join(chromDirPath, "tmp")
+		tmp2Path := filepath.Join(chromDirPath, "tmp2")
+		vcfPath := filepath.Join(chromDirPath, "VCFs")
+
+		jointVCF := filepath.Join(vcfPath, species+"_"+chromDir+".joint.vcf.gz")
+		snpVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".SNP.vcf.gz"
+		indelVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".INDEL.vcf.gz"
+		hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
+		theDB := filepath.Join(chromDirPath, chromDir+"DB")
 
 		if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", seq.ID) {
 			slog.Info(fmt.Sprintf("Chromosome %s already processed all steps. Skipping\n", seq.ID))
+			jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
 			continue
 		}
 
@@ -93,12 +106,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 			fmt.Println(seq.ID)
 
-			chromDir := strings.ReplaceAll(seq.ID, ".", "_")
-			chromDirPath := filepath.Join(out, chromDir)
-			gvcfPath := filepath.Join(chromDirPath, "gvcfs")
-			tmpPath := filepath.Join(chromDirPath, "tmp")
-			tmp2Path := filepath.Join(chromDirPath, "tmp2")
-			vcfPath := filepath.Join(chromDirPath, "VCFs")
 			slog.Info("Creating directories ...")
 			dirsToCreate := []string{chromDirPath, gvcfPath, tmpPath, tmp2Path, vcfPath}
 			for _, dir := range dirsToCreate {
@@ -145,12 +152,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				}
 
 			}
-
-			jointVCF := filepath.Join(vcfPath, species+"_"+chromDir+".joint.vcf.gz")
-			snpVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".SNP.vcf.gz"
-			indelVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".INDEL.vcf.gz"
-			hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
-			theDB := filepath.Join(chromDirPath, chromDir+"DB")
 
 			// ---------------------------------- GENOMICS DB IMPORT (Skip completed) ------------------------------- //
 
