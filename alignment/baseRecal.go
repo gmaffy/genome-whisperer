@@ -148,7 +148,7 @@ func DbSnpBqsr(ref string, bams []string, knownSites []string, numJobs int, logF
 				msg := fmt.Sprintf("RECALIBRATE already completed for bam file: %s. Skipping ....\n", bam)
 				slog.Info(msg)
 			} else {
-				err := Recalibrate(ref, bam, knownSites, logFilePath)
+				err = Recalibrate(ref, bam, knownSites, logFilePath)
 				if err != nil {
 					jlog.Error("BQSR", "PROGRAM", "RECALIBRATE", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 					slog.Error("BQSR", "PROGRAM", "RECALIBRATE", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -193,7 +193,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 
 	// --------------------------------------------- Haplotype Caller ----------------------------------------------- //
 	if utils.StageHasCompleted(logged, "HaplotypeCaller", bam, "ALL") {
-		msg := fmt.Sprintf("HaplotypeCaller already completed for bam file: %s. Skipping\n\n---------------------------\n\n", bam)
+		msg := fmt.Sprintf("HaplotypeCaller already completed for bam file: %s. Skipping ...\n\n---------------------------\n\n", bam)
 		slog.Info(msg)
 
 	} else {
@@ -233,7 +233,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 
 	// --------------------------------------------- Select INDELs -------------------------------------------------- //
 	if utils.StageHasCompleted(logged, "SelectINDELs", bam, "ALL") {
-		msg := fmt.Sprintf("SelectINDELs already completed for bam file: %s. Skipping\n", bam)
+		msg := fmt.Sprintf("SelectINDELs already completed for bam file: %s. Skipping ..\n\n-------------------------------------------\n\n", bam)
 		slog.Info(msg)
 
 	} else {
@@ -256,8 +256,8 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 		msg := fmt.Sprintf("HardFilterSNPs already completed for bam file: %s. Skipping\n", bam)
 		slog.Info(msg)
 	} else {
-		jlog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "STARTED")
+		jlog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+		slog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "STARTED")
 
 		err = variants.HardFilterSNPs(snpVCF)
 		if err != nil {
@@ -266,7 +266,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 			return []string{}, err
 		}
 		jlog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-		slog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "COMPLETED")
+		slog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "COMPLETED")
 	}
 
 	// -------------------------------------- HARD FILTER INDELS ---------------------------------------------------- //
@@ -275,7 +275,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 		slog.Info(msg)
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "STARTED")
+		slog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "STARTED")
 		err = variants.HardFilterINDELs(indelVCF)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -283,7 +283,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 			return []string{}, err
 		}
 		jlog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-		slog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "COMPLETED")
+		slog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "COMPLETED")
 	}
 
 	_, sErr := os.Stat(hardFilteredSnpVCF)
@@ -359,8 +359,8 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) e
 		slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
 		err = DbSnpBqsr(ref, bams, knownSites, numJobs, logFilePath)
 		if err != nil {
-			jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
-			slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
+			jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
+			slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			return err
 		}
 		jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
