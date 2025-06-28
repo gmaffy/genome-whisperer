@@ -233,8 +233,9 @@ func RunBsaSeqFromConfig(
 				slog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 				err = alignment.BootstrapBqsr(refFile, rgmdBams, maxParallelJobs, logFilePath)
 				if err != nil {
-					jlog.Error("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
-					slog.Error("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
+					jlog.Error("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
+					slog.Error("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
+					log.Fatal(err)
 					return
 				}
 				jlog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
@@ -255,6 +256,7 @@ func RunBsaSeqFromConfig(
 				if err != nil {
 					jlog.Error("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
 					slog.Error("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
+					log.Fatal(err)
 					return
 				}
 				jlog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
@@ -267,7 +269,7 @@ func RunBsaSeqFromConfig(
 		}
 
 		// ---------------------------------------- Variant Calling ------------------------------------------------- //
-		variants.VariantCalling(refFile, bqsrBams, outDir, species, maxParallelJobs, "INFO")
+		variants.VariantCalling(refFile, bqsrBams, outDir, species, 4, "INFO")
 		finalVcf := filepath.Join(outDir, species+"_"+".joint_hard_filtered.vcf.gz")
 
 		// --------------------------------------------- BSAseq ----------------------------------------------------- //
@@ -312,7 +314,7 @@ func RunBsaSeqFromConfig(
 	} else {
 		fmt.Println("Starting from bam files")
 		// ---------------------------------------- Variant Calling ------------------------------------------------- //
-		variants.VariantCalling(refFile, configBams, outDir, species, maxParallelJobs, "INFO")
+		variants.VariantCalling(refFile, configBams, outDir, species, 4, "INFO")
 		finalVcf := filepath.Join(outDir, species+"_"+".joint_hard_filtered.vcf.gz")
 
 		// --------------------------------------------- BSAseq ----------------------------------------------------- //
