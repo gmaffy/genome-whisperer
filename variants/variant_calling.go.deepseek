@@ -1,0 +1,233 @@
+package variants
+
+import (
+	"compress/gzip"
+	"fmt"
+	"github.com/biogo/biogo/alphabet"
+	"github.com/biogo/biogo/io/seqio"
+	"github.com/biogo/biogo/io/seqio/fasta"
+	"github.com/biogo/biogo/seq/linear"
+	"github.com/gmaffy/genome-whisperer/utils"
+	"io"
+	"log"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+func VariantCalling(refFile string, bams []string, out string, species string, maxParallelJobs int, verbosity string) {
+	// --------------------------------------- Opening fasta file --------------------------------------------------- //
+	fmt.Println("Working on FASTA file ...")
+	fna, err := os.Open(refFile)
+	if err != nil {
+		log.Fatalf("Failed to open FASTA file: %v", err)
+	}
+	defer func(fna *os.File) {
+		err := fna.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(fna)
+
+	var reader io.Reader = fna
+	if strings.HasSuffix(refFile, ".gz") {
+		gzReader, err := gzip.NewReader(fna)
+		if err != nil {
+			log.Fatalf("Failed to create gzip reader: %v", err)
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
+	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
+	fmt.Println("Reading log file ...")
+	logFilePath := filepath.Join(out, "variant_calling.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	defer logFile.Close()
+
+	jsonHandler := slog.NewJSONHandler(logFile, nil)
+	jlog := slog.New(jsonHandler)
+
+	jlog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+	slog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+
+	//-------------------------- If resuming (read logfile and check for completed stages) -------------------------- //
+	logged := utils.ParseLogFile(logFilePath)
+
+	if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", "ALL") {
+		fmt.Println("All stages completed. Skipping.")
+		return
+	}
+
+	// --------------------------------------- Reading fasta -------------------------------------------------------- //
+
+	r := fasta.NewReader(reader, linear.NewSeq("", nil, alphabet.DNA))
+	sc := seqio.NewScanner(r)
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxParallelJobs)
+	var jointvSlice []string
+
+	for sc.Next() {
+		seq := sc.Seq().(*linear.Seq)
+		chromDir := strings.ReplaceAll(seq.ID, ".", "_")
+		chromDirPath := filepath.Join(out, chromDir)
+		gvcfPath := filepath.Join(chromDirPath, "gvcfs")
+		tmpPath := filepath.Join(chromDirPath, "tmp")
+		tmp2Path := filepath.Join(chromDirPath, "tmp2")
+		vcfPath := filepath.Join(chromDirPath, "VCFs")
+
+		jointVCF := filepath.Join(vcfPath, species+"_"+chromDir+".joint.vcf.gz")
+		snpVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".SNP.vcf.gz"
+		indelVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".INDEL.vcf.gz"
+		hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
+		theDB := filepath.Join(chromDirPath, chromDir+"DB")
+
+		sem <- struct{}{}
+		wg.Add(1)
+
+		go func(seq *linear.Seq) {
+			defer func() {
+				wg.Done()
+				<-sem
+			}()
+
+			fmt.Println(seq.ID)
+
+			slog.Info("Creating directories ...")
+			dirsToCreate := []string{chromDirPath, gvcfPath, tmpPath, tmp2Path, vcfPath}
+			for _, dir := range dirsToCreate {
+				if _, err := os.Stat(dir); os.IsNotExist(err) {
+					cErr := os.MkdirAll(dir, 0755)
+					if cErr != nil {
+						slog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
+						jlog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
+						return
+					}
+				}
+			}
+
+			// ------------------------------------ HAPLOTYPE CALLER (Skip completed) ------------------------------- //
+			var vSlice []string
+			var processedBams []string
+
+			for _, bam := range bams {
+				bamName := filepath.Base(bam)
+				theGVCF := filepath.Join(gvcfPath, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDir), 1))
+				
+				// Always add to vSlice if GVCF exists (whether newly created or from previous run)
+				vSlice = append(vSlice, "-V "+theGVCF)
+				
+				if utils.StageHasCompleted(logged, "HaplotypeCaller", bamName, seq.ID) {
+					msg := fmt.Sprintf("HaplotypeCaller already completed for BAM FILE %s, CHROMOSOME %s. Using existing GVCF.\n\n------------------------------\n\n", bamName, seq.ID)
+					slog.Info(msg)
+					processedBams = append(processedBams, bamName)
+					continue
+				}
+				
+				hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, seq.ID, theGVCF, verbosity)
+				
+				jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+				slog.Info(hapCmdStr)
+				hapErr := utils.RunBashCmdVerbose(hapCmdStr)
+
+				if hapErr != nil {
+					jlog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
+					slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
+					log.Fatalf("FAILED: %v", hapErr)
+					return
+				}
+
+				jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+				slog.Info("VARIANT CALLING", "CMD", hapCmdStr, "STATUS", "COMPLETED")
+				processedBams = append(processedBams, bamName)
+			}
+
+			// Rest of the function remains the same...
+			// [Previous code for GenomicsDBImport, GenotypeGVCFs, SelectVariants, HardFiltering, etc.]
+			// ...
+
+			jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
+		}(seq)
+	}
+	wg.Wait()
+
+	fmt.Println("Merging ALL Hard filtered VCFs ...")
+	finalVcf := filepath.Join(out, species+".joint_hard_filtered.vcf.gz")
+	mergeCmdStr2 := fmt.Sprintf(`gatk MergeVcfs %s -O %s`, strings.Join(jointvSlice, " "), finalVcf)
+	slog.Info(mergeCmdStr2)
+	jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+
+	mErr := utils.RunBashCmdVerbose(mergeCmdStr2)
+	if mErr != nil {
+		jlog.Error("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", mErr))
+		slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", mErr))
+		return
+	}
+
+	jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+	slog.Info("VARIANT CALLING", "STATUS", "COMPLETED")
+}
+
+func VariantCallingConfig(configFile string, species string, maxParallelJobs int, verbosity string) {
+	fmt.Println("Reading config file ...")
+	cfg, err := utils.ReadConfig(configFile)
+	if err != nil {
+		fmt.Printf("Error reading config: %v\n", err)
+		return
+	}
+	fmt.Println("Reference:", cfg.Reference)
+	fmt.Println("Bams", cfg.Bams)
+	fmt.Println("Ouput", cfg.OutputDir)
+
+	refFile := cfg.Reference
+
+	_, rErr := os.Stat(refFile)
+	if rErr != nil {
+		fmt.Printf("Reference file: %s does not exist\n", refFile)
+		return
+	}
+	bams := cfg.Bams
+
+	fmt.Printf("bams: %v\n", bams)
+	if len(bams) == 0 {
+		fmt.Println("You must provide at least one bam file")
+		return
+	} else {
+		for i := range bams {
+			_, err := os.Stat(bams[i])
+			if err != nil {
+				fmt.Printf("Bam file: %s is not a valid file path: %v\n", bams[i], err)
+				return
+			}
+		}
+	}
+
+	outputDir := cfg.OutputDir
+
+	outInfo, outErr := os.Stat(outputDir)
+
+	if outErr != nil {
+		if os.IsNotExist(outErr) {
+			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outputDir)
+			if createErr := os.MkdirAll(outputDir, 0755); createErr != nil {
+				fmt.Printf("Failed to create output directory %s: %v\n", outputDir, createErr)
+				return
+			}
+			fmt.Printf("Output directory %s created successfully.\n", outputDir)
+		} else {
+			fmt.Printf("Error accessing output directory %s: %v\n", outputDir, outErr)
+			return
+		}
+	} else if !outInfo.IsDir() {
+		fmt.Printf("Output Directory %s file path is not a directory\n", outputDir)
+		return
+	}
+
+	VariantCalling(refFile, bams, outputDir, species, maxParallelJobs, verbosity)
+}
