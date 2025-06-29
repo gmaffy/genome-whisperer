@@ -16,3 +16,9 @@
 {"time":"2025-06-18T15:46:22.553399801+02:00","level":"INFO","msg":"Hello","CHROM":3,"PROGRAM":"HAPCALLER","STATUS":"STATED"}
 {"time":"2025-06-18T15:46:22.553501783+02:00","level":"INFO","msg":"Hello","CHROM":2,"PROGRAM":"HAPCALLER","STATUS":"COMPLETED"}
 {"time":"2025-06-18T15:46:22.553608901+02:00","level":"INFO","msg":"Goodbye","ExtraKey":"ExtraValue"}
+{"time":"2025-06-29T12:48:24.504223393+02:00","level":"INFO","msg":"Hello","CHROM":1,"PROGRAM":"HAPCALLER","STATUS":"STATED"}
+{"time":"2025-06-29T12:48:24.514929089+02:00","level":"INFO","msg":"Hello","CHROM":2,"PROGRAM":"HAPCALLER","STATUS":"STATED"}
+{"time":"2025-06-29T12:48:24.515050419+02:00","level":"INFO","msg":"Hello","CHROM":1,"PROGRAM":"HAPCALLER","STATUS":"COMPLETED"}
+{"time":"2025-06-29T12:48:24.515155506+02:00","level":"INFO","msg":"Hello","CHROM":3,"PROGRAM":"HAPCALLER","STATUS":"STATED"}
+{"time":"2025-06-29T12:48:24.515241524+02:00","level":"INFO","msg":"Hello","CHROM":2,"PROGRAM":"HAPCALLER","STATUS":"COMPLETED"}
+{"time":"2025-06-29T12:48:24.515325422+02:00","level":"INFO","msg":"Goodbye","ExtraKey":"ExtraValue"}

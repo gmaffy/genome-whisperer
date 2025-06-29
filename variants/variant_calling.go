@@ -366,7 +366,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 	}
 
 	jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-	slog.Info("VARIANT CALLING", "STATUS", "COMPLETED")
+	slog.Info("ALL VARIANT CALLING STEPS", "STATUS", "COMPLETED")
 
 }
 

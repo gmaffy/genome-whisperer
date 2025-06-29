@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"testing"
 
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
-func main() {
+func TestParseLog(t *testing.T) {
 	// Create a temporary log file with the example entries
 	logContent := `{"time":"2025-06-18T21:11:02.572267197+02:00","level":"INFO","msg":"VARIANT CALLING","PROGRAM":"INITIALISE","SAMPLE":"ALL","CHROMOSOME":"ALL","STATUS":"STARTED","CMD":"ALL"}
 {"time":"2025-06-18T21:11:03.397122518+02:00","level":"INFO","msg":"VARIANT CALLING","PROGRAM":"HaplotypeCaller","SAMPLE":"NIGERIAN_LOCAL.RGMD.bam","CHROMOSOME":"Cmo_Chr01","STATUS":"STARTED"}

@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"testing"
 )
 
 func hasCompletedStatus(logFile string, targetChrom int) (bool, error) {
@@ -51,7 +52,7 @@ func toInt(v interface{}) (int, bool) {
 	}
 }
 
-func main() {
+func TestHasCompletedStatus(t *testing.T) {
 
 	logFile, err := os.OpenFile("log.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {

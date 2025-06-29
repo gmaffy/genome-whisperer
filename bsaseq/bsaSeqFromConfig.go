@@ -270,8 +270,10 @@ func RunBsaSeqFromConfig(
 
 		// ---------------------------------------- Variant Calling ------------------------------------------------- //
 		variants.VariantCalling(refFile, bqsrBams, outDir, species, 4, "INFO")
-		finalVcf := filepath.Join(outDir, species+"_"+".joint_hard_filtered.vcf.gz")
+		finalVcf := filepath.Join(outDir, species+".joint_hard_filtered.vcf.gz")
 
+		fmt.Println("VARIANT CALLING DONE STARING BSAseq")
+		fmt.Println(libSampleMap)
 		// --------------------------------------------- BSAseq ----------------------------------------------------- //
 		highParent, lowParent, highBulk, lowBulk := "", "", "", ""
 		for _, lb := range libSampleMap {
@@ -315,7 +317,7 @@ func RunBsaSeqFromConfig(
 		fmt.Println("Starting from bam files")
 		// ---------------------------------------- Variant Calling ------------------------------------------------- //
 		variants.VariantCalling(refFile, configBams, outDir, species, 4, "INFO")
-		finalVcf := filepath.Join(outDir, species+"_"+".joint_hard_filtered.vcf.gz")
+		finalVcf := filepath.Join(outDir, species+".joint_hard_filtered.vcf.gz")
 
 		// --------------------------------------------- BSAseq ----------------------------------------------------- //
 		highParent, lowParent, highBulk, lowBulk := "", "", "", ""
