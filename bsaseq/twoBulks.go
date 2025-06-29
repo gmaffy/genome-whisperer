@@ -37,8 +37,8 @@ func twoBulkTwoParTsvFilter(tsvFile string, highPar string, highParDP int, lowPa
 		slog.Error("BSASEQ", "PROGRAM", "READ_TSV", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "FAILED")
 		return filteredRecords, err
 	}
-	jlog.Error("BSASEQ", "PROGRAM", "READ_TSV", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-	slog.Error("BSASEQ", "PROGRAM", "READ_TSV", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+	jlog.Info("BSASEQ", "PROGRAM", "READ_TSV", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+	slog.Info("BSASEQ", "PROGRAM", "READ_TSV", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 
 	fmt.Printf("#Variants in original VCF: %d\n\n", len(vcfStruct))
 
