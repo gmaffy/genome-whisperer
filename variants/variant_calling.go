@@ -292,7 +292,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 			//if _, exists := completed["HardFilteringINDELS"][seq.ID]; exists {
 			//	fmt.Printf("HardFilteringINDELS already completed for %s. Skipping.\n", seq.ID)
-			if utils.StageHasCompleted(logged, "HardFilteringINDELs", "ALL", seq.ID) {
+			if utils.StageHasCompleted(logged, "HardFilteringINDELS", "ALL", seq.ID) {
 				msg := fmt.Sprintf("HardFilteringINDELS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
 				slog.Info(msg)
 
