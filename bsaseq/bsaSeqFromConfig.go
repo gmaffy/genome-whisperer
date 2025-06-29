@@ -275,20 +275,26 @@ func RunBsaSeqFromConfig(
 		fmt.Println("VARIANT CALLING DONE STARING BSAseq")
 		fmt.Println(libSampleMap)
 		// --------------------------------------------- BSAseq ----------------------------------------------------- //
-		highParent, lowParent, highBulk, lowBulk := "", "", "", ""
-		for _, lb := range libSampleMap {
-			if lb == "HIGH_PARENT" {
-				highParent = libSampleMap[lb]
-			} else if lb == "LOW_PARENT" {
-				lowParent = libSampleMap[lb]
-			} else if lb == "HIGH_BULK" {
-				highBulk = libSampleMap[lb]
-			} else if lb == "LOW_BULK" {
-				lowBulk = libSampleMap[lb]
-			} else {
-				fmt.Println("Something went wrong")
-			}
-		}
+		//highParent, lowParent, highBulk, lowBulk := "", "", "", ""
+		//for _, lb := range libSampleMap {
+		//	if lb == "HIGH_PARENT" {
+		//		highParent = libSampleMap[lb]
+		//	} else if lb == "LOW_PARENT" {
+		//		lowParent = libSampleMap[lb]
+		//	} else if lb == "HIGH_BULK" {
+		//		highBulk = libSampleMap[lb]
+		//	} else if lb == "LOW_BULK" {
+		//		lowBulk = libSampleMap[lb]
+		//	} else {
+		//		fmt.Println("Something went wrong")
+		//	}
+		//}
+
+		highBulk := libSampleMap["HIGH_BULK"]
+		lowBulk := libSampleMap["LOW_BULK"]
+		highParent := libSampleMap["HIGH_PARENT"]
+		lowParent := libSampleMap["LOW_PARENT"]
+		fmt.Println("highParent: ", highParent, "lowParent: ", lowParent, "highBulk: ", highBulk, "lowBulk: ", lowBulk)
 		if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
 			fmt.Println("Running 2 bulks only analysis")
 			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
