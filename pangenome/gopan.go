@@ -220,9 +220,22 @@ func GoPan(config string, assembler string) {
 		return
 	}
 
-	info, err := os.Stat(out)
-	if err != nil || !info.IsDir() {
-		fmt.Printf("Output directory: %s is not a valid path\n", out)
+	outInfo, outErr := os.Stat(out)
+	if outErr != nil {
+
+		if os.IsNotExist(outErr) {
+			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", out)
+			if createErr := os.MkdirAll(out, 0755); createErr != nil {
+				fmt.Printf("Failed to create output directory %s: %v\n", out, createErr)
+				return
+			}
+			fmt.Printf("Output directory %s created successfully.\n", out)
+		} else {
+			fmt.Printf("Error accessing output directory %s: %v\n", out, outErr)
+			return
+		}
+	} else if !outInfo.IsDir() {
+		fmt.Printf("Output Directory %s file path is not a directory\n", out)
 		return
 	}
 
@@ -281,6 +294,25 @@ func GoPan(config string, assembler string) {
 		fwd, rev, sn, lb := readPairs[i][0], readPairs[i][1], readPairs[i][2], readPairs[i][3]
 
 		sampleDir, _ := filepath.Abs(filepath.Join(out, sn))
+
+		sampInfo, sampErr := os.Stat(sampleDir)
+		if sampErr != nil {
+
+			if os.IsNotExist(sampErr) {
+				fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", sampleDir)
+				if createSampErr := os.MkdirAll(sampleDir, 0755); createSampErr != nil {
+					fmt.Printf("Failed to create sample directory %s: %v\n", sampleDir, createSampErr)
+					return
+				}
+				fmt.Printf("Output directory %s created successfully.\n", sampleDir)
+			} else {
+				fmt.Printf("Error accessing output directory %s: %v\n", sampleDir, sampErr)
+				return
+			}
+		} else if !sampInfo.IsDir() {
+			fmt.Printf("Output Directory %s file path is not a directory\n", sampleDir)
+			return
+		}
 
 		bamFile, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted.bam"))
 		baiFile, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted.bai"))

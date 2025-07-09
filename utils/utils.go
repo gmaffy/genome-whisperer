@@ -51,18 +51,27 @@ type LogEntry struct {
 
 func CheckDeps() error {
 	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
+	paths := make(map[string]string)
+	missing := make([]string, 0)
 
 	for _, dep := range deps {
-		if _, err := exec.LookPath(dep); err != nil {
-			fmt.Printf("%s not found!\n\n", dep)
-			return fmt.Errorf("%s not found: %w", dep, err)
+		path, err := exec.LookPath(dep)
+		if err != nil {
+			missing = append(missing, dep)
+			fmt.Printf("%s not found!\n", dep)
+		} else {
+			paths[dep] = path
+
 		}
-		fmt.Printf("%s OK\n", dep)
 	}
 
-	for _, prog := range deps {
-		path, _ := exec.LookPath(prog)
-		fmt.Printf("Using %s at %s\n", prog, path)
+	if len(missing) > 0 {
+		return fmt.Errorf("\n\nmissing dependencies: %s", strings.Join(missing, ", "))
+	}
+
+	fmt.Println("\nDependency locations:")
+	for dep, path := range paths {
+		fmt.Printf("Using %s at %s\n", dep, path)
 	}
 
 	return nil

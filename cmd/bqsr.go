@@ -29,7 +29,12 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting config flag: %v", cErr)
 		}
 
-		logFile, logErr := cmd.Flags().GetString("config")
+		refFile, rErr := cmd.Flags().GetString("reference")
+		if rErr != nil {
+			log.Fatalf("Error getting ther refFile flag: %v", rErr)
+		}
+
+		logFile, logErr := cmd.Flags().GetString("log")
 		if logErr != nil {
 			log.Fatalf("Error getting log flag: %v", cErr)
 		}
@@ -41,7 +46,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 
 		jobs, jErr := cmd.Flags().GetInt("jobs")
 		if jErr != nil {
-			log.Fatalf("Error getting bootstrap flag: %v", jErr)
+			log.Fatalf("Error getting jobs flag: %v", jErr)
 		}
 
 		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
@@ -141,5 +146,7 @@ func init() {
 	bqsrCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
 	bqsrCmd.Flags().IntP("jobs", "j", 4, "Number of jobs per run")
 	bqsrCmd.Flags().String("log", "", "log file path")
+	bqsrCmd.Flags().String("config", "", "config file path")
+	bqsrCmd.Flags().StringP("reference", "r", "", "path to reference genome")
 
 }

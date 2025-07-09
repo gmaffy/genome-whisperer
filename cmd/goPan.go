@@ -14,7 +14,7 @@ import (
 
 // goPanCmd represents the goPan command
 var goPanCmd = &cobra.Command{
-	Use:   "goPan",
+	Use:   "goPan -c <config file> -a <masurca, megahit or mac>",
 	Short: "Creates a pangenome using the iterative mapping approach",
 	Long:  `Creates a pangenome using the iterative mapping approach. Inputs are short reads and reference genome.`,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -35,6 +35,7 @@ var goPanCmd = &cobra.Command{
 		if aErr != nil {
 			log.Fatalf("Error getting assembler flag: %v", aErr)
 		}
+
 		fmt.Printf("Running with the following parameters:\nConfig file: %s\nAssembler: %s\n ...\n\n", configFile, assembler)
 		pangenome.GoPan(configFile, assembler)
 	},
@@ -42,15 +43,11 @@ var goPanCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(goPanCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// goPanCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	goPanCmd.Flags().StringP("assembler", "a", "masurca", "masurca, megahit or mac")
+	goPanCmd.Flags().StringP("assembler", "a", "mac", "masurca, megahit or mac")
+	goPanCmd.Flags().StringP("config", "c", "", "Config file")
+	err := goPanCmd.MarkFlagRequired("config")
+	if err != nil {
+		return
+	}
 
 }

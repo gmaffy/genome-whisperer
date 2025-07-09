@@ -23,7 +23,7 @@ var createSnpEffDbCmd = &cobra.Command{
 		if err != nil {
 			return
 		}
-		ref, rErr := cmd.Flags().GetString("reference")
+		refFile, rErr := cmd.Flags().GetString("reference")
 		if rErr != nil {
 			fmt.Println("Error getting reference flag")
 			return
@@ -112,7 +112,7 @@ var createSnpEffDbCmd = &cobra.Command{
 				fmt.Println("Please provide version")
 				return
 			}
-			err1 := annotation.CreateCustomDb(ref, protein, cds, species, gff, version)
+			err1 := annotation.CreateCustomDb(refFile, protein, cds, species, gff, version)
 			if err1 != nil {
 				return
 			}
@@ -129,12 +129,14 @@ func init() {
 	createSnpEffDbCmd.Flags().String("protein", "", "Path to protein fasta file ...")
 	createSnpEffDbCmd.Flags().String("cds", "", "Path to cds fasta file ...")
 	createSnpEffDbCmd.Flags().String("gff", "", "Path to gff3 file ...")
-	createSnpEffDbCmd.Flags().String("species", "", "Species name (no spaces or special characters) ...")
-	createSnpEffDbCmd.Flags().String("version", "", "Reference annotation version ...")
+	createSnpEffDbCmd.Flags().StringP("species", "s", "", "Species name (no spaces or special characters) ...")
+	createSnpEffDbCmd.Flags().StringP("version", "v", "", "Reference annotation version ...")
+	createSnpEffDbCmd.Flags().StringP("reference", "r", "", "Path to reference genome fasta file ...")
+	createSnpEffDbCmd.Flags().StringP("config", "c", "", "Path to config file ...")
 
 	// Check if -c flag is provided via persistent flags
-	cFlag, _ := rootCmd.PersistentFlags().GetString("config")
-	if cFlag != "" {
+	cFlag, _ := createSnpEffDbCmd.Flags().GetString("config")
+	if cFlag == "" {
 		// Mark flags as required only if -c is false
 		requiredFlags := []string{"protein", "cds", "species", "gff", "reference", "version"}
 		for _, flag := range requiredFlags {

@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "genome-whisperer",
 	Short: "A toolkit for genome analysis",
@@ -21,13 +20,8 @@ var rootCmd = &cobra.Command{
 5.	Pangenome analysis 
 6.	Other utils
 `,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -35,12 +29,12 @@ func Execute() {
 	}
 }
 
-var cfgFile string
-var refFile string
+//var cfgFile string
+//var refFile string
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "path to config file ")
-	rootCmd.PersistentFlags().StringVarP(&refFile, "reference", "r", "", "path to reference genome fasta file ")
+	//rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "path to config file ")
+	//rootCmd.PersistentFlags().StringVarP(&refFile, "reference", "r", "", "path to reference genome fasta file ")
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
