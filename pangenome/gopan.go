@@ -7,6 +7,7 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -280,9 +281,13 @@ func GoPan(config string, assembler string) {
 	}
 	defer logFile.Close()
 
-	mw := io.MultiWriter(logFile, os.Stdout)
-	log.SetOutput(mw)
-	fmt.Println("Log file created.")
+	jsonHandler := slog.NewJSONHandler(logFile, nil)
+	jlog := slog.New(jsonHandler)
+
+	logged := utils.ParseLogFile(logFilePath)
+
+	jlog.Info("GOPAN", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+	slog.Info("GOPAN", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 	//--------------------------------------- Start goPan ----------------------------------------------------------- //
 	fmt.Println("Starting goPan")
 	i, latestRef, err := LatestRef(out, ref)
@@ -322,21 +327,23 @@ func GoPan(config string, assembler string) {
 
 		fmt.Printf("Checking log to see if alignment for %s is finished... \n\n", sn)
 
-		if bamErr == nil && baiErr == nil {
-			fmt.Printf("Bam file and bai file exist for: %s. Skip alignment....\n\n-------------------------------------------\n\n", sn)
-			//continue
+		if utils.StageHasCompleted(logged, "BOWTIE2", sn, strconv.Itoa(i)) && bamErr == nil && baiErr == nil {
+			fmt.Printf("BOWTIE2 alignment for %s has already completed. Skipping...\n---------------------------------------\n\n", sn)
+
 		} else {
-			fmt.Printf("Bam file and bai file do not exist for %s \n", sn)
-			fmt.Printf("Align %s and %s to  %s using bowtie2 \n", fwd, rev, sn)
-			log.Printf("%s\tBOWTIE2\t%v\t%s\tSTARTED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			slog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 
 			aErr := alignment.AlignShortReadsBt(latestRef, fwd, rev, sn, lb, sampleDir, 8)
 			if aErr != nil {
-				fmt.Printf("Error aligning reads: %v\n", aErr)
-				log.Printf("%s\tBOWTIE2\t%v\t%s\tFAILED", sn, i, latestRef)
+				jlog.Error("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", aErr))
+				slog.Error("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", aErr))
+
 				return
 			}
-			log.Printf("%s\tBOWTIE2\t%v\t%s\tFINISHED", sn, i, latestRef)
+
+			jlog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+			slog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 		}
 
 		// ---------------------------------- Alignment Statistics -------------------------------------------------- //
@@ -345,27 +352,29 @@ func GoPan(config string, assembler string) {
 		alignMetrics, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_alignment_metrics.txt"))
 		insertMetrics, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_insert_metrics.txt"))
 		flagStats, _ := filepath.Abs(filepath.Join(sampleDir, sn+".sorted_flagstats.txt"))
-		//fmt.Printf("pdfFile: %s\n, alignMetrics:%s\n, insertMetrics:%s\n, flagStats:%s\n ", pdfFile, alignMetrics, insertMetrics, flagStats)
 
 		_, pdfErr := os.Stat(pdfFile)
 		_, alignErr := os.Stat(alignMetrics)
 		_, insertErr := os.Stat(insertMetrics)
 		_, flagErr := os.Stat(flagStats)
-		//fmt.Printf("pdfErr: %s\n, alignErr:%s\n, insertErr:%s\n, flagErr:%s\n\n\n----------------\n\n ", pdfErr, alignErr, insertErr, flagErr)
-		if pdfErr == nil && alignErr == nil && insertErr == nil && flagErr == nil {
+
+		if utils.StageHasCompleted(logged, "ALIGNMENT_STATS", sn, strconv.Itoa(i)) && pdfErr == nil && alignErr == nil && insertErr == nil && flagErr == nil {
 			fmt.Println("Alignment stats for ", sn, "exist. skip")
-			//continue
+
 		} else {
-			fmt.Printf("Alignment stats files do not exist for %s \n\n", sn)
-			fmt.Printf("Getting alignment stats for %s ... \n", sn)
-			log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tSTARTED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			slog.Info("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+
 			sErr := alignment.AlignmentStats(ref, bamFile)
 			if sErr != nil {
-				fmt.Printf("Error getting alignment stats: %v\n", sErr)
-				log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tFAILED", sn, i, latestRef)
+
+				jlog.Error("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", sErr))
+				slog.Error("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", sErr))
 				return
 			}
-			log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tFINISHED", sn, i, latestRef)
+			//log.Printf("%s\tALIGNMENT_STATS\t%v\t%s\tFINISHED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+			slog.Info("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 
 		}
 
@@ -373,20 +382,27 @@ func GoPan(config string, assembler string) {
 		unmappedBam := strings.TrimSuffix(bamFile, ".bam") + "_unmapped.bam"
 		_, unmappedBamErr := os.Stat(unmappedBam)
 
-		if unmappedBamErr == nil {
+		if utils.StageHasCompleted(logged, "EXTRACT_UNMAPPED_READS", sn, strconv.Itoa(i)) && unmappedBamErr == nil {
 			fmt.Println("Unmapped bam and bai files exist for ", sn, "skip")
-			//continue
+
 		} else {
-			fmt.Printf("Unmapped bam and bai files do not exist for %s \n", sn)
-			fmt.Printf("Extract unmapped reads for %s ... \n", sn)
-			log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tSTARTED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "EXTRACT_UNMAPPED_READS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			slog.Info("GOPAN", "PROGRAM", "EXTRACT_UNMAPPED_READS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			//fmt.Printf("Unmapped bam and bai files do not exist for %s \n", sn)
+			//fmt.Printf("Extract unmapped reads for %s ... \n", sn)
+			//log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tSTARTED", sn, i, latestRef)
 			eErr := ExtractUnmappedReads(bamFile, sampleDir)
 			if eErr != nil {
-				fmt.Printf("Error extracting unmapped reads: %v\n", eErr)
-				log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tFAILED", sn, i, latestRef)
+				//fmt.Printf("Error extracting unmapped reads: %v\n", eErr)
+				//log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tFAILED", sn, i, latestRef)
+				jlog.Error("GOPAN", "PROGRAM", "EXTRACT_UNMAPPED_READS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", eErr))
+				slog.Error("GOPAN", "PROGRAM", "EXTRACT_UNMAPPED_READS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", eErr))
+
 				return
 			}
-			log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tFINISHED", sn, i, latestRef)
+			//log.Printf("%s\tEXTRACT_UNMAPPED_READS\t%v\t%s\tFINISHED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "EXTRACT_UNMAPPED_READS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+			slog.Info("GOPAN", "PROGRAM", "EXTRACT_UNMAPPED_READS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 		}
 
 		// ---------------------------------- Convert unmapped bams to fasta ---------------------------------------- //
@@ -396,22 +412,29 @@ func GoPan(config string, assembler string) {
 		_, unmappedFwdReadsErr := os.Stat(unmappedFwdReads)
 		_, unmappedRevReadsErr := os.Stat(unmappedRevReads)
 
-		if unmappedFwdReadsErr == nil && unmappedRevReadsErr == nil {
+		if utils.StageHasCompleted(logged, "BAM_TO_FASTQ", sn, strconv.Itoa(i)) && unmappedFwdReadsErr == nil && unmappedRevReadsErr == nil {
 			fmt.Println("Unmapped fastq files exist for ", sn, "skip")
 			//continue
 		} else {
-			fmt.Printf("Unmapped fastq files do not exist for %s \n", sn)
-			fmt.Printf("Extract unmapped reads for %s ... \n", sn)
-			log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tSTARTED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "BAM_TO_FASTQ", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			slog.Info("GOPAN", "PROGRAM", "BAM_TO_FASTQ", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			//fmt.Printf("Unmapped fastq files do not exist for %s \n", sn)
+			//fmt.Printf("Extract unmapped reads for %s ... \n", sn)
+			//log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tSTARTED", sn, i, latestRef)
+
 			cmdStr := fmt.Sprintf(`bedtools bamtofastq -i %s -fq %s -fq2 %s`, unmappedBam, unmappedFwdReads, unmappedRevReads)
 			fmt.Println(cmdStr)
 			bErr := utils.RunBashCmdVerbose(cmdStr)
 			if bErr != nil {
-				fmt.Printf("Error running bedtools bamtofastq: %v\n", bErr)
-				log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tFAILED", sn, i, latestRef)
+				jlog.Error("GOPAN", "PROGRAM", "BAM_TO_FASTQ", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", bErr))
+				slog.Error("GOPAN", "PROGRAM", "BAM_TO_FASTQ", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", bErr))
+				//fmt.Printf("Error running bedtools bamtofastq: %v\n", bErr)
+				//log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tFAILED", sn, i, latestRef)
 				return
 			}
-			log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tFINISHED", sn, i, latestRef)
+			//log.Printf("%s\tBAM_TO_FASTQ\t%v\t%s\tFINISHED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "BAM_TO_FASTQ", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+			slog.Info("GOPAN", "PROGRAM", "BAM_TO_FASTQ", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 		}
 
 		//---------------------------------- Assemble unmapped reads ------------------------------------------------ //
@@ -421,32 +444,50 @@ func GoPan(config string, assembler string) {
 			masurcaDir := filepath.Join(sampleDir, "MASURCA")
 			masurcaAssembly := filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta")
 			_, masurcaErr := os.Stat(masurcaAssembly)
-			if masurcaErr == nil {
+
+			if utils.StageHasCompleted(logged, "MASURCA", sn, strconv.Itoa(i)) && masurcaErr == nil {
 				fmt.Println("MASURCA assembly exists for ", sn, "skip")
 				//continue
 			} else {
 				log.Printf("%s\tMASURCA\t%v\t%s\tSTARTED", sn, i, latestRef)
-				err := os.RemoveAll(masurcaDir)
-				if err != nil {
-					fmt.Printf("Error removing masurca directory: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+				jlog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+				slog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+
+				fmt.Println("Removing any existing masurca directories ...")
+				dirErr := os.RemoveAll(masurcaDir)
+				if dirErr != nil {
+					// fmt.Printf("Error removing masurca directory: %v\n", err)
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", dirErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", dirErr))
+					//log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					return
 				}
-				err = os.MkdirAll(masurcaDir, os.ModePerm)
-				if err != nil {
-					fmt.Printf("Error creating masurca directory: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+				mkErr := os.MkdirAll(masurcaDir, os.ModePerm)
+				if mkErr != nil {
+					//fmt.Printf("Error creating masurca directory: %v\n", err)
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", mkErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", mkErr))
+					//log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					return
 				}
-				cmd := exec.Command("masurca", "-t", "32", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
+				cmd := exec.Command("masurca", "-t", "16", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
 				cmd.Dir = masurcaDir
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
 				fmt.Println(cmd.String())
-				err = cmd.Run()
-				if err != nil {
-					fmt.Printf("Error running masurca: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+				masErr := cmd.Run()
+				_, masAssErr := os.Stat(filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta"))
+				if masErr == nil && masAssErr == nil {
+					jlog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+					slog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+					//fmt.Printf("Error running masurca: %v\n", err)
+					//log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+				} else {
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s, %s", masErr, masAssErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s, %s", masErr, masAssErr))
+					return
 				}
-				log.Printf("%s\tMASURCA\t%v\t%s\tFINISHED", sn, i, latestRef)
+				//log.Printf("%s\tMASURCA\t%v\t%s\tFINISHED", sn, i, latestRef)
 				assembledContigs = masurcaAssembly
 			}
 
@@ -457,29 +498,37 @@ func GoPan(config string, assembler string) {
 			megahitAssembly := filepath.Join(megahitDir, "final.contigs.fa")
 
 			_, megahitErr := os.Stat(megahitAssembly)
-			if megahitErr == nil {
+			if utils.StageHasCompleted(logged, "MEGAHIT", sn, strconv.Itoa(i)) && megahitErr == nil {
 				fmt.Println("Megahit assembly exists for ", sn, "skip")
 				//continue
 			} else {
+				jlog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+				slog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 				log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
-				err := os.RemoveAll(megahitDir)
-				if err != nil {
-					fmt.Printf("Error removing megahit directory: %v\n", err)
-					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
+				remErr := os.RemoveAll(megahitDir)
+				if remErr != nil {
+					jlog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", remErr))
+					slog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", remErr))
+					//fmt.Printf("Error removing megahit directory: %v\n", err)
+					//log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
 					return
 				}
 				fmt.Printf("Megahit assembly does not exist for %s \n", sn)
 				fmt.Printf("Assemble unmapped reads for %s ... \n", sn)
-				log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
+				//log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
 				cmdStr := fmt.Sprintf(`megahit  -1 %s -2 %s -o %s`, unmappedFwdReads, unmappedRevReads, megahitDir)
 				fmt.Println(cmdStr)
 				mErr := utils.RunBashCmdVerbose(cmdStr)
-				if mErr != nil {
-					fmt.Printf("Error running megahit: %v\n", mErr)
-					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
+				_, megAssErr := os.Stat(filepath.Join(megahitDir, "final.contigs.fa"))
+				if mErr == nil && megAssErr == nil {
+					jlog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+					slog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+				} else {
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED -%s, %s", mErr, megAssErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED -%s, %s", mErr, megAssErr))
 					return
 				}
-				log.Printf("%s\tMEGAHIT\t%v\t%s\tFINISHED", sn, i, latestRef)
+				//log.Printf("%s\tMEGAHIT\t%v\t%s\tFINISHED", sn, i, latestRef)
 				assembledContigs = megahitAssembly
 			}
 
@@ -490,74 +539,103 @@ func GoPan(config string, assembler string) {
 			fmt.Printf("Assemble unmapped reads for %s with MASURCA and MEGAHIT ... \n", sn)
 			masurcaDir := filepath.Join(sampleDir, "MASURCA")
 			masurcaAssembly := filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta")
-
 			_, masurcaErr := os.Stat(masurcaAssembly)
-			if masurcaErr == nil {
+			if utils.StageHasCompleted(logged, "MASURCA", sn, strconv.Itoa(i)) && masurcaErr == nil {
 				fmt.Println("MASURCA assembly exists for ", sn, "skip")
 				//continue
 			} else {
 				log.Printf("%s\tMASURCA\t%v\t%s\tSTARTED", sn, i, latestRef)
-				err := os.RemoveAll(masurcaDir)
-				if err != nil {
+				jlog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+				slog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+
+				fmt.Println("Removing any existing masurca directories ...")
+				dirErr := os.RemoveAll(masurcaDir)
+				if dirErr != nil {
 					fmt.Printf("Error removing masurca directory: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", dirErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", dirErr))
+					//log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					return
 				}
-				err = os.MkdirAll(masurcaDir, os.ModePerm)
-				if err != nil {
+				mkErr := os.MkdirAll(masurcaDir, os.ModePerm)
+				if mkErr != nil {
 					fmt.Printf("Error creating masurca directory: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", mkErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", mkErr))
+					//log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+					return
 				}
-				cmd := exec.Command("masurca", "-t", "32", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
+				cmd := exec.Command("masurca", "-t", "16", "-i", fmt.Sprintf("%s,%s", unmappedFwdReads, unmappedRevReads))
 				cmd.Dir = masurcaDir
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
 				fmt.Println(cmd.String())
-				err = cmd.Run()
-				if err != nil {
-					fmt.Printf("Error running masurca: %v\n", err)
-					log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+				masErr := cmd.Run()
+				_, masAssErr := os.Stat(filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta"))
+				if masErr == nil && masAssErr == nil {
+					jlog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+					slog.Info("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+					//fmt.Printf("Error running masurca: %v\n", err)
+					//log.Fatalf("%s\tMASURCA\t%v\t%s\tFAILED", sn, i, latestRef)
+				} else {
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s, %s", masErr, masAssErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s, %s", masErr, masAssErr))
+					return
 				}
+				//log.Printf("%s\tMASURCA\t%v\t%s\tFINISHED", sn, i, latestRef)
+				assembledContigs = masurcaAssembly
 			}
-			log.Printf("%s\tMASURCA\t%v\t%s\tFINISHED", sn, i, latestRef)
 
 			//--------------------------------------- Run MegaHit 2nd --------------------------------------------------- //
 
-			fmt.Printf("Assemble unmapped reads for %s with MEGAHIT only... \n", sn)
 			megahitDir := filepath.Join(sampleDir, "MegaHit")
 			megahitAssembly := filepath.Join(megahitDir, "final.contigs.fa")
 
 			_, megahitErr := os.Stat(megahitAssembly)
-			if megahitErr == nil {
+			if utils.StageHasCompleted(logged, "MEGAHIT", sn, strconv.Itoa(i)) && megahitErr == nil {
 				fmt.Println("Megahit assembly exists for ", sn, "skip")
 				//continue
 			} else {
+				jlog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+				slog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 				log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
-				err := os.RemoveAll(megahitDir)
-				if err != nil {
-					fmt.Printf("Error removing megahit directory: %v\n", err)
-					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+				remErr := os.RemoveAll(megahitDir)
+				if remErr != nil {
+					jlog.Error("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", remErr))
+					slog.Error("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", remErr))
+					//fmt.Printf("Error removing megahit directory: %v\n", err)
+					//log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
+					return
 				}
 				fmt.Printf("Megahit assembly does not exist for %s \n", sn)
 				fmt.Printf("Assemble unmapped reads for %s ... \n", sn)
-				//log.Printf("%s\tMEGAHIT\t%v\t%sSTARTED", sn, i, latestRef)
+				//log.Printf("%s\tMEGAHIT\t%v\t%s\tSTARTED", sn, i, latestRef)
 				cmdStr := fmt.Sprintf(`megahit  -1 %s -2 %s -o %s`, unmappedFwdReads, unmappedRevReads, megahitDir)
 				fmt.Println(cmdStr)
 				mErr := utils.RunBashCmdVerbose(cmdStr)
-				if mErr != nil {
-					fmt.Printf("Error running megahit: %v\n", mErr)
-					log.Fatalf("%s\tMEGAHIT\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+				_, megAssErr := os.Stat(filepath.Join(megahitDir, "final.contigs.fa"))
+				if mErr == nil && megAssErr == nil {
+					jlog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+					slog.Info("GOPAN", "PROGRAM", "MEGAHIT", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+				} else {
+					jlog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED -%s, %s", mErr, megAssErr))
+					slog.Error("GOPAN", "PROGRAM", "MASURCA", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED -%s, %s", mErr, megAssErr))
+					return
 				}
-				log.Printf("%s\tMEGAHIT\t%v\t%s\tFINISHED", sn, i, latestRef)
+				//log.Printf("%s\tMEGAHIT\t%v\t%s\tFINISHED", sn, i, latestRef)
+				assembledContigs = megahitAssembly
 			}
 
 			// -------------------------------------------- MAC --------------------------------------------------------- //
-			macDir, err := filepath.Abs(filepath.Join(sampleDir, "MAC"))
-			if err != nil {
-				fmt.Printf("Error determining absolute path for MAC directory: %v\n", err)
-				log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
-				//return
+			jlog.Info("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			slog.Info("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			macDir, macDirErr := filepath.Abs(filepath.Join(sampleDir, "MAC"))
+			if macDirErr != nil {
+				jlog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", macDirErr))
+				slog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", macDirErr))
+				// fmt.Printf("Error determining absolute path for MAC directory: %v\n", err)
+				// log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+				return
 			}
 
 			macInputDir := filepath.Join(macDir, "input")
@@ -566,16 +644,19 @@ func GoPan(config string, assembler string) {
 			macAssembly := filepath.Join(macDir, "output", "scaffold.fasta")
 
 			_, macErr := os.Stat(macAssembly)
-			if macErr == nil {
+			if utils.StageHasCompleted(logged, "MAC", sn, strconv.Itoa(i)) && macErr == nil {
 				fmt.Printf("MAC assembly exists for %s. Skipping...\n", sn)
 				//continue
 			} else {
-				log.Printf("%s\tMAC\t%v\t%s\tSTARTED", sn, i, latestRef)
+				//log.Printf("%s\tMAC\t%v\t%s\tSTARTED", sn, i, latestRef)
 				err = os.RemoveAll(macDir)
 				if err != nil {
 					fmt.Printf("Error removing MAC directory: %v\n", err)
-					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+					//log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+
+					jlog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					slog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					return
 				}
 
 				macDirs := []string{macDir, macInputDir, macOutputDir, macTempDir}
@@ -583,22 +664,28 @@ func GoPan(config string, assembler string) {
 					err = os.MkdirAll(d, os.ModePerm)
 					if err != nil {
 						fmt.Printf("Error creating directory %s: %v\n", d, err)
-						log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
-						//return
+						//log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
+						jlog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+						slog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+						return
 					}
 				}
 
 				err = utils.CopyFile(megahitAssembly, filepath.Join(macInputDir, "megahit_assembly.fa"))
 				if err != nil {
 					fmt.Printf("Error copying megahit assembly to MAC directory: %v\n", err)
-					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+
+					jlog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					slog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					return
+
 				}
 				err = utils.CopyFile(masurcaAssembly, filepath.Join(macInputDir, "masurca_assembly.fa"))
 				if err != nil {
-					fmt.Printf("Error copying masurca assembly to MAC directory: %v\n", err)
-					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+					jlog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					slog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+
+					return
 				}
 
 				cmdMac := exec.Command("MAC2.0", "megahit_assembly.fa", "masurca_assembly.fa")
@@ -607,10 +694,15 @@ func GoPan(config string, assembler string) {
 				err = cmdMac.Run()
 				if err != nil {
 					fmt.Printf("Error running MAC: %v\n", err)
-					log.Fatalf("%s\tMAC\t%v\t%s\tFAILED", sn, i, latestRef)
-					//return
+
+					jlog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					slog.Error("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", err))
+					return
 				}
-				log.Printf("%s\tMAC\t%v\t%s\tFINISHED", sn, i, latestRef)
+
+				jlog.Info("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+				slog.Info("GOPAN", "PROGRAM", "MAC", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+
 				assembledContigs = macAssembly
 			}
 
@@ -622,47 +714,62 @@ func GoPan(config string, assembler string) {
 		trimmedContigs := filepath.Join(sampleDir, sn+".trimmed.fasta")
 
 		_, trimmedContigsErr := os.Stat(trimmedContigs)
-		if trimmedContigsErr == nil {
+		if utils.StageHasCompleted(logged, "TRIM", sn, strconv.Itoa(i)) && trimmedContigsErr == nil {
 			fmt.Printf("Trimmed contigs exist for %s. Skipping...\n", sn)
 		} else {
-			log.Printf("%s\tTRIM\t%v\t%s\tSTARTED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "TRIM", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+			slog.Info("GOPAN", "PROGRAM", "TRIM", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+
 			trimCmdStr := fmt.Sprintf("seqtk seq -L 200 %s > %s", assembledContigs, trimmedContigs)
 			fmt.Println(trimCmdStr)
 			trimErr := utils.RunBashCmdVerbose(trimCmdStr)
 			if trimErr != nil {
-				fmt.Printf("Error trimming contigs: %v\n", trimErr)
-				log.Fatalf("%s\tTRIM\t%v\t%sFAILED", sn, i, latestRef)
+				jlog.Error("GOPAN", "PROGRAM", "TRIM", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", trimErr))
+				slog.Error("GOPAN", "PROGRAM", "TRIM", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", trimErr))
 				return
+
 			}
-			log.Printf("%s\tTRIM\t%v\t%sFINISHED", sn, i, latestRef)
+			//log.Printf("%s\tTRIM\t%v\t%sFINISHED", sn, i, latestRef)
+			jlog.Info("GOPAN", "PROGRAM", "TRIM", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+			slog.Info("GOPAN", "PROGRAM", "TRIM", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 
 		}
 
 		// ---------------------------------------- RENAME CONTIGS -------------------------------------------------- //
 		fmt.Printf("Renaming contigs in fasta: %s ... \n", trimmedContigs)
-		log.Printf("%s\tRENAME\t%v\t%s\tSTARTED", sn, i, latestRef)
+		//log.Printf("%s\tRENAME\t%v\t%s\tSTARTED", sn, i, latestRef)
+		jlog.Info("GOPAN", "PROGRAM", "RENAME", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+		slog.Info("GOPAN", "PROGRAM", "RENAME", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 		renamedContigs := filepath.Join(sampleDir, sn+".renamed.fasta")
 		rErr := RenameScaffs(trimmedContigs, renamedContigs, sn)
 		if rErr != nil {
 			fmt.Printf("Error renaming contigs: %v\n", rErr)
-			log.Fatalf("%s\tRENAME\t%v\t%s\tFAILED", sn, i, latestRef)
+			jlog.Error("GOPAN", "PROGRAM", "RENAME", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", rErr))
+			slog.Error("GOPAN", "PROGRAM", "RENAME", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", rErr))
+			//log.Fatalf("%s\tRENAME\t%v\t%s\tFAILED", sn, i, latestRef)
 			return
 		}
 		log.Printf("%s\tRENAME\t%v\t%s\tFINISHED", sn, i, latestRef)
+		jlog.Info("GOPAN", "PROGRAM", "RENAME", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+		slog.Info("GOPAN", "PROGRAM", "RENAME", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 
 		// ---------------------------------------- Update Reference ------------------------------------------------ //
-		log.Printf("%s\tUPDATE_REF\t%v\t%s\tSTARTED", sn, i, latestRef)
+		jlog.Info("GOPAN", "PROGRAM", "UPDATE_REF", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+		slog.Info("GOPAN", "PROGRAM", "UPDATE_REF", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
+		//log.Printf("%s\tUPDATE_REF\t%v\t%s\tSTARTED", sn, i, latestRef)
 		fastas := []string{latestRef, renamedContigs}
 		newRef := filepath.Join(sampleDir, fmt.Sprintf("%v_%s_updated_ref.fa", i, sn))
 		fErr := ConcatFasta(fastas, newRef)
 		if fErr != nil {
-			fmt.Printf("Error concatenating fasta files: %v\n", fErr)
-			log.Fatalf("%s\tUPDATE_REF\t%v\t%s\tFAILED", sn, i, latestRef)
-
+			jlog.Error("GOPAN", "PROGRAM", "UPDATE_REF", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", fErr))
+			slog.Error("GOPAN", "PROGRAM", "UPDATE_REF", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", fErr))
 			return
 		}
 		latestRef = newRef
-		log.Printf("%s\tUPDATE_REF\t%v\t%s\tFINISHED", sn, i, latestRef)
+
+		jlog.Info("GOPAN", "PROGRAM", "UPDATE_REF", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+		slog.Info("GOPAN", "PROGRAM", "UPDATE_REF", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+		//log.Printf("%s\tUPDATE_REF\t%v\t%s\tFINISHED", sn, i, latestRef)
 		fmt.Printf("Updated reference: %s\n", latestRef)
 		fmt.Println("-------------------------------------------------------")
 		i++
