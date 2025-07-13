@@ -3,7 +3,7 @@ OutputDir: /media/godwin/DATA/PhD/GOPAN2
 #ReadPair: /media/godwin/DATA/PhD/Reads/MO834/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/MO834/ReverseReads.fq.gz MO834 
 ReadPair: /media/godwin/DATA/PhD/Reads/AVPU1508/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/AVPU1508/ReverseReads.fq.gz AVPU1508 AVPU1508
 ReadPair: /media/godwin/DATA/PhD/Reads/Seoul_Tadagi/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/Seoul_Tadagi/ReverseReads.fq.gz Seoul Seoul
-ReadPair: /media/godwin/DATA/PhD/Reads/Seoul_Tadagi_2/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/Seoul_Tadagi_2/ReverseReads.fq.gz Seoul2
+#ReadPair: /media/godwin/DATA/PhD/Reads/Seoul_Tadagi_2/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/Seoul_Tadagi_2/ReverseReads.fq.gz Seoul2
 ReadPair: /media/godwin/DATA/PhD/Reads/Nigerian_Local/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/Nigerian_Local/ReverseReads.fq.gz NL NL
 ReadPair: /media/godwin/DATA/PhD/Reads/Menina/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/Menina/ReverseReads.fq.gz Menina Menina
 ReadPair: /media/godwin/DATA/PhD/Reads/Cosmos/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/Cosmos/ReverseReads.fq.gz Cosmos Cosmos

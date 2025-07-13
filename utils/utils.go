@@ -50,7 +50,7 @@ type LogEntry struct {
 }
 
 func CheckDeps() error {
-	deps := []string{"gatk", "samtools", "bwa", "java", "snpEff", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}
+	deps := []string{"gatk", "samtools", "bwa", "java", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"} //"snpEff",
 	paths := make(map[string]string)
 	missing := make([]string, 0)
 
