@@ -1,0 +1,24 @@
+Tools Description:
+    1. AlignReads
+        - Aligns short paired reads to reference using bwa mem or bowtie2
+        - Aligns long reads to reference using pbmm2
+        - Marks duplicates using picard tools
+        - Recalibrates bam using GATK's BQSR pipeline
+
+    2. VariantCalling
+        - Calls and hard filters SNPs and Indels using GATK best practices from bams generated from short reads
+        - Calls and hard filters SNPs and Indels using Deepvariant from bams generated from long reads
+        - Can use glenexus or GATK to merge gvcfs
+
+    3. VariantAnnotation
+        - Annotates VCFs using snpEff
+        - Create snpeFF databases using species annotation files in database is not present
+
+    4. Pangenome Assembly (GoPan)
+        - Assembles a pangenome using the iterative mapping and assembly approach from short reads and a reference genome
+
+    5. BSAseq (GoBSAseq)
+        - Performs BSAseq Analysis.
+        - Can take bam files, reads or VCF as input as well as a reference genome
+        - Can use bulks only or bulks and parents as input.
+        - Can use 1 or 2 bulks
