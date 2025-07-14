@@ -264,6 +264,7 @@ func init() {
 	//goBSAseqCmd.Flags().Bool("bqsr", false, "enable base quality score recalibration")
 
 	//----------------------------------------------- if config ----------------------------------------------------- //
+	goBSAseqCmd.Flags().StringP("config", "c", "", "path to config file")
 	goBSAseqCmd.Flags().Int("threads", 8, "number of threads")
 	goBSAseqCmd.Flags().String("species", "", "number of threads")
 }
