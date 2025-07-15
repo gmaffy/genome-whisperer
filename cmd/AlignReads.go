@@ -100,9 +100,9 @@ var AlignReadsCmd = &cobra.Command{
 				log.Fatalf("Error reading config file: %v", confErr)
 			}
 
-			logFilePath := outDir + "/alignment.log"
+			//logFilePath := outDir + "/alignment.log"
 
-			alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, logFilePath, preset)
+			alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset)
 		} else {
 			fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)

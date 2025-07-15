@@ -60,9 +60,19 @@ to quickly create a Cobra application.`,
 			log.Fatalf("Error getting caller flag: %v", callerErr)
 		}
 
-		merger, mergerErr := cmd.Flags().GetString("out")
+		merger, mergerErr := cmd.Flags().GetString("merger")
 		if mergerErr != nil {
-			log.Fatalf("Error getting output directory flag: %v", mergerErr)
+			log.Fatalf("Error getting merger flag: %v", mergerErr)
+		}
+
+		dvVer, dvVerErr := cmd.Flags().GetString("deepvariant-version")
+		if dvVerErr != nil {
+			log.Fatalf("Error getting deepvariant version flag: %v", dvVerErr)
+		}
+
+		modelType, mtErr := cmd.Flags().GetString("model-type")
+		if mtErr != nil {
+			log.Fatalf("Error getting model type flag: %v", mtErr)
 		}
 
 		if speciesName == "" {
@@ -78,7 +88,7 @@ to quickly create a Cobra application.`,
 				return
 
 			}
-			variants.VariantCallingConfig(configFile, speciesName, jobs, verbosity, caller, merger)
+			variants.VariantCallingConfig(configFile, speciesName, jobs, verbosity, caller, merger, dvVer, modelType)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
@@ -129,7 +139,7 @@ to quickly create a Cobra application.`,
 			fmt.Printf("Bams: %v\n", bams)
 			fmt.Printf("Jobs: %v\n", jobs)
 			fmt.Printf("Reference: %v\n", refFile)
-			variants.VariantCalling(refFile, bams, outDir, speciesName, jobs, verbosity, caller, merger, logFilePath)
+			variants.VariantCalling(refFile, bams, outDir, speciesName, jobs, verbosity, caller, merger, logFilePath, dvVer, modelType)
 		}
 
 	},
@@ -156,4 +166,6 @@ func init() {
 	VariantCallingCmd.Flags().StringP("reference", "r", "", "Reference file")
 	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")
 	VariantCallingCmd.Flags().StringP("merger", "m", "gatk", "GVCF merger to use. Options: gatk or glnexus")
+	VariantCallingCmd.Flags().String("deepvariant-version", "1.9.0", "DeepVariant version")
+	VariantCallingCmd.Flags().String("model-type", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
 }

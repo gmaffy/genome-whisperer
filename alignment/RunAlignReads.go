@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 )
@@ -320,7 +321,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 	return nil
 }
 
-func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool, aligner string, logFilePath string, preset string) {
+func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool, aligner string, preset string) {
 
 	fmt.Printf(" ---------------------------------------- Checking File Paths --------------------------------------------------------- \n\n")
 	fmt.Println("Reading config file ...")
@@ -360,7 +361,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
 	fmt.Println("Reading log file ...")
-
+	logFilePath := filepath.Join(out, "alignment.log")
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)

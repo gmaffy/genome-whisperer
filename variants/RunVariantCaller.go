@@ -17,7 +17,7 @@ import (
 	"sync"
 )
 
-func VariantCalling(refFile string, bams []string, out string, species string, maxParallelJobs int, verbosity string, caller string, merger string, logFilePath string) {
+func VariantCalling(refFile string, bams []string, out string, species string, maxParallelJobs int, verbosity string, caller string, merger string, logFilePath string, dvVer string, modelType string) {
 
 	// --------------------------------------- Opening fasta file --------------------------------------------------- //
 	fmt.Println("Working on FASTA file ...")
@@ -90,16 +90,27 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 		hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 		theDB := filepath.Join(chromDirPath, chromDir+"DB")
 
-		//if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", seq.ID) {
-		//	slog.Info(fmt.Sprintf("Chromosome %s already processed all steps. Skipping\n", seq.ID))
-		//	jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
-		//	continue
-		//}
+		slog.Info("Creating directories ...")
+		dirsToCreate := []string{chromDirPath, gvcfPath, tmpPath, tmp2Path, vcfPath}
+		for _, dir := range dirsToCreate {
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				cErr := os.MkdirAll(dir, 0755)
+				if cErr != nil {
+
+					slog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
+					jlog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
+
+					return
+				}
+			}
+		}
 
 		sem <- struct{}{}
 		wg.Add(1)
 
 		if caller == "gatk" {
+
+			// ------------------------------------ Check Dependencies ---------------------------------------------- //
 			gatkErr := utils.CheckDeps([]string{"gatk"})
 			if gatkErr != nil {
 				fmt.Println("Dependency check failed ... ", gatkErr)
@@ -110,6 +121,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					fmt.Println("Dependency check failed ... ", glnErr)
 				}
 			}
+
+			// ------------------------------------------------ Run ------------------------------------------------- //
 			go func(seq *linear.Seq) {
 				defer func() {
 					wg.Done()
@@ -118,22 +131,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 				fmt.Println(seq.ID)
 
-				slog.Info("Creating directories ...")
-				dirsToCreate := []string{chromDirPath, gvcfPath, tmpPath, tmp2Path, vcfPath}
-				for _, dir := range dirsToCreate {
-					if _, err := os.Stat(dir); os.IsNotExist(err) {
-						cErr := os.MkdirAll(dir, 0755)
-						if cErr != nil {
-
-							slog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
-							jlog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
-
-							return
-						}
-					}
-				}
-
-				// ------------------------------------ HAPLOTYPE CALLER (Skip completed) ------------------------------- //
+				// -------------------------------- HAPLOTYPE CALLER (Skip completed) ------------------------------- //
 				var vSlice []string
 
 				for _, bam := range bams {
@@ -274,7 +272,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 					}
 
 				} else {
-					fmt.Println("Merger not supported.")
+					fmt.Println("Merger should either be gatk or glnexus")
 					os.Exit(1)
 				}
 
@@ -392,11 +390,230 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 				jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
 
 			}(seq)
-		}
+		} else if caller == "deepvariant" {
 
+			// --------------------------------------- Check Deps -------------------------------------------------- //
+			docErr := utils.CheckDeps([]string{"docker"})
+			if docErr != nil {
+				fmt.Println("Dependency check failed ... ", docErr)
+				return
+			}
+			if merger == "glnexus" {
+				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
+				if glnErr != nil {
+					fmt.Println("Dependency check failed ... ", glnErr)
+					return
+				}
+			} else {
+				fmt.Println("Use glnexus as merger if deepvariant is your chosen variant caller. ... ")
+				return
+			}
+
+			go func(seq *linear.Seq) {
+				defer func() {
+					wg.Done()
+					<-sem
+				}()
+
+				fmt.Println(seq.ID)
+
+				// ------------------------------------ DEEP VARIANT CALLING (Skip completed) ------------------------------- //
+
+				for _, bam := range bams {
+
+					refDir := filepath.Dir(refFile)
+					refName := filepath.Base(refFile)
+					bamDir := filepath.Dir(bam)
+					bamName := filepath.Base(bam)
+					gvcfName := strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDir), 1)
+					vcfName := strings.Replace(bamName, "bam", fmt.Sprintf("%s.vcf.gz", chromDir), 1)
+
+					if utils.StageHasCompleted(logged, "DEEPVARIANT", bamName, seq.ID) {
+						msg := fmt.Sprintf("DEEPVARIANT already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
+						slog.Info(msg)
+
+					} else {
+						jlog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+
+						dvCmdStr := fmt.Sprintf(`docker run -v "%s":"/bam" -v "%s":"/ref" -v "%s":"/output" google/deepvariant:"%s" /opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s --regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s --intermediate_results_dir /output/tmp`, bamDir, refDir, gvcfPath, dvVer, modelType, refName, bamName, seq.ID, vcfName, gvcfName)
+						slog.Info(dvCmdStr)
+						dvErr := utils.RunBashCmdVerbose(dvCmdStr)
+						if dvErr != nil {
+							jlog.Error("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", dvErr))
+							slog.Error(dvCmdStr, "STATUS", fmt.Sprintf("FAILED: %v", dvErr))
+							log.Fatalf("FAILED: %v", dvErr)
+						}
+						jlog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+						slog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "STATUS", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "COMPLETED")
+					}
+				}
+
+				if merger == "glnexus" {
+
+					if utils.StageHasCompleted(logged, "GLNEXUS", "ALL", seq.ID) {
+						msg := fmt.Sprintf("glnexus_cli already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+						slog.Info(msg)
+					} else {
+						jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+						glnexusCmdStr := fmt.Sprintf(`glnexus_cli --config gatk  %s/*.vcf.gz > %s`, gvcfPath, jointBCF)
+						slog.Info(glnexusCmdStr)
+						glErr := utils.RunBashCmdVerbose(glnexusCmdStr)
+						if glErr != nil {
+							jlog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", glErr))
+							slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", glErr))
+							log.Fatalf("FAILED: %v", glErr)
+						}
+						jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+						slog.Info("CMD", glnexusCmdStr, "STATUS", "COMPLETED")
+					}
+
+					if utils.StageHasCompleted(logged, "GLNEXUS_BCFTOOLS", "ALL", seq.ID) {
+						msg := fmt.Sprintf("glnexus_cli bcftools already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+						slog.Info(msg)
+					} else {
+						jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+						bcftoolsCmdStr := fmt.Sprintf(`bcftools view %s | bgzip -@ 4 -c > %s`, jointBCF, jointVCF)
+						slog.Info(bcftoolsCmdStr)
+						glErr := utils.RunBashCmdVerbose(bcftoolsCmdStr)
+						if glErr != nil {
+							jlog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", glErr))
+							slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", glErr))
+							log.Fatalf("FAILED: %v", glErr)
+						}
+
+						rmErr := os.RemoveAll("GLnexus.DB")
+						if rmErr != nil {
+							fmt.Println("Error removing directory:", rmErr)
+							//slog.Error("VARIANT CALLING", "PROGRAM", "rm ", "SAMPLE", "GLnexus.DB", "CHROMOSOME", seq.ID, "STATUS", "ERROR", "CMD", fmt.Sprintf("%v", rmErr))
+							log.Fatalf("Error removing directory: %v", rmErr)
+						}
+						jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+						slog.Info("CMD", bcftoolsCmdStr, "STATUS", "COMPLETED")
+					}
+
+				} else {
+					fmt.Println("Merger can only be glnexus if deep variant is the variant caller")
+					os.Exit(1)
+				}
+				// -------------------------------------- SELECT SNPs (Skip completed) ---------------------------------- //
+
+				fmt.Println("Hard filtered  joint VCF ...")
+
+				if utils.StageHasCompleted(logged, "SelectSNPs", "ALL", seq.ID) {
+					msg := fmt.Sprintf("SELECT_SNPS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+					slog.Info(msg)
+
+				} else {
+
+					jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
+					slog.Info("gatk SelectVariants --select-type-to-include SNP")
+
+					sErr := GetVariantType(jointVCF, "SNP")
+					if sErr != nil {
+
+						jlog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", sErr))
+						slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", sErr))
+						log.Fatalf("FAILED: %v", sErr)
+					}
+					jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+					slog.Info("CMD", "gatk SelectVariants --select-type-to-include SNP", "STATUS", "COMPLETED")
+
+				}
+
+				// -------------------------------------- SELECT INDELS (Skip completed) -------------------------------- //
+				if utils.StageHasCompleted(logged, "SelectINDELs", "ALL", seq.ID) {
+					msg := fmt.Sprintf("SELECT_INDELS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+					slog.Info(msg)
+
+				} else {
+
+					jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+					slog.Info("gatk SelectVariants --select-type-to-include INDEL")
+
+					iErr := GetVariantType(jointVCF, "INDEL")
+					if iErr != nil {
+						jlog.Error("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", iErr))
+						slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", iErr))
+						log.Fatalf("FAILED: %v", iErr)
+					}
+					jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+					slog.Info("CMD", "gatk SelectVariants --select-type-to-include INDEL", "STATUS", "COMPLETED")
+
+				}
+
+				// --------------------------------- HARD FILTERING SNPs (Skip completed) ------------------------------- //
+
+				if utils.StageHasCompleted(logged, "HardFilteringSNPS", "ALL", seq.ID) {
+					msg := fmt.Sprintf("HardFilteringSNPS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+					slog.Info(msg)
+
+				} else {
+					jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+					slog.Info("gatk HardFilteringSNPS ")
+
+					hsErr := HardFilterSNPs(snpVCF)
+					if hsErr != nil {
+						jlog.Error("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hsErr))
+						slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", hsErr))
+						log.Fatalf("FAILED: %v", hsErr)
+					}
+					jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+					slog.Info("CMD", "gatk HardFilteringSNPS ", "STATUS", "COMPLETED")
+
+				}
+
+				// -------------------------------- HARD FILTERING INDELS (Skip completed) ------------------------------ //
+
+				if utils.StageHasCompleted(logged, "HardFilteringINDELS", "ALL", seq.ID) {
+					msg := fmt.Sprintf("HardFilteringINDELS already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+					slog.Info(msg)
+
+				} else {
+
+					jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+					slog.Info("gatk HardFilteringINDELS ")
+
+					hiErr := HardFilterINDELs(indelVCF)
+					if hiErr != nil {
+						jlog.Error("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hiErr))
+						slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", hiErr))
+						log.Fatalf("FAILED: %v", hiErr)
+					}
+
+					jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+					slog.Info("CMD", "gatk HardFilteringINDELS ", "STATUS", "COMPLETED")
+
+				}
+
+				// -------------------------------------- MERGE VCFs (Skip completed) ----------------------------------- //
+
+				if utils.StageHasCompleted(logged, "MergeVcfs", "ALL", seq.ID) {
+					msg := fmt.Sprintf("MergeVcfs already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
+					slog.Info(msg)
+				} else {
+					jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+
+					mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s`, snpVCF, indelVCF, hardFilteredVCF)
+					slog.Info(mergeCmdStr)
+					mErr := utils.RunBashCmdVerbose(mergeCmdStr)
+					if mErr != nil {
+						jlog.Error("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", mErr))
+						slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", mErr))
+						log.Fatalf("FAILED: %v", mErr)
+					}
+
+					jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+					slog.Info("VARIANT CALLING", "STATUS", "COMPLETED")
+
+				}
+				jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
+
+			}(seq)
+
+		}
 	}
 	wg.Wait()
-	
+
 	fmt.Println("Merging ALL Hard filtered VCFs ...")
 
 	finalVcf := filepath.Join(out, species+".joint_hard_filtered.vcf.gz")
@@ -416,7 +633,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, m
 
 }
 
-func VariantCallingConfig(configFile string, species string, maxParallelJobs int, verbosity string) {
+func VariantCallingConfig(configFile string, species string, maxParallelJobs int, verbosity string, caller string, merger string, dvVer string, modelType string) {
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configFile)
 	if err != nil {
@@ -471,6 +688,6 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 		fmt.Printf("Output Directory %s file path is not a directory\n", outputDir)
 		return
 	}
-
-	VariantCalling(refFile, bams, outputDir, species, maxParallelJobs, verbosity)
+	logFilePath := filepath.Join(outputDir, "variant_calling.log")
+	VariantCalling(refFile, bams, outputDir, species, maxParallelJobs, verbosity, caller, merger, logFilePath, dvVer, modelType)
 }
