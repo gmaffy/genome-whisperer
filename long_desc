@@ -22,3 +22,10 @@ Tools Description:
         - Can take bam files, reads or VCF as input as well as a reference genome
         - Can use bulks only or bulks and parents as input.
         - Can use 1 or 2 bulks
+
+Runs the following commands on bam files (with duplicates marked)
+
+    1. gatk BaseRecalibrator
+    2. gatk ApplyBQSR
+
+If no known-sites file is provided, a bootstrap method of generating one is run

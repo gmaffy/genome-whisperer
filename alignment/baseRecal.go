@@ -68,7 +68,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		if aErr != nil {
 			jlog.Error("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", aErr))
 			slog.Error("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED- %v", aErr))
-			return err
+			return aErr
 		}
 		jlog.Info("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "STATUS", "COMPLETED")
@@ -88,7 +88,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		if bErr != nil {
 			jlog.Error("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", err))
 			slog.Error("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "STATUS", fmt.Sprintf("FAILED- %v", err))
-			return err
+			return bErr
 		}
 		jlog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "STATUS", "COMPLETED")
@@ -108,7 +108,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		if A2err != nil {
 			jlog.Error("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", err))
 			slog.Error("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "STATUS", fmt.Sprintf("FAILED- %v", err))
-			return err
+			return A2err
 		}
 		jlog.Info("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "STATUS", "COMPLETED")

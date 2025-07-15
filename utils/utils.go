@@ -29,7 +29,7 @@ type Config struct {
 	BaseName    string
 	Bams        []string
 	ReadPairs   [][]string
-	SeReads     []string
+	SeReads     [][]string
 	VCF         string
 	Version     string
 	VCFs        []string
@@ -88,7 +88,8 @@ func ReadConfig(configPath string) (Config, error) {
 		case "bam":
 			cfg.Bams = append(cfg.Bams, value)
 		case "SingleEndReads":
-			cfg.SeReads = append(cfg.SeReads, value)
+			seRead := strings.Fields(value)
+			cfg.SeReads = append(cfg.SeReads, seRead)
 		case "ReadPair":
 			pairs := strings.Fields(value)
 			cfg.ReadPairs = append(cfg.ReadPairs, pairs)

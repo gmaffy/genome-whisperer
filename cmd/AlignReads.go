@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/gmaffy/genome-whisperer/alignment"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/spf13/cobra"
 	"log"
 	"os"
@@ -101,13 +102,13 @@ var AlignReadsCmd = &cobra.Command{
 
 			logFilePath := outDir + "/alignment.log"
 
-			alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, logFilePath)
+			alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, logFilePath, preset)
 		} else {
 			fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
 			_, fwdErr := os.Stat(forwardPath)
 			_, revErr := os.Stat(reversePath)
-			outInfo, outErr := os.Stat(outDir)
+
 			if refErr != nil {
 				fmt.Printf("Reference genome path: %s, is not valid\n", referencePath)
 				return
@@ -123,14 +124,26 @@ var AlignReadsCmd = &cobra.Command{
 				return
 			}
 
+			outInfo, outErr := os.Stat(outDir)
+
 			if outErr != nil {
-				fmt.Printf("Output directory: %s is not a valid path\n", outDir)
+
+				if os.IsNotExist(outErr) {
+					fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outDir)
+					if createErr := os.MkdirAll(outDir, 0755); createErr != nil {
+						fmt.Printf("Failed to create output directory %s: %v\n", outDir, createErr)
+						return
+					}
+					fmt.Printf("Output directory %s created successfully.\n", outDir)
+				} else {
+					fmt.Printf("Error accessing output directory %s: %v\n", outDir, outErr)
+					return
+				}
+			} else if !outInfo.IsDir() {
+				fmt.Printf("Output Directory %s file path is not a directory\n", outDir)
 				return
 			}
-			if !outInfo.IsDir() {
-				fmt.Printf("Output Directory %s file path is not a directory", outDir)
-				return
-			}
+
 			if sampleName == "" {
 				fmt.Println("Please provide sample name is flag -s ")
 				return
@@ -167,6 +180,23 @@ var AlignReadsCmd = &cobra.Command{
 				}
 			}
 			logFilePath := outDir + "/alignment.log"
+			if aligner == "pbmm2" {
+				depErr := utils.CheckDeps([]string{"pbmm2", "samtools", "gatk"})
+				if depErr != nil {
+					log.Fatalf("Dependency check failed: %v", depErr)
+				}
+
+			} else if aligner == "bwa-mem" {
+				depErr := utils.CheckDeps([]string{"bwa", "samtools", "gatk"})
+				if depErr != nil {
+					log.Fatalf("Dependency check failed: %v", depErr)
+				}
+			} else if aligner == "bowtie2" {
+				depErr := utils.CheckDeps([]string{"bowtie2", "samtools", "gatk"})
+				if depErr != nil {
+					log.Fatalf("Dependency check failed: %v", depErr)
+				}
+			}
 			err := alignment.RunAlignReads(referencePath, forwardPath, reversePath, sePath, sampleName, libName, outDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset)
 			if err != nil {
 				return
