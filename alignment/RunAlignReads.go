@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-func RunAlignReads(referencePath string, forwardPath string, reversePath string, sePath string, sampleName string, libName string, outputDir string, threads int, aligner string, knownSites []string, bqsr bool, bootstrap bool, logFilePath string, preset string) error {
+func RunAlignReads(referencePath string, forwardPath string, reversePath string, sePath string, sampleName string, libName string, outputDir string, threads int, aligner string, knownSites []string, bqsr bool, bootstrap bool, logFilePath string, preset string, gatkLogLevel string, verbose bool) (string, error) {
 
 	// ----------------------------------------- Log file ----------------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -34,13 +34,15 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 	sortedBam := fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
 	sortedBai := fmt.Sprintf("%s/%s.sorted.bai", lineDir, sampleName)
 
+	finalBam := ""
+
 	bErr := os.MkdirAll(lineDir, 0755)
 	if bErr != nil {
-		//jlog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", bErr))    //, "CMD", "ALL")
-		//slog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", bErr))
 		log.Fatalf("Error creating results directory: %s\n", bErr)
-		return bErr
+		return "", bErr
 	}
+
+	// ========================== CREATING RGMD (depending on aligner ) STARTS ====================================== //
 
 	if aligner == "bwa-mem" {
 		fmt.Printf("\n\n ----------------------------------------- Running aligner: bwa mem -------------------------------------------------------- \n\n")
@@ -56,14 +58,15 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			cmdStr := fmt.Sprintf(`bwa mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortedBam)
 			fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
 
+			//if verbose
 			memErr := utils.RunBashCmdVerbose(cmdStr)
 			if memErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", memErr)) //, "CMD", "ALL")
 				slog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", memErr))
-				return memErr
+				return "", memErr
 			}
 
-			jlog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED") //, "CMD", "ALL")
+			jlog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		}
 
@@ -82,11 +85,11 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 			mdupErr := utils.RunBashCmdVerbose(mDupCmdStr)
 			if mdupErr != nil {
-				jlog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr)) //, "CMD", "ALL")
+				jlog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr))
 				slog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr))
-				return mdupErr
+				return "", mdupErr
 			}
-			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED") //, "CMD", "ALL")
+			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		}
 
@@ -106,7 +109,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			if indErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr)) //, "CMD", "ALL")
 				slog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
-				return indErr
+				return "", indErr
 			}
 			jlog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED") //, "CMD", "ALL")
 			slog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
@@ -129,7 +132,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			if bowErr != nil {
 				jlog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", bowErr))
 				slog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", bowErr))
-				return bowErr
+				return "", bowErr
 			}
 
 			fmt.Printf("Indexing Bam ....")
@@ -138,7 +141,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			if mErr != nil {
 				jlog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mErr))
 				slog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mErr))
-				return mErr
+				return "", mErr
 			}
 			jlog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
@@ -163,7 +166,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 				indexErr := utils.RunBashCmdVerbose(indexCmdStr)
 				if indexErr != nil {
 					fmt.Println("Indexing reference failed")
-					return indexErr
+					return "", indexErr
 				}
 			}
 			pbmm2CmdStr := fmt.Sprintf(`pbmm2 align --sort -j %v --preset %s %s %s %s`, threads, preset, referencePath+".mmi", sePath, sortedBam)
@@ -173,7 +176,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 				jlog.Error("ALIGNMENT", "PROGRAM", "PBMM2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", pbmm2Err))
 				slog.Error("ALIGNMENT", "PROGRAM", "PBMM2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", pbmm2Err))
 				//fmt.Println("pbmm2 alignment failed")
-				return pbmm2Err
+				return "", pbmm2Err
 			}
 			jlog.Info("ALIGNMENT", "PROGRAM", "PBMM2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "PBMM2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
@@ -194,7 +197,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			if rgErr != nil {
 				jlog.Error("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", rgErr))
 				slog.Error("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", rgErr))
-				return rgErr
+				return "", rgErr
 			}
 			jlog.Info("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
@@ -215,7 +218,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			if mkdpErr != nil {
 				jlog.Error("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mkdpErr))
 				slog.Error("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mkdpErr))
-				return mkdpErr
+				return "", mkdpErr
 			}
 			jlog.Info("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
@@ -237,7 +240,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			if indErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
 				slog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
-				return indErr
+				return "", indErr
 			}
 			jlog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
@@ -245,38 +248,41 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 	} else {
 		fmt.Println("Aligner not supported")
-		return fmt.Errorf("aligner not supported\n\n Only bwa-mem, bowtie2 and pbmm2 are supported\n\n")
+		return "", fmt.Errorf("aligner not supported\n\n Only bwa-mem, bowtie2 and pbmm2 are supported\n\n")
 	}
 
-	if bqsr {
+	// ============================================== RGMD CREATION ENDS ============================================ //
 
+	// ==================================== BSQR CREATION STARTS (IT TRUE) ========================================== //
+	if bqsr {
 		fmt.Println("Running BQSR")
-		fmt.Println("Check if mark duplicates was successful", knownSites)
+		fmt.Println("Check if mark duplicates was successful")
 		_, mdErr := os.Stat(rgmdBam)
 		_, mdiErr := os.Stat(rgmdIndex)
 
 		if mdErr != nil || mdiErr != nil {
 			fmt.Println("Mark duplicates failed")
-			return fmt.Errorf("mark duplicates failed\n\n")
+			return "", fmt.Errorf("mark duplicates failed\n\n")
 		}
+		fmt.Println("Mark duplicates successful")
 
 		if len(knownSites) == 0 && bootstrap == true {
 			fmt.Println("Running with bootstrap method")
-			fmt.Println("Create Known variants", knownSites)
+			fmt.Println("Create Known variants ..............")
 			if utils.StageHasCompleted(logged, "BOOTSTRAP_CKV", sampleName, "ALL") {
 				msg := fmt.Sprintf("BOOTSTRAP already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
 				slog.Info(msg)
 			} else {
-				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CSV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CSV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath)
+				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+				newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel)
 				if ksErr != nil {
-					jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CSV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
-					slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CSV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
-					return fmt.Errorf("create known variants failed\n\n")
+					jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+					slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+					return "", fmt.Errorf("create known variants failed\n\n")
 				}
-				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CSV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CSV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 				knownSites = newKnownSites
 				fmt.Printf("Known variants created at %s\n...................................................\n", knownSites)
 
@@ -288,12 +294,13 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			} else {
 				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath)
+				bqsrBam, recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath, verbose)
 				if recErr != nil {
 					jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
 					slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
-					return fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
+					return "", fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
 				}
+				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
 				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			}
@@ -305,37 +312,42 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			} else {
 				jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath)
+				bqsrBam, recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath, verbose)
 				if recErr != nil {
 					jlog.Error("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
 					slog.Error("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
-					return fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
+					return "", fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
 				}
+				jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
 				jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 				slog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				finalBam = bqsrBam
 
 			}
 
+		} else {
+			finalBam = rgmdBam
 		}
+
 	}
-	return nil
+	return finalBam, nil
 }
 
-func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool, aligner string, preset string) {
+func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool, aligner string, preset string, gatkLogLevel string, verbose bool) ([]string, error) {
 
 	fmt.Printf(" ---------------------------------------- Checking File Paths --------------------------------------------------------- \n\n")
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configPath)
 	if err != nil {
 		fmt.Printf("Error reading config: %v\n", err)
-		return
+		return nil, fmt.Errorf("error reading config: %v\n", err)
 	}
 
 	ref := cfg.Reference
 	_, refErr := os.Stat(ref)
 	if refErr != nil {
 		fmt.Printf("Reference genome path: %s, is not valid\n", ref)
-		return
+		return nil, fmt.Errorf("reference genome path: %s, is not valid\n", ref)
 	}
 
 	out := cfg.OutputDir
@@ -347,16 +359,16 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", out)
 			if createErr := os.MkdirAll(out, 0755); createErr != nil {
 				fmt.Printf("Failed to create output directory %s: %v\n", out, createErr)
-				return
+				return nil, fmt.Errorf("failed to create output directory %s: %v\n", out, createErr)
 			}
 			fmt.Printf("Output directory %s created successfully.\n", out)
 		} else {
 			fmt.Printf("Error accessing output directory %s: %v\n", out, outErr)
-			return
+			return nil, fmt.Errorf("error accessing output directory %s: %v\n", out, outErr)
 		}
 	} else if !outInfo.IsDir() {
 		fmt.Printf("Output Directory %s file path is not a directory\n", out)
-		return
+		return nil, fmt.Errorf("output directory %s file path is not a directory\n", out)
 	}
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
@@ -385,11 +397,11 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 		fmt.Println("----------------------------------------------- Check Paths if bqsr ------------------------------------------")
 		if aligner == "pbmm2" {
 			fmt.Println("We do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
-			return
+			return nil, fmt.Errorf("we do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
 		}
 		if len(knownSites) == 0 && bootstrap == false {
 			fmt.Println("Either pass a known-sites file or enable bootstrap method")
-			return
+			return nil, fmt.Errorf("either pass a known-sites file or enable bootstrap method")
 		} else if len(knownSites) > 0 {
 			fmt.Println("Running with known-sites flag")
 			// ---------------------------- Checking Known sites file paths ----------------------------------------- //
@@ -397,15 +409,17 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 				_, err := os.Stat(knownSites[j])
 				if err != nil {
 					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
-					log.Fatal(err)
+					return nil, fmt.Errorf("known-sites file: %s is not a valid file path", knownSites[j])
 				}
 			}
 			if bootstrap == true {
 				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
-				return
+				return nil, fmt.Errorf("choose either pass a known-sites file or enable bootstrap method, but not both")
 			}
 		}
 	}
+
+	//----------------------------------------- Check reads based on SE OR PE ----------------------------------------//
 
 	i := 0
 	if aligner == "bwa-mem" || aligner == "bowtie2" {
@@ -424,23 +438,23 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 
 			if fwdErr != nil {
 				fmt.Printf("Forward reads path %s, is not valid\n", fwd)
-				return
+				return nil, fmt.Errorf("forward reads path %s, is not valid\n", fwd)
 			}
 
 			if revErr != nil {
 				fmt.Printf("Reverse reads path %s, is not valid\n", rev)
-				return
+				return nil, fmt.Errorf("reverse reads path %s, is not valid\n", rev)
 			}
 
 			if sn == "" {
 				fmt.Println("Please provide sample name ")
 				fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
-				return
+				return nil, fmt.Errorf("please provide sample name. Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
 			}
 			if lb == "" {
 				fmt.Println("Please provide library name  ")
 				fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
-				return
+				return nil, fmt.Errorf("please provide library name. Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
 			}
 			i++
 		}
@@ -459,17 +473,19 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 			_, seReadErr := os.Stat(seRead)
 			if seReadErr != nil {
 				fmt.Printf("Single reads path %s, is not valid\n", seRead)
-				return
+				return nil, fmt.Errorf("single reads path %s, is not valid\n", seRead)
 			}
 			if sn == "" {
 				fmt.Println("Please provide sample name ")
+				return nil, fmt.Errorf("please provide sample name. Supply reads in this format: SingleRead: <reads> <sample name> <library name> ")
 			}
 			if lb == "" {
 				fmt.Println("Please provide library name  ")
+				return nil, fmt.Errorf("please provide library name. Supply reads in this format: SingleRead: <reads> <sample name> <library name> ")
 			}
-
+			i++
 		}
-
+		fmt.Printf("There are  %v reads", i)
 	}
 
 	// ============================================== Run Alignments ================================================ //
@@ -489,13 +505,17 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	sem := make(chan struct{}, maxParallelJobs)
 
 	//------------------------------------------ Run alignment ------------------------------------------------------ //
+
+	// For each sample, this outputs bam. Either bqsr bam or rgmd bams
 	var bams []string
 	if aligner == "bwa-mem" || aligner == "bowtie2" {
+
+		// -------------------------------------- Check Dependencies ------------------------------------------------ //
 		if aligner == "bwa-mem" {
 			depErr := utils.CheckDeps([]string{"bwa", "gatk", "samtools"})
 			if depErr != nil {
 				fmt.Printf("Dependency check failed!\n")
-				return
+				return nil, fmt.Errorf("Dependency check failed!\n")
 			}
 		} else {
 			depErr := utils.CheckDeps([]string{"bowtie2", "samtools", "gatk"})
@@ -507,10 +527,11 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 			}
 		}
 
+		// ----------------------------------------- RUNNING STATS HERE --------------------------------------------- //
 		for _, pair := range cfg.ReadPairs {
 			if len(pair) < 4 {
 				fmt.Printf("This read pair is wrongly formated %s\n", pair)
-				fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
+				fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name>")
 				continue
 			}
 
@@ -521,34 +542,26 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 				defer func() { <-sem }()
 
 				fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
-				lineDir := fmt.Sprintf("%s/%s", out, sn)
-				rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
-				rgmdBai := fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sn)
 
 				jlog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
 
-				_, rgmdBamErr := os.Stat(rgmdBam)
-				_, rgmdBaiErr := os.Stat(rgmdBai)
-
 				isDone := utils.StageHasCompleted(logged, "PE_ALIGNMENT", sn, "ALL")
-				if isDone && rgmdBamErr == nil && rgmdBaiErr == nil {
+				if isDone {
 					msg := fmt.Sprintf("%s and MarkDuplicates already completed for %s. Skipping.\n\n-------------------------------------------------------\n\n", aligner, sn)
 					slog.Info(msg)
 
 				} else {
-					alErr := RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset)
+					bam, alErr := RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
 					if alErr != nil {
 						jlog.Error("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 						slog.Error("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))
-
 						return
 					}
 					jlog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 					slog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "COMPLETED")
+					bams = append(bams, bam)
 				}
-				bams = append(bams, rgmdBam)
-
 			}(pair)
 
 		}
@@ -558,12 +571,12 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 		depErr := utils.CheckDeps([]string{"pbmm2", "pbmarkdup", "samtools", "gatk"})
 		if depErr != nil {
 			fmt.Printf("Dependency check failed!\n")
-			return
+			return nil, fmt.Errorf("Dependency check failed!\n")
 		}
 		for _, se := range cfg.SeReads {
 			if len(se) < 3 {
 				fmt.Printf("This read pair is wrongly formated %s\n", se)
-				fmt.Println("Supply reads in this format: SingleRead: <reads> <sample name> <library name> ")
+				fmt.Println("Supply reads in this format: SingleRead: <reads> <sample name> <library name>")
 				continue
 			}
 			wg.Add(1)
@@ -572,23 +585,17 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 				defer wg.Done()
 				defer func() { <-sem }()
 				seRead, sn, lb := se[0], se[1], se[2]
-				lineDir := fmt.Sprintf("%s/%s", out, sn)
-				rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
-				rgmdBai := fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sn)
 
 				jlog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
 
-				_, rgmdBamErr := os.Stat(rgmdBam)
-				_, rgmdBaiErr := os.Stat(rgmdBai)
-
 				isDone := utils.StageHasCompleted(logged, "PB_ALIGNMENT", sn, "ALL")
-				if isDone && rgmdBamErr == nil && rgmdBaiErr == nil {
+				if isDone {
 					msg := fmt.Sprintf("%s and MarkDuplicates already completed for %s. Skipping.\n\n-------------------------------------------------------\n\n", aligner, sn)
 					slog.Info(msg)
 
 				} else {
-					alErr := RunAlignReads(cfg.Reference, "", "", seRead, sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset)
+					bam, alErr := RunAlignReads(cfg.Reference, "", "", seRead, sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
 					if alErr != nil {
 						jlog.Error("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 						slog.Error("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))
@@ -597,8 +604,9 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 					}
 					jlog.Info("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 					slog.Info("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "STATUS", "COMPLETED")
+					bams = append(bams, bam)
 				}
-				bams = append(bams, rgmdBam)
+
 			}(se)
 		}
 		wg.Wait()
@@ -606,7 +614,8 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	} else {
 		Msg := fmt.Sprintf("Aligner %s is not supported", aligner)
 		slog.Error(Msg)
-		return
+		return nil, fmt.Errorf(Msg)
 	}
+	return bams, nil
 
 }

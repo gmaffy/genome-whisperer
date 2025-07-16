@@ -54,6 +54,11 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting known-sites flag: %v", ksErr)
 		}
 
+		verbosity, vebErr := cmd.Flags().GetString("verbosity")
+		if vebErr != nil {
+			log.Fatalf("Error getting known-sites flag: %v", vebErr)
+		}
+
 		_, lErr := os.Stat(logFile)
 		if lErr != nil {
 			fmt.Printf("Log file: %s does not exist", logFile)
@@ -63,7 +68,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
-			alignment.BQSRconfig(configFile, bootstrap, jobs, logFile)
+			alignment.BQSRconfig(configFile, bootstrap, jobs, logFile, verbosity)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
@@ -98,7 +103,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				return
 			} else if len(knownSites) == 0 && bootstrap == true {
 				fmt.Println("Running with bootstrap method")
-				err := alignment.BootstrapBqsr(refFile, bams, jobs, logFile)
+				err := alignment.BootstrapBqsr(refFile, bams, jobs, logFile, verbosity)
 				if err != nil {
 					return
 				}
@@ -148,4 +153,5 @@ func init() {
 	BQSRCmd.Flags().String("log", "", "log file path")
 	BQSRCmd.Flags().String("config", "", "config file path")
 	BQSRCmd.Flags().StringP("reference", "r", "", "path to reference genome")
+	BQSRCmd.Flags().String("verbosity", "ERROR", "GATK verbosity level (DEBUG, INFO, WARNING, ERROR)")
 }

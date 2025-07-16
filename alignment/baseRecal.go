@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-func Recalibrate(ref string, bam string, knownSites []string, logFilePath string) error {
+func Recalibrate(ref string, bam string, knownSites []string, logFilePath string, verbose bool) (string, error) {
 
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -45,11 +45,15 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		cmdStr := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s`, ref, bam, ks, recalTable)
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStr))
 
-		err = utils.RunBashCmdVerbose(cmdStr)
+		if verbose {
+			err = utils.RunBashCmdVerbose(cmdStr)
+		} else {
+			err = utils.RunBashCmd(cmdStr)
+		}
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", err))
 			slog.Error("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED- %v", err))
-			return err
+			return "", err
 		}
 		jlog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bam, "STATUS", "COMPLETED")
@@ -64,11 +68,16 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		jlog.Info("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		aCmdStr := fmt.Sprintf(`gatk ApplyBQSR -R %s -I %s -bqsr %s -O %s`, ref, bam, recalTable, bqsrBam)
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", aCmdStr))
-		aErr := utils.RunBashCmdVerbose(aCmdStr)
+		var aErr error
+		if verbose {
+			aErr = utils.RunBashCmdVerbose(aCmdStr)
+		} else {
+			aErr = utils.RunBashCmd(aCmdStr)
+		}
 		if aErr != nil {
 			jlog.Error("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", aErr))
 			slog.Error("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED- %v", aErr))
-			return aErr
+			return "", aErr
 		}
 		jlog.Info("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "STATUS", "COMPLETED")
@@ -84,11 +93,16 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		cmdStr2 := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s`, ref, bqsrBam, ks, recalTable2)
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStr2))
 
-		bErr := utils.RunBashCmdVerbose(cmdStr2)
+		var bErr error
+		if verbose {
+			bErr = utils.RunBashCmdVerbose(cmdStr2)
+		} else {
+			bErr = utils.RunBashCmd(cmdStr2)
+		}
 		if bErr != nil {
 			jlog.Error("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", err))
 			slog.Error("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "STATUS", fmt.Sprintf("FAILED- %v", err))
-			return bErr
+			return "", bErr
 		}
 		jlog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "STATUS", "COMPLETED")
@@ -104,18 +118,23 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		cmdStrA := fmt.Sprintf(`gatk AnalyzeCovariates -before %s -after %s -plots %s `, recalTable, recalTable2, plots)
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStrA))
 
-		A2err := utils.RunBashCmdVerbose(cmdStrA)
+		var A2err error
+		if verbose {
+			A2err = utils.RunBashCmdVerbose(cmdStrA)
+		} else {
+			A2err = utils.RunBashCmd(cmdStrA)
+		}
 		if A2err != nil {
 			jlog.Error("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED- %v", err))
 			slog.Error("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "STATUS", fmt.Sprintf("FAILED- %v", err))
-			return A2err
+			return "", A2err
 		}
 		jlog.Info("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "STATUS", "COMPLETED")
 
 	}
 
-	return nil
+	return bqsrBam, nil
 
 }
 
@@ -148,12 +167,13 @@ func DbSnpBqsr(ref string, bams []string, knownSites []string, numJobs int, logF
 				msg := fmt.Sprintf("RECALIBRATE already completed for bam file: %s. Skipping ....\n", bam)
 				slog.Info(msg)
 			} else {
-				err = Recalibrate(ref, bam, knownSites, logFilePath)
+				bqsrBam, err := Recalibrate(ref, bam, knownSites, logFilePath, true)
 				if err != nil {
 					jlog.Error("BQSR", "PROGRAM", "RECALIBRATE", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 					slog.Error("BQSR", "PROGRAM", "RECALIBRATE", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 					return
 				}
+				jlog.Info("BQSR", "PROGRAM", "RECALIBRATE", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
 
 			}
 
@@ -167,7 +187,7 @@ func DbSnpBqsr(ref string, bams []string, knownSites []string, numJobs int, logF
 	return nil
 }
 
-func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, error) {
+func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity string) ([]string, error) {
 
 	// ------------------------------------------- Open log file ---------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -259,7 +279,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 		jlog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "STARTED")
 
-		err = variants.HardFilterSNPs(snpVCF)
+		err = variants.HardFilterSNPs(snpVCF, verbosity)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -276,7 +296,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "STARTED")
-		err = variants.HardFilterINDELs(indelVCF)
+		err = variants.HardFilterINDELs(indelVCF, verbosity)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -299,7 +319,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string) ([]string, 
 
 }
 
-func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) error {
+func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string, verbosity string) error {
 	fmt.Println("bootstrapBqsr")
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -333,7 +353,7 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) e
 				fmt.Printf("Creating known variants for bam file: %s\n", bam)
 				jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "STARTED")
-				knownSites, err = CreateKnownVariants(ref, bam, logFilePath)
+				knownSites, err = CreateKnownVariants(ref, bam, logFilePath, verbosity)
 				if err != nil {
 					jlog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 					slog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -371,7 +391,7 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string) e
 	return nil
 }
 
-func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string) {
+func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string, verbosity string) {
 
 	// ----------------------------------------- Log file ----------------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -421,7 +441,10 @@ func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string)
 		return
 	} else if len(knownSites) == 0 && bootstrap == true {
 		fmt.Println("Running with bootstrap method")
-		BootstrapBqsr(refFile, bams, jobs, logFilePath)
+		err := BootstrapBqsr(refFile, bams, jobs, logFilePath, verbosity)
+		if err != nil {
+			return
+		}
 	} else if len(knownSites) > 0 {
 		fmt.Println("Running with known-sites flag")
 		// -------------------------------- Checking Known sites file paths ----------------------------------------- //

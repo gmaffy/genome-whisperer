@@ -28,7 +28,7 @@ func GetVariantType(vcf string, varType string) error {
 	return nil
 }
 
-func HardFilterINDELs(vcf string) error {
+func HardFilterINDELs(vcf string, verbosity string) error {
 	var vcfCol string
 	var vcfFiltered string
 	if strings.HasSuffix(vcf, ".vcf.gz") {
@@ -48,7 +48,7 @@ func HardFilterINDELs(vcf string) error {
     -filter "QUAL < 30.0" --filter-name "QUAL30" \
     -filter "FS > 200.0" --filter-name "FS200" \
     -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
-    -O %s`, vcf, vcfCol)
+    -O %s --verbosity %s`, vcf, vcfCol, verbosity)
 
 	if err := utils.RunBashCmdVerbose(cmdStr); err != nil {
 		return err
@@ -62,7 +62,7 @@ func HardFilterINDELs(vcf string) error {
 	return nil
 }
 
-func HardFilterSNPs(vcf string) error {
+func HardFilterSNPs(vcf string, verbosity string) error {
 	var vcfCol string
 	var vcfFiltered string
 	if strings.HasSuffix(vcf, ".vcf.gz") {
@@ -85,7 +85,7 @@ func HardFilterSNPs(vcf string) error {
     -filter "MQ < 40.0" --filter-name "MQ40" \
     -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
     -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
-    -O %s`, vcf, vcfCol)
+    -O %s --verbosity %s`, vcf, vcfCol, verbosity)
 
 	if err := utils.RunBashCmdVerbose(cmdStr); err != nil {
 		return err

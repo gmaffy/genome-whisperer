@@ -1,10 +1,11 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 Godwin Mafireyi <mafireyi@gmail.com>
 */
 package cmd
 
 import (
 	"fmt"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
 	"log"
 	"os"
@@ -17,13 +18,12 @@ import (
 var VariantCallingCmd = &cobra.Command{
 	Use:   "VariantCalling",
 	Short: "Creates a multi-sample VCF file from bam files using GATK best practices OR Deepvariant and GLNEXUS",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Long: `VariantCalling
+        - Calls and hard filters SNPs and Indels using GATK best practices from bams generated from short reads
+        - Calls and hard filters SNPs and Indels using Deepvariant from bams generated from long reads
+        - Can use glenexus or GATK to merge gvcfs`,
 	Run: func(cmd *cobra.Command, args []string) {
+
 		fmt.Println("VariantCalling called")
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
@@ -78,6 +78,37 @@ to quickly create a Cobra application.`,
 		if speciesName == "" {
 			fmt.Println("Please provide species name with flag --species ")
 			return
+		}
+
+		//-------------------------------------------- Check dependencies ------------------------------------------ //
+		if caller == "gatk" {
+			gatkErr := utils.CheckDeps([]string{"gatk"})
+			if gatkErr != nil {
+				fmt.Println("Dependency check failed ... ", gatkErr)
+			}
+			if merger == "glnexus" {
+				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
+				if glnErr != nil {
+					fmt.Println("Dependency check failed ... ", glnErr)
+				}
+			}
+
+		} else if caller == "deepvariant" {
+			docErr := utils.CheckDeps([]string{"docker"})
+			if docErr != nil {
+				fmt.Println("Dependency check failed ... ", docErr)
+				return
+			}
+			if merger == "glnexus" {
+				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
+				if glnErr != nil {
+					fmt.Println("Dependency check failed ... ", glnErr)
+					return
+				}
+			} else {
+				fmt.Println("Use glnexus as merger if deepvariant is your chosen variant caller. ... ")
+				return
+			}
 		}
 
 		if configFile != "" {
@@ -161,7 +192,7 @@ func init() {
 	VariantCallingCmd.Flags().StringP("out", "o", "", "Recalibrated bam file")
 	VariantCallingCmd.Flags().StringP("species", "s", "", "Species name")
 	VariantCallingCmd.Flags().IntP("jobs", "j", 4, "Jobs per run")
-	VariantCallingCmd.Flags().String("verbosity", "INFO", "Jobs per run")
+	VariantCallingCmd.Flags().String("verbosity", "ERROR", "Jobs per run")
 	VariantCallingCmd.Flags().StringP("config", "c", "", "Config file")
 	VariantCallingCmd.Flags().StringP("reference", "r", "", "Reference file")
 	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")

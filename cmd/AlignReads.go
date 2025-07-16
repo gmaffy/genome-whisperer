@@ -88,9 +88,19 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
 		}
 
+		verbose, vebErr := cmd.Flags().GetBool("verbose")
+		if vebErr != nil {
+			log.Fatalf("Error getting verbose flag: %v", vebErr)
+		}
+
 		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
 		if ksErr != nil {
 			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
+		}
+
+		gatkLogLevel, glErr := cmd.Flags().GetString("gatk-log-evel")
+		if glErr != nil {
+			log.Fatalf("Error getting bqsr flag: %v", glErr)
 		}
 
 		if configFile != "" {
@@ -102,7 +112,13 @@ var AlignReadsCmd = &cobra.Command{
 
 			//logFilePath := outDir + "/alignment.log"
 
-			alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset)
+			bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose)
+			if err != nil {
+				fmt.Println(err)
+				return
+			} else {
+				fmt.Printf("%v BAMs generated", len(bams))
+			}
 		} else {
 			fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
@@ -197,8 +213,11 @@ var AlignReadsCmd = &cobra.Command{
 					log.Fatalf("Dependency check failed: %v", depErr)
 				}
 			}
-			err := alignment.RunAlignReads(referencePath, forwardPath, reversePath, sePath, sampleName, libName, outDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset)
+			bam, err := alignment.RunAlignReads(referencePath, forwardPath, reversePath, sePath, sampleName, libName, outDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
 			if err != nil {
+				return
+			} else {
+				fmt.Printf("BAM file generated: %s\n", bam)
 				return
 			}
 		}
@@ -207,17 +226,6 @@ var AlignReadsCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(AlignReadsCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// AlignReadsCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// AlignReadsCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	AlignReadsCmd.Flags().StringP("forward", "1", "", "Path to forward reads")
 	AlignReadsCmd.Flags().StringP("reverse", "2", "", "Path to reverse reads")
 	AlignReadsCmd.Flags().String("se", "", "Path to reverse reads")
@@ -226,11 +234,13 @@ func init() {
 	AlignReadsCmd.Flags().StringP("output_dir", "o", "", "output directory")
 	AlignReadsCmd.Flags().IntP("threads", "t", 8, "number of threads")
 	AlignReadsCmd.Flags().Bool("bqsr", false, "perform BQSR")
+	AlignReadsCmd.Flags().Bool("verbose", false, "verbose mode")
 	AlignReadsCmd.Flags().String("aligner", "bwa-mem", "bwa-mem, bowtie2 or pbmm2")
 	AlignReadsCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
 	AlignReadsCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
 	AlignReadsCmd.Flags().StringP("reference", "r", "", "Path to reference genome")
 	AlignReadsCmd.Flags().StringP("config", "c", "", "Path to reference genome index")
 	AlignReadsCmd.Flags().String("preset", "HIFI", "pbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
+	AlignReadsCmd.Flags().String("gatk-log-evel", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
 
 }

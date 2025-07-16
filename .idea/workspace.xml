@@ -5,14 +5,26 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="65af7bec-db4c-48eb-959b-ac3fcd0c8360" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/genome-whisperer.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/genome-whisperer.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/alignment/alignmentStats.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/interactiveMode.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/oneBulk.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/oneBulkUtils.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/twoBulkUtils.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/twoBulks.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bsaseq/utils.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/pangenome/gopan.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/RunAlignReads.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/baseRecal.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/baseRecal.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmd/AlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/AlignReads.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/BQSR.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/BQSR.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmd/VariantCalling.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantCalling.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/utils/utils.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/hardFiltering.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/hardFiltering.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -49,6 +61,7 @@
     "RunOnceActivity.GoLinterPluginOnboarding": "true",
     "RunOnceActivity.GoLinterPluginStorageMigration": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.go.formatter.settings.were.checked": "true",
     "RunOnceActivity.go.migrated.go.modules.settings": "true",
@@ -58,7 +71,7 @@
     "go.sdk.automatically.set": "true",
     "ignore.virus.scanning.warn.message": "true",
     "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/home/godwin",
+    "last_opened_file_path": "/home/godwin/tools/genome-whisperer/bsaseq",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
@@ -66,6 +79,11 @@
   }
 }]]></component>
   <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/bsaseq" />
+      <recent name="$PROJECT_DIR$/alignment" />
+      <recent name="$PROJECT_DIR$/pangenome" />
+    </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="E:\GitHub\PhD\genome-whisperer\tests" />
     </key>

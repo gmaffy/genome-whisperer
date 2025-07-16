@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -166,6 +167,16 @@ func RunBashCmdVerbose(cmdStr string) error {
 	return nil
 }
 
+func RunBashCmd(cmdStr string) error {
+	cmd := exec.Command("bash", "-c", cmdStr)
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("CMD error:", err)
+		return err
+	}
+	return nil
+}
+
 func ParseLogFile(logFilePath string) []LogEntry {
 	var data []LogEntry
 	file, err := os.Open(logFilePath)
@@ -218,4 +229,25 @@ func StageHasCompleted(logEntries []LogEntry, prog string, sample string, chrom 
 		}
 	}
 	return false
+}
+
+func CopyFile(src, dst string) error {
+	sourceFile, sErr := os.Open(src)
+	if sErr != nil {
+		return fmt.Errorf("couldn't open source file %s: %w", src, sErr)
+	}
+	defer sourceFile.Close()
+
+	dstFile, dErr := os.Create(dst)
+	if dErr != nil {
+		return fmt.Errorf("couldn't create destination file %s: %w", dst, dErr)
+	}
+	defer dstFile.Close()
+
+	_, err := io.Copy(dstFile, sourceFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
 }
