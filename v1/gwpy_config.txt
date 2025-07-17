@@ -1,14 +1,21 @@
-OutputDir: /mnt/f/GOWHISPERER_GO/PhyBSAseq2
-snpEff: /home/godwin/Tools/snpEff
-GATK3: /home/godwin/Tools/GenomeAnalysisTK-3.8-1
-java_8: /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
-parallisation: 4
+# ======================================= Reference genome Details =================================================== #
+Reference: <path to reference genome fasta file>
+gff: <path to gff file>
+proteins: <path to protein fasta file>
+cds: <path to cds fasta file>
 
-Reference: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_genome_v1.fa
-gff: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_gff3_v1.gff
-proteins: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_pep_v1.fa
-cds: /mnt/h/GENOMES/Squash/Moschata/Cucurbita_moschata/v1/Cmoschata_CDS_v1.fa
-ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_MOB176A/ReverseReads.fq.gz MOB176 LOW_PARENT
+#===================================================================================================================== #
+OutputDir: /mnt/f/GOWHISPERER_GO/PhyBSAseq2
+# =============================================== Read alignment ===================================================== #
+
+ReadPair: <path to forward reads> <path to reverse reads> <sample name> <library name (for BSAseq this is HIGH_PARENT, LOW_PARENT, HIGH_BULK OR LOW_BULK>
+
+# =============================================== Bam files ========================================================== #
+bam: <path to bam/cram file>
+BSAseqBam: <path to bam/cram file> <HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULK>
+
+# ==================================================================================================================== #
+
 ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLA_10A/ReverseReads.fq.gz BULK1 HIGH_BULK
 #ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLB_20A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLB_20A/ReverseReads.fq.gz BULK2 HIGH_BULK
 ReadPair: /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ForwardReads.fq.gz /mnt/h/READS/Squash/Moschata/Phytophthora/PHY_POOLC_8A/ReverseReads.fq.gz BULK3 LOW_BULK

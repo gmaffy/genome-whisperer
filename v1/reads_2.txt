@@ -1,4 +1,5 @@
 Reference: /media/godwin/DATA/PhD/Genomes/Cucurbita_moschata/v1/Cmoschata_genome_v1.fa
+proteins
 OutputDir: /media/godwin/DATA/PhD/GOPAN2
 #ReadPair: /media/godwin/DATA/PhD/Reads/MO834/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/MO834/ReverseReads.fq.gz MO834 
 ReadPair: /media/godwin/DATA/PhD/Reads/AVPU1508/ForwardReads.fq.gz /media/godwin/DATA/PhD/Reads/AVPU1508/ReverseReads.fq.gz AVPU1508 AVPU1508

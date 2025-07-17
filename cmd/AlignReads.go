@@ -50,7 +50,7 @@ var AlignReadsCmd = &cobra.Command{
 
 		aligner, alErr := cmd.Flags().GetString("aligner")
 		if alErr != nil {
-			log.Fatalf("Error getting aligner flag: %v", seErr)
+			log.Fatalf("Error getting aligner flag: %v", alErr)
 		}
 
 		sampleName, sErr := cmd.Flags().GetString("sample")
@@ -65,7 +65,7 @@ var AlignReadsCmd = &cobra.Command{
 
 		preset, preErr := cmd.Flags().GetString("preset")
 		if preErr != nil {
-			log.Fatalf("Error getting output dir flag: %v", preErr)
+			log.Fatalf("Error getting preset flag: %v", preErr)
 		}
 
 		outDir, oErr := cmd.Flags().GetString("output_dir")
@@ -95,40 +95,29 @@ var AlignReadsCmd = &cobra.Command{
 
 		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
 		if ksErr != nil {
-			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
+			log.Fatalf("Error getting known-sites flag: %v", ksErr)
 		}
 
-		gatkLogLevel, glErr := cmd.Flags().GetString("gatk-log-evel")
+		gatkLogLevel, glErr := cmd.Flags().GetString("gatk-log-level")
 		if glErr != nil {
-			log.Fatalf("Error getting bqsr flag: %v", glErr)
+			log.Fatalf("Error getting gatk-log-level flag: %v", glErr)
 		}
 
-		//--------------------------------------------------- Check dependencies ------------------------------------ //
-		if aligner == "bwa-mem" || aligner == "bowtie2" {
-
-			// -------------------------------------- Check Dependencies ------------------------------------------------ //
-			if aligner == "bwa-mem" {
-				depErr := utils.CheckDeps([]string{"bwa", "gatk", "samtools"})
-				if depErr != nil {
-					fmt.Printf("Dependency check failed!\n")
-					return
-				}
-			} else {
-				depErr := utils.CheckDeps([]string{"bowtie2", "samtools", "gatk"})
-				if depErr != nil {
-					fmt.Printf("Dependency check failed!\n")
-				}
-				if depErr != nil {
-					fmt.Printf("Dependency check failed!\n")
-				}
-			}
+		//--------------------------------------------------- Check dependencies ------------------------------------//
+		deps := []string{"samtools", "gatk"}
+		switch aligner {
+		case "bwa-mem":
+			deps = append(deps, "bwa")
+		case "bowtie2":
+			deps = append(deps, "bowtie2")
+		case "pbmm2":
+			deps = append(deps, "pbmm2", "pbmarkdup")
+		default:
+			log.Fatalf("Unsupported aligner: %s. Supported aligners are 'bwa-mem', 'bowtie2', 'pbmm2'", aligner)
 		}
 
-		if aligner == "pbmm2" {
-			depErr := utils.CheckDeps([]string{"pbmm2", "samtools", "gatk", "pbmarkdup"})
-			if depErr != nil {
-				log.Fatalf("Dependency check failed: %v", depErr)
-			}
+		if depErr := utils.CheckDeps(deps); depErr != nil {
+			log.Fatalf("Dependency check failed: %v", depErr)
 		}
 
 		if configFile != "" {
@@ -224,23 +213,6 @@ var AlignReadsCmd = &cobra.Command{
 				}
 			}
 			logFilePath := outDir + "/alignment.log"
-			if aligner == "pbmm2" {
-				depErr := utils.CheckDeps([]string{"pbmm2", "samtools", "gatk"})
-				if depErr != nil {
-					log.Fatalf("Dependency check failed: %v", depErr)
-				}
-
-			} else if aligner == "bwa-mem" {
-				depErr := utils.CheckDeps([]string{"bwa", "samtools", "gatk"})
-				if depErr != nil {
-					log.Fatalf("Dependency check failed: %v", depErr)
-				}
-			} else if aligner == "bowtie2" {
-				depErr := utils.CheckDeps([]string{"bowtie2", "samtools", "gatk"})
-				if depErr != nil {
-					log.Fatalf("Dependency check failed: %v", depErr)
-				}
-			}
 			bam, err := alignment.RunAlignReads(referencePath, forwardPath, reversePath, sePath, sampleName, libName, outDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
 			if err != nil {
 				return
@@ -254,6 +226,7 @@ var AlignReadsCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.AddCommand(AlignReadsCmd)
 	AlignReadsCmd.Flags().StringP("forward", "1", "", "Path to forward reads")
 	AlignReadsCmd.Flags().StringP("reverse", "2", "", "Path to reverse reads")
 	AlignReadsCmd.Flags().String("se", "", "Path to reverse reads")
@@ -269,6 +242,6 @@ func init() {
 	AlignReadsCmd.Flags().StringP("reference", "r", "", "Path to reference genome")
 	AlignReadsCmd.Flags().StringP("config", "c", "", "Path to reference genome index")
 	AlignReadsCmd.Flags().String("preset", "HIFI", "pbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
-	AlignReadsCmd.Flags().String("gatk-log-evel", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
+	AlignReadsCmd.Flags().String("gatk-log-level", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
 
 }
