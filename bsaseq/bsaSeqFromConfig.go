@@ -122,7 +122,7 @@ func RunBsaSeqFromConfig(
 		return
 	} else if len(readPairs) > 0 {
 		fmt.Println("Working with read pairs")
-
+		i := 0
 		for _, pair := range readPairs {
 			if len(pair) < 4 {
 				fmt.Printf("This read pair is wrongly formated %s\n", pair)
@@ -159,7 +159,12 @@ func RunBsaSeqFromConfig(
 				return
 			} else {
 				libSampleMap[lb] = sn
-				fmt.Printf("Library name %s for sample %s is valid\n", lb, sn)
+				fmt.Printf("%s : %s \n", lb, sn)
+				i++
+			}
+			if i > 4 {
+				fmt.Println("You can only provide 4 read pairs")
+				return
 			}
 		}
 
