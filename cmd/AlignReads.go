@@ -103,6 +103,34 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting bqsr flag: %v", glErr)
 		}
 
+		//--------------------------------------------------- Check dependencies ------------------------------------ //
+		if aligner == "bwa-mem" || aligner == "bowtie2" {
+
+			// -------------------------------------- Check Dependencies ------------------------------------------------ //
+			if aligner == "bwa-mem" {
+				depErr := utils.CheckDeps([]string{"bwa", "gatk", "samtools"})
+				if depErr != nil {
+					fmt.Printf("Dependency check failed!\n")
+					return
+				}
+			} else {
+				depErr := utils.CheckDeps([]string{"bowtie2", "samtools", "gatk"})
+				if depErr != nil {
+					fmt.Printf("Dependency check failed!\n")
+				}
+				if depErr != nil {
+					fmt.Printf("Dependency check failed!\n")
+				}
+			}
+		}
+
+		if aligner == "pbmm2" {
+			depErr := utils.CheckDeps([]string{"pbmm2", "samtools", "gatk", "pbmarkdup"})
+			if depErr != nil {
+				log.Fatalf("Dependency check failed: %v", depErr)
+			}
+		}
+
 		if configFile != "" {
 			fmt.Println("Reading config file ...")
 			_, confErr := os.Stat(configFile)

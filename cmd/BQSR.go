@@ -44,9 +44,14 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting bootstrap flag: %v", bErr)
 		}
 
-		jobs, jErr := cmd.Flags().GetInt("jobs")
-		if jErr != nil {
-			log.Fatalf("Error getting jobs flag: %v", jErr)
+		verbose, vErr := cmd.Flags().GetBool("verbose")
+		if vErr != nil {
+			log.Fatalf("Error getting verbose flag: %v", vErr)
+		}
+
+		threads, tErr := cmd.Flags().GetInt("threads")
+		if tErr != nil {
+			log.Fatalf("Error getting threads flag: %v", tErr)
 		}
 
 		knownSites, ksErr := cmd.Flags().GetStringSlice("known-sites")
@@ -54,9 +59,9 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			log.Fatalf("Error getting known-sites flag: %v", ksErr)
 		}
 
-		verbosity, vebErr := cmd.Flags().GetString("verbosity")
-		if vebErr != nil {
-			log.Fatalf("Error getting known-sites flag: %v", vebErr)
+		gatkLogLevel, gtErr := cmd.Flags().GetString("gatk-log-level")
+		if gtErr != nil {
+			log.Fatalf("Error getting gatk log level flag: %v", gtErr)
 		}
 
 		_, lErr := os.Stat(logFile)
@@ -68,7 +73,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
-			alignment.BQSRconfig(configFile, bootstrap, jobs, logFile, verbosity)
+			alignment.BQSRconfig(configFile, bootstrap, threads, logFile, gatkLogLevel, verbose)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
@@ -103,7 +108,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				return
 			} else if len(knownSites) == 0 && bootstrap == true {
 				fmt.Println("Running with bootstrap method")
-				err := alignment.BootstrapBqsr(refFile, bams, jobs, logFile, verbosity)
+				err := alignment.BootstrapBqsr(refFile, bams, threads, logFile, gatkLogLevel, verbose)
 				if err != nil {
 					return
 				}
@@ -119,7 +124,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				}
 
 				// --------------------------- Running dbSnpBQSR ---------------------------------------------------- //
-				err := alignment.DbSnpBqsr(refFile, bams, knownSites, jobs, logFile)
+				err := alignment.DbSnpBqsr(refFile, bams, knownSites, threads, logFile)
 				if err != nil {
 					return
 				}
@@ -137,21 +142,13 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 func init() {
 	rootCmd.AddCommand(BQSRCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// BQSRCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// BQSRCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	BQSRCmd.Flags().StringSliceP("bam", "b", []string{}, "path to bam file (can specify multiple)")
 	BQSRCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
 	BQSRCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
-	BQSRCmd.Flags().IntP("jobs", "j", 4, "Number of jobs per run")
+	BQSRCmd.Flags().IntP("threads", "t", 4, "Threads per sample")
 	BQSRCmd.Flags().String("log", "", "log file path")
 	BQSRCmd.Flags().String("config", "", "config file path")
 	BQSRCmd.Flags().StringP("reference", "r", "", "path to reference genome")
-	BQSRCmd.Flags().String("verbosity", "ERROR", "GATK verbosity level (DEBUG, INFO, WARNING, ERROR)")
+	BQSRCmd.Flags().String("gatk-log-level", "INFO", "GATK verbosity level (DEBUG, INFO, WARNING, ERROR)")
+	BQSRCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
 }

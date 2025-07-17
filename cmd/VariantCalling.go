@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// VariantCallingCmd represents the VariantCalling command
 var VariantCallingCmd = &cobra.Command{
 	Use:   "VariantCalling",
 	Short: "Creates a multi-sample VCF file from bam files using GATK best practices OR Deepvariant and GLNEXUS",
@@ -30,9 +29,9 @@ var VariantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting config flag: %v", cErr)
 		}
 
-		jobs, jErr := cmd.Flags().GetInt("jobs")
+		threads, jErr := cmd.Flags().GetInt("threads")
 		if jErr != nil {
-			log.Fatalf("Error getting bootstrap flag: %v", jErr)
+			log.Fatalf("Error getting threads flag: %v", jErr)
 		}
 
 		refFile, refErr := cmd.Flags().GetString("reference")
@@ -119,7 +118,13 @@ var VariantCallingCmd = &cobra.Command{
 				return
 
 			}
-			variants.VariantCallingConfig(configFile, speciesName, jobs, verbosity, caller, merger, dvVer, modelType)
+
+			verbose, verboseErr := cmd.Flags().GetBool("verbose")
+			if verboseErr != nil {
+				verbose = false
+			}
+
+			variants.VariantCallingConfig(configFile, speciesName, threads, verbosity, caller, merger, dvVer, modelType, verbose)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
@@ -168,9 +173,18 @@ var VariantCallingCmd = &cobra.Command{
 			}
 			logFilePath := filepath.Join(outDir, "variant_calling.log")
 			fmt.Printf("Bams: %v\n", bams)
-			fmt.Printf("Jobs: %v\n", jobs)
+			fmt.Printf("threads per sample: %v\n", threads)
 			fmt.Printf("Reference: %v\n", refFile)
-			variants.VariantCalling(refFile, bams, outDir, speciesName, jobs, verbosity, caller, merger, logFilePath, dvVer, modelType)
+
+			verbose, verboseErr := cmd.Flags().GetBool("verbose")
+			if verboseErr != nil {
+				verbose = false
+			}
+
+			_, err := variants.VariantCalling(refFile, bams, outDir, speciesName, threads, verbosity, caller, merger, logFilePath, dvVer, modelType, verbose)
+			if err != nil {
+				return
+			}
 		}
 
 	},
@@ -179,20 +193,12 @@ var VariantCallingCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(VariantCallingCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// VariantCallingCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// VariantCallingCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	VariantCallingCmd.Flags().StringSliceP("bam", "b", []string{}, "Recalibrated bam file (Can specify multiple)")
 	VariantCallingCmd.Flags().StringP("out", "o", "", "Recalibrated bam file")
 	VariantCallingCmd.Flags().StringP("species", "s", "", "Species name")
-	VariantCallingCmd.Flags().IntP("jobs", "j", 4, "Jobs per run")
-	VariantCallingCmd.Flags().String("verbosity", "ERROR", "Jobs per run")
+	VariantCallingCmd.Flags().IntP("threads", "t", 4, "Number of threads per sample")
+	VariantCallingCmd.Flags().String("verbosity", "ERROR", "Verbosity level for GATK")
+	VariantCallingCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
 	VariantCallingCmd.Flags().StringP("config", "c", "", "Config file")
 	VariantCallingCmd.Flags().StringP("reference", "r", "", "Reference file")
 	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")

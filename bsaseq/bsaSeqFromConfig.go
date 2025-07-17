@@ -19,7 +19,6 @@ func RunBsaSeqFromConfig(
 	configFile string,
 	threads int,
 	species string,
-
 	minHighParentDepth int,
 	minLowParentDepth int,
 	minHighBulkDepth int,
@@ -80,8 +79,9 @@ func RunBsaSeqFromConfig(
 		threads = totalCores
 	}
 
-	configBams := cfg.Bams
+	configBams := cfg.BSAseqBams
 	readPairs := cfg.ReadPairs
+	seReads := cfg.SeReads
 
 	libMap := map[string]bool{"HIGH_BULK": true, "LOW_BULK": true, "HIGH_PARENT": true, "LOW_PARENT": true}
 
@@ -104,9 +104,8 @@ func RunBsaSeqFromConfig(
 	jlog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 	slog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
-	var rgmdBams []string
-	var bqsrBams []string
-	if len(readPairs) == 0 && len(configBams) == 0 {
+	// ------------------------------------ Get parents and bulks -------------------------------------------------- //
+	if len(readPairs) == 0 && len(configBams) == 0  {
 		fmt.Println("You must provide at least one read pair or bam file")
 		return
 	} else if len(readPairs) > 0 && len(configBams) > 0 {
@@ -114,31 +113,8 @@ func RunBsaSeqFromConfig(
 		return
 	} else if len(readPairs) > 0 {
 		fmt.Println("Working with read pairs")
-		//------------------------------------ Align reads to ref --------------------------------------------------- //
-		if len(knownSites) == 0 && bootstrap == false {
-			fmt.Println("Either pass a known-sites file or enable bootstrap method")
-			return
-		} else if len(knownSites) == 0 && bootstrap == true {
-			fmt.Println("We will run BQSR using the bootstrap method")
 
-		} else if len(knownSites) > 0 {
-			fmt.Println("We will run BQSR using known-sites")
-			// ------------------------ Checking Known sites file paths ----------------------------------------- //
-			for j, _ := range knownSites {
-				_, err = os.Stat(knownSites[j])
-				if err != nil {
-					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
-					log.Fatal(err)
-				}
-			}
-
-		} else {
-			fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
-			return
-		}
-
-		fmt.Println("Aligning reads to reference")
-		for _, pair := range cfg.ReadPairs {
+		for _, pair := range readPairs {
 			if len(pair) < 4 {
 				fmt.Printf("This read pair is wrongly formated %s\n", pair)
 				fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name> ")
@@ -177,118 +153,39 @@ func RunBsaSeqFromConfig(
 				fmt.Printf("Library name %s for sample %s is valid\n", lb, sn)
 			}
 		}
-		fmt.Printf("\n\n--------------------------------------- RUNNING BQSR ---------------------------------------\n\n")
-		var wg sync.WaitGroup
-		sem := make(chan struct{}, maxParallelJobs)
-		for _, pair := range cfg.ReadPairs {
 
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(pair []string) {
-				defer wg.Done()
-				defer func() { <-sem }() // release slot
+		fmt.Printf("BSAseq inputs fetched .....\n\n")
 
-				fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
-				lineDir := fmt.Sprintf("%s/%s", outDir, sn)
-				rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
-				bqsrBam := strings.TrimSuffix(rgmdBam, ".bam") + "_bqsr.bam"
-				rgmdBams = append(rgmdBams, rgmdBam)
-				bqsrBams = append(bqsrBams, bqsrBam)
+		fmt.Printf("Aligning reads to ref ...........\n\n")
 
-				// --------------------------------------------- Log file ------------------------------------------------------- //
-				//fmt.Println("Reading log file ...")
+		bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose)
 
-				if utils.StageHasCompleted(logged, "BWA_MEM", sn, "ALL") {
-					fmt.Printf("BWA_MEM for %s has already completed. Skipping...\n---------------------------------------\n\n", sn)
-					//return
-				} else {
-					jlog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-					slog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
+	} else {
+		fmt.Println("Working with bam files")
 
-					err = alignment.AlignShortReadsMem(refFile, fwd, rev, sn, lb, outDir, threads)
-					if err != nil {
-						jlog.Error("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Errorf("FAILED: %v", err), "CMD", "ALL")
-						slog.Error("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Errorf("FAILED- %v", err), "CMD", "ALL")
-						return
-					}
-					jlog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-					slog.Info("BSASEQ", "PROGRAM", "BWA_MEM", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-
-				}
-
-			}(pair)
-
-		}
-		wg.Wait()
-
-		// --------------------------------------- Recalibrating Bams ----------------------------------------------- //
-		if len(knownSites) == 0 && bootstrap == true {
-			fmt.Println("Running with bootstrap method")
-
-			if utils.StageHasCompleted(logged, "BQSR_BOOTSTRAP", "ALL", "ALL") {
-				fmt.Println("BQSR_BOOTSTRAP has already completed. Skipping.")
-
+		for _, bamPair := range configBams {
+			if len(bamPair) != 1 {
+				fmt.Printf("The BSAseq bam is wrongly formated - %s\n", bamPair)
+				fmt.Println("Supply bam files in this format: BSAseqBam: <path to bam file> <bulk or parent: (HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULL)> ")
+				continue
+			}
+			bam, bamType := bamPair[0], bamPair[1]
+			if _, ok := libMap[bamType]; !ok {
+				fmt.Printf("Bam types %s is not valid\n", bamType)
+				fmt.Println("Valid bam type names are: HIGH_BULK, LOW_BULK, HIGH_PARENT, LOW_PARENT")
+				return
 			} else {
-				jlog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-				slog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-				err = alignment.BootstrapBqsr(refFile, rgmdBams, maxParallelJobs, logFilePath)
-				if err != nil {
-					jlog.Error("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
-					slog.Error("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
-					log.Fatal(err)
-					return
-				}
-				jlog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-				slog.Info("BSASEQ", "PROGRAM", "BQSR_BOOTSTRAP", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-
+				libSampleMap[bamType] = bam
+				fmt.Printf("Library name %s for sample %s is valid\n", bamType, bam)
 			}
 
-		} else if len(knownSites) > 0 {
-			fmt.Println("Running with known-sites flag")
-			// ---------------------------------- Running dbSnpBQSR ------------------------------------------------- //
-			if utils.StageHasCompleted(logged, "BQSRDB", "ALL", "ALL") {
-				fmt.Println("BQSRDB has already completed. Skipping.")
-
-			} else {
-				jlog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-				slog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
-				err = alignment.DbSnpBqsr(refFile, rgmdBams, knownSites, maxParallelJobs, logFilePath)
-				if err != nil {
-					jlog.Error("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
-					slog.Error("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err), "CMD", "ALL")
-					log.Fatal(err)
-					return
-				}
-				jlog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-				slog.Info("BSASEQ", "PROGRAM", "BQSRDB", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-			}
-
-		} else {
-			fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
-			return
-		}
+	}
 
 		// ---------------------------------------- Variant Calling ------------------------------------------------- //
-		variants.VariantCalling(refFile, bqsrBams, outDir, species, 4, "INFO")
-		finalVcf := filepath.Join(outDir, species+".joint_hard_filtered.vcf.gz")
+		finalVcf, err := variants.VariantCalling(refFile, bams, outDir, species, threads, gatkLogLevel, caller, merger, logFilePath, dvVer, modelType, verbose)
 
 		fmt.Println("VARIANT CALLING DONE STARING BSAseq")
 		fmt.Println(libSampleMap)
-		// --------------------------------------------- BSAseq ----------------------------------------------------- //
-		//highParent, lowParent, highBulk, lowBulk := "", "", "", ""
-		//for _, lb := range libSampleMap {
-		//	if lb == "HIGH_PARENT" {
-		//		highParent = libSampleMap[lb]
-		//	} else if lb == "LOW_PARENT" {
-		//		lowParent = libSampleMap[lb]
-		//	} else if lb == "HIGH_BULK" {
-		//		highBulk = libSampleMap[lb]
-		//	} else if lb == "LOW_BULK" {
-		//		lowBulk = libSampleMap[lb]
-		//	} else {
-		//		fmt.Println("Something went wrong")
-		//	}
-		//}
 
 		highBulk := libSampleMap["HIGH_BULK"]
 		lowBulk := libSampleMap["LOW_BULK"]
@@ -322,7 +219,7 @@ func RunBsaSeqFromConfig(
 	} else {
 		fmt.Println("Starting from bam files")
 		// ---------------------------------------- Variant Calling ------------------------------------------------- //
-		variants.VariantCalling(refFile, configBams, outDir, species, 4, "INFO")
+		finalVcf, err := variants.VariantCalling(refFile, bams, outDir, species, threads, gatkLogLevel, caller, merger, logFilePath, dvVer, modelType, verbose)
 		finalVcf := filepath.Join(outDir, species+".joint_hard_filtered.vcf.gz")
 
 		// --------------------------------------------- BSAseq ----------------------------------------------------- //

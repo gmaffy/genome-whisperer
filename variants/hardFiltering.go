@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func GetVariantType(vcf string, varType string) error {
+func GetVariantType(vcf string, varType string, gatkLogLevel string, verbose bool) (string, error) {
 	var varVCF string
 	if strings.HasSuffix(vcf, ".vcf.gz") {
 		suf := fmt.Sprintf(".%s.vcf.gz", varType)
@@ -16,19 +16,25 @@ func GetVariantType(vcf string, varType string) error {
 		varVCF = strings.TrimSuffix(vcf, ".vcf") + suf
 	} else {
 		fmt.Println("vcf file must be in vcf or vcf.gz format")
-		return fmt.Errorf("vcf file must be in vcf or vcf.gz format")
+		return "", fmt.Errorf("vcf file must be in vcf or vcf.gz format")
 	}
 
-	cmdStrHap := fmt.Sprintf(`gatk SelectVariants -V %s --select-type-to-include %s -O %s`, vcf, varType, varVCF)
-	fmt.Println(cmdStrHap)
-	if err := utils.RunBashCmdVerbose(cmdStrHap); err != nil {
-		return err
+	cmdStrHap := fmt.Sprintf(`gatk SelectVariants -V %s --select-type-to-include %s -O %s --verbosity %s`, vcf, varType, varVCF, gatkLogLevel)
+
+	var err error
+	if verbose {
+		err = utils.RunBashCmdVerbose(cmdStrHap)
+	} else {
+		err = utils.RunBashCmd(cmdStrHap)
+	}
+	if err != nil {
+		return "", err
 	}
 	fmt.Printf("%s created\n", varVCF)
-	return nil
+	return varVCF, nil
 }
 
-func HardFilterINDELs(vcf string, verbosity string) error {
+func HardFilterINDELs(vcf string, gatkLogLevel string, verbose bool) (string, error) {
 	var vcfCol string
 	var vcfFiltered string
 	if strings.HasSuffix(vcf, ".vcf.gz") {
@@ -39,7 +45,7 @@ func HardFilterINDELs(vcf string, verbosity string) error {
 		vcfFiltered = strings.TrimSuffix(vcf, ".vcf") + ".hard_filtered.vcf.gz"
 	} else {
 		fmt.Println("vcf file must be in vcf or vcf.gz format")
-		return fmt.Errorf("vcf file must be in vcf or vcf.gz format")
+		return "", fmt.Errorf("vcf file must be in vcf or vcf.gz format")
 	}
 
 	cmdStr := fmt.Sprintf(`gatk VariantFiltration \
@@ -48,21 +54,35 @@ func HardFilterINDELs(vcf string, verbosity string) error {
     -filter "QUAL < 30.0" --filter-name "QUAL30" \
     -filter "FS > 200.0" --filter-name "FS200" \
     -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
-    -O %s --verbosity %s`, vcf, vcfCol, verbosity)
+    -O %s --verbosity %s`, vcf, vcfCol, gatkLogLevel)
 
-	if err := utils.RunBashCmdVerbose(cmdStr); err != nil {
-		return err
+	var err error
+	if verbose {
+		err = utils.RunBashCmdVerbose(cmdStr)
+	} else {
+		err = utils.RunBashCmd(cmdStr)
+	}
+	if err != nil {
+		return "", err
 	}
 
-	sCmdStr := fmt.Sprintf(`gatk SelectVariants --exclude-filtered -V %s -O %s`, vcfCol, vcfFiltered)
-	if err := utils.RunBashCmdVerbose(sCmdStr); err != nil {
-		return err
+	sCmdStr := fmt.Sprintf(`gatk SelectVariants --exclude-filtered -V %s -O %s --verbosity %s`, vcfCol, vcfFiltered, gatkLogLevel)
+
+	var err2 error
+	if verbose {
+		err2 = utils.RunBashCmdVerbose(sCmdStr)
+	} else {
+		err2 = utils.RunBashCmd(sCmdStr)
 	}
+	if err2 != nil {
+		return "", err2
+	}
+
 	fmt.Printf("%s created\n", vcfFiltered)
-	return nil
+	return vcfFiltered, nil
 }
 
-func HardFilterSNPs(vcf string, verbosity string) error {
+func HardFilterSNPs(vcf string, gatkLogLevel string, verbose bool) (string, error) {
 	var vcfCol string
 	var vcfFiltered string
 	if strings.HasSuffix(vcf, ".vcf.gz") {
@@ -73,7 +93,7 @@ func HardFilterSNPs(vcf string, verbosity string) error {
 		vcfFiltered = strings.TrimSuffix(vcf, ".vcf") + ".hard_filtered.vcf.gz"
 	} else {
 		fmt.Println("vcf file must be in vcf or vcf.gz format")
-		return fmt.Errorf("vcf file must be in vcf or vcf.gz format")
+		return "", fmt.Errorf("vcf file must be in vcf or vcf.gz format")
 	}
 
 	cmdStr := fmt.Sprintf(`gatk VariantFiltration \
@@ -85,16 +105,29 @@ func HardFilterSNPs(vcf string, verbosity string) error {
     -filter "MQ < 40.0" --filter-name "MQ40" \
     -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
     -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
-    -O %s --verbosity %s`, vcf, vcfCol, verbosity)
+    -O %s --verbosity %s`, vcf, vcfCol, gatkLogLevel)
 
-	if err := utils.RunBashCmdVerbose(cmdStr); err != nil {
-		return err
+	var err error
+	if verbose {
+		err = utils.RunBashCmdVerbose(cmdStr)
+	} else {
+		err = utils.RunBashCmd(cmdStr)
+	}
+	if err != nil {
+		return "", err
 	}
 
-	sCmdStr := fmt.Sprintf(`gatk SelectVariants --exclude-filtered -V %s -O %s`, vcfCol, vcfFiltered)
-	if err := utils.RunBashCmdVerbose(sCmdStr); err != nil {
-		return err
+	sCmdStr := fmt.Sprintf(`gatk SelectVariants --exclude-filtered -V %s -O %s --verbosity %s`, vcfCol, vcfFiltered, gatkLogLevel)
+	var err2 error
+	if verbose {
+		err2 = utils.RunBashCmdVerbose(sCmdStr)
+	} else {
+		err2 = utils.RunBashCmd(sCmdStr)
 	}
+	if err2 != nil {
+		return "", err2
+	}
+
 	fmt.Printf("%s created\n", vcfFiltered)
-	return nil
+	return vcfFiltered, nil
 }

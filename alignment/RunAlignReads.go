@@ -58,8 +58,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			cmdStr := fmt.Sprintf(`bwa mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortedBam)
 			fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
 
-			//if verbose
-			memErr := utils.RunBashCmdVerbose(cmdStr)
+			var memErr error
+			if verbose {
+				memErr = utils.RunBashCmdVerbose(cmdStr)
+			} else {
+				memErr = utils.RunBashCmd(cmdStr)
+			}
 			if memErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", memErr)) //, "CMD", "ALL")
 				slog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", memErr))
@@ -80,10 +84,15 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s`, sortedBam, rgmdBam, rgmdMetrics)
+			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --verbosity %s`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
 
-			mdupErr := utils.RunBashCmdVerbose(mDupCmdStr)
+			var mdupErr error
+			if verbose {
+				mdupErr = utils.RunBashCmdVerbose(mDupCmdStr)
+			} else {
+				mdupErr = utils.RunBashCmd(mDupCmdStr)
+			}
 			if mdupErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr))
 				slog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr))
@@ -105,7 +114,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			indexCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" BuildBamIndex -I %s -O %s`, rgmdBam, rgmdIndex)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", indexCmdStr)
 
-			indErr := utils.RunBashCmdVerbose(indexCmdStr)
+			var indErr error
+			if verbose {
+				indErr = utils.RunBashCmdVerbose(indexCmdStr)
+			} else {
+				indErr = utils.RunBashCmd(indexCmdStr)
+			}
 			if indErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr)) //, "CMD", "ALL")
 				slog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
@@ -128,7 +142,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 			cmdStr := fmt.Sprintf(`bowtie2 -I 0 -X 1000 -x %s -1 %s -2 %s --end-to-end --sensitive --threads %v  --rg-id %s.1 --rg PL:BGISEQ --rg SM:%s --rg LB:%s | samtools sort -o %s`, referencePath, forwardPath, reversePath, threads, sampleName, sampleName, libName, sortedBam)
 			fmt.Println(cmdStr)
-			bowErr := utils.RunBashCmdVerbose(cmdStr)
+			var bowErr error
+			if verbose {
+				bowErr = utils.RunBashCmdVerbose(cmdStr)
+			} else {
+				bowErr = utils.RunBashCmd(cmdStr)
+			}
 			if bowErr != nil {
 				jlog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", bowErr))
 				slog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", bowErr))
@@ -137,7 +156,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 			fmt.Printf("Indexing Bam ....")
 			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" BuildBamIndex -I %s -O %s`, sortedBam, sortedBai)
-			mErr := utils.RunBashCmdVerbose(mDupCmdStr)
+			var mErr error
+			if verbose {
+				mErr = utils.RunBashCmdVerbose(mDupCmdStr)
+			} else {
+				mErr = utils.RunBashCmd(mDupCmdStr)
+			}
 			if mErr != nil {
 				jlog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mErr))
 				slog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mErr))
@@ -163,7 +187,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 				fmt.Println("Indexing reference ...")
 				indexCmdStr := fmt.Sprintf(`pbmm2 index %s %s`, referencePath, referencePath+".mmi")
 				fmt.Println(indexCmdStr)
-				indexErr := utils.RunBashCmdVerbose(indexCmdStr)
+				var indexErr error
+				if verbose {
+					indexErr = utils.RunBashCmdVerbose(indexCmdStr)
+				} else {
+					indexErr = utils.RunBashCmd(indexCmdStr)
+				}
 				if indexErr != nil {
 					fmt.Println("Indexing reference failed")
 					return "", indexErr
@@ -171,7 +200,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			}
 			pbmm2CmdStr := fmt.Sprintf(`pbmm2 align --sort -j %v --preset %s %s %s %s`, threads, preset, referencePath+".mmi", sePath, sortedBam)
 			fmt.Println(pbmm2CmdStr)
-			pbmm2Err := utils.RunBashCmdVerbose(pbmm2CmdStr)
+			var pbmm2Err error
+			if verbose {
+				pbmm2Err = utils.RunBashCmdVerbose(pbmm2CmdStr)
+			} else {
+				pbmm2Err = utils.RunBashCmd(pbmm2CmdStr)
+			}
 			if pbmm2Err != nil {
 				jlog.Error("ALIGNMENT", "PROGRAM", "PBMM2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", pbmm2Err))
 				slog.Error("ALIGNMENT", "PROGRAM", "PBMM2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", pbmm2Err))
@@ -193,7 +227,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 			rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s`, sortedBam, rgBam, sampleName, libName, sampleName)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", rgCmdStr)
-			rgErr := utils.RunBashCmdVerbose(rgCmdStr)
+			var rgErr error
+			if verbose {
+				rgErr = utils.RunBashCmdVerbose(rgCmdStr)
+			} else {
+				rgErr = utils.RunBashCmd(rgCmdStr)
+			}
 			if rgErr != nil {
 				jlog.Error("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", rgErr))
 				slog.Error("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", rgErr))
@@ -214,7 +253,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			slog.Info("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			mkdpCmdStr := fmt.Sprintf(`pbmm2 markdup %s %s`, rgBam, rgmdBam)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", mkdpCmdStr)
-			mkdpErr := utils.RunBashCmdVerbose(mkdpCmdStr)
+			var mkdpErr error
+			if verbose {
+				mkdpErr = utils.RunBashCmdVerbose(mkdpCmdStr)
+			} else {
+				mkdpErr = utils.RunBashCmd(mkdpCmdStr)
+			}
 			if mkdpErr != nil {
 				jlog.Error("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mkdpErr))
 				slog.Error("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mkdpErr))
@@ -236,7 +280,12 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			indexCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" BuildBamIndex -I %s -O %s`, rgmdBam, rgmdIndex)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", indexCmdStr)
 
-			indErr := utils.RunBashCmdVerbose(indexCmdStr)
+			var indErr error
+			if verbose {
+				indErr = utils.RunBashCmdVerbose(indexCmdStr)
+			} else {
+				indErr = utils.RunBashCmd(indexCmdStr)
+			}
 			if indErr != nil {
 				jlog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
 				slog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
@@ -275,7 +324,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			} else {
 				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel)
+				newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel, verbose)
 				if ksErr != nil {
 					jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
 					slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
@@ -510,23 +559,6 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	var bams []string
 	if aligner == "bwa-mem" || aligner == "bowtie2" {
 
-		// -------------------------------------- Check Dependencies ------------------------------------------------ //
-		if aligner == "bwa-mem" {
-			depErr := utils.CheckDeps([]string{"bwa", "gatk", "samtools"})
-			if depErr != nil {
-				fmt.Printf("Dependency check failed!\n")
-				return nil, fmt.Errorf("Dependency check failed!\n")
-			}
-		} else {
-			depErr := utils.CheckDeps([]string{"bowtie2", "samtools", "gatk"})
-			if depErr != nil {
-				fmt.Printf("Dependency check failed!\n")
-			}
-			if depErr != nil {
-				fmt.Printf("Dependency check failed!\n")
-			}
-		}
-
 		// ----------------------------------------- RUNNING STATS HERE --------------------------------------------- //
 		for _, pair := range cfg.ReadPairs {
 			if len(pair) < 4 {
@@ -568,11 +600,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 		wg.Wait()
 
 	} else if aligner == "pbmm2" {
-		depErr := utils.CheckDeps([]string{"pbmm2", "pbmarkdup", "samtools", "gatk"})
-		if depErr != nil {
-			fmt.Printf("Dependency check failed!\n")
-			return nil, fmt.Errorf("Dependency check failed!\n")
-		}
+
 		for _, se := range cfg.SeReads {
 			if len(se) < 3 {
 				fmt.Printf("This read pair is wrongly formated %s\n", se)

@@ -5,23 +5,18 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="65af7bec-db4c-48eb-959b-ac3fcd0c8360" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/alignment/alignmentStats.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/interactiveMode.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/oneBulk.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/oneBulkUtils.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/twoBulkUtils.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/twoBulks.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bsaseq/utils.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/pangenome/gopan.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/RunAlignReads.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/alignmentStats.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/alignmentStats.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/alignment/baseRecal.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/baseRecal.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bsaseq/twoBulks.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/twoBulks.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmd/AlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/AlignReads.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmd/BQSR.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/BQSR.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/GoBSAseq.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/GoBSAseq.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/GoPan.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/GoPan.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmd/VariantCalling.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantCalling.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pangenome/gopan.go" beforeDir="false" afterPath="$PROJECT_DIR$/pangenome/gopan.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/utils/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/utils/utils.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/hardFiltering.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/hardFiltering.go" afterDir="false" />
@@ -38,7 +33,7 @@
       </list>
     </option>
   </component>
-  <component name="GOROOT" url="file:///usr/local/go" />
+  <component name="GOROOT" url="file://$USER_HOME$/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.5.windows-amd64" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
@@ -54,30 +49,30 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "DefaultGoTemplateProperty": "Go File",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.GoLinterPluginOnboarding": "true",
-    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.go.formatter.settings.were.checked": "true",
-    "RunOnceActivity.go.migrated.go.modules.settings": "true",
-    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "git-widget-placeholder": "main",
-    "go.import.settings.migrated": "true",
-    "go.sdk.automatically.set": "true",
-    "ignore.virus.scanning.warn.message": "true",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/home/godwin/tools/genome-whisperer/bsaseq",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "ml.llm.AIAssistantPromptsLibrary"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/GodwinMafireyi&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/bsaseq" />
@@ -111,5 +106,16 @@
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
+          <url>file://$PROJECT_DIR$/bsaseq/twoBulks.go</url>
+          <line>345</line>
+          <option name="timeStamp" value="2" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

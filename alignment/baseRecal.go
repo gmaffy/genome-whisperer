@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -138,7 +139,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 
 }
 
-func DbSnpBqsr(ref string, bams []string, knownSites []string, numJobs int, logFilePath string) error {
+func DbSnpBqsr(ref string, bams []string, knownSites []string, threadsPerSample int, logFilePath string) error {
 	fmt.Println("dbSnpBqsr")
 	// ------------------------------------------- Open log file ---------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -151,6 +152,15 @@ func DbSnpBqsr(ref string, bams []string, knownSites []string, numJobs int, logF
 	jlog := slog.New(jsonHandler)
 
 	logged := utils.ParseLogFile(logFilePath)
+
+	totalCores := runtime.NumCPU()
+	fmt.Printf("Available CPU cores: %d\n", totalCores)
+
+	numJobs := totalCores / threadsPerSample
+	if numJobs < 1 {
+		numJobs = 1
+		threadsPerSample = totalCores
+	}
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, numJobs)
@@ -187,7 +197,7 @@ func DbSnpBqsr(ref string, bams []string, knownSites []string, numJobs int, logF
 	return nil
 }
 
-func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity string) ([]string, error) {
+func CreateKnownVariants(ref string, bam string, logFilePath string, gatkLogLevel string, verbose bool) ([]string, error) {
 
 	// ------------------------------------------- Open log file ---------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -241,7 +251,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "SelectSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "SelectSNPs", "SAMPLE", bam, "STATUS", "STARTED")
-		err = variants.GetVariantType(rawVCF, "SNP")
+		aSnpVCF, err := variants.GetVariantType(rawVCF, "SNP", gatkLogLevel, verbose)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "SelectSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BQSR", "PROGRAM", "SelectSNPs", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -249,6 +259,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 		}
 		jlog.Info("BQSR", "PROGRAM", "SelectSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "SelectSNPs", "SAMPLE", bam, "STATUS", "COMPLETED")
+		snpVCF = aSnpVCF
 	}
 
 	// --------------------------------------------- Select INDELs -------------------------------------------------- //
@@ -260,7 +271,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 		jlog.Info("BQSR", "PROGRAM", "SelectINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "SelectINDELs", "SAMPLE", bam, "STATUS", "STARTED")
 
-		err = variants.GetVariantType(rawVCF, "INDEL")
+		aIndelVCF, err := variants.GetVariantType(rawVCF, "INDEL", gatkLogLevel, verbose)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "SelectINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BQSR", "PROGRAM", "SelectINDELs", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -268,6 +279,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 		}
 		jlog.Info("BQSR", "PROGRAM", "SelectINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "SelectINDELs", "SAMPLE", bam, "STATUS", "COMPLETED")
+		indelVCF = aIndelVCF
 
 	}
 
@@ -279,7 +291,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 		jlog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "STARTED")
 
-		err = variants.HardFilterSNPs(snpVCF, verbosity)
+		hfSnpVCF, err := variants.HardFilterSNPs(snpVCF, gatkLogLevel, verbose)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -287,6 +299,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 		}
 		jlog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "HardFilterSNPs", "SAMPLE", bam, "STATUS", "COMPLETED")
+		hardFilteredSnpVCF = hfSnpVCF
 	}
 
 	// -------------------------------------- HARD FILTER INDELS ---------------------------------------------------- //
@@ -296,7 +309,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "STARTED")
-		err = variants.HardFilterINDELs(indelVCF, verbosity)
+		hfIndelVCF, err := variants.HardFilterINDELs(indelVCF, gatkLogLevel, verbose)
 		if err != nil {
 			jlog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -304,6 +317,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 		}
 		jlog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		slog.Info("BQSR", "PROGRAM", "HardFilterINDELs", "SAMPLE", bam, "STATUS", "COMPLETED")
+		hardFilteredIndelVCF = hfIndelVCF
 	}
 
 	_, sErr := os.Stat(hardFilteredSnpVCF)
@@ -319,7 +333,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, verbosity s
 
 }
 
-func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string, verbosity string) error {
+func BootstrapBqsr(ref string, bams []string, threadsPerSample int, logFilePath string, gatkLogLevel string, verbose bool) error {
 	fmt.Println("bootstrapBqsr")
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -335,6 +349,16 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string, v
 
 	jlog.Info("BQSR", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 	slog.Info("BQSR", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+
+	totalCores := runtime.NumCPU()
+	fmt.Printf("Available CPU cores: %d\n", totalCores)
+
+	numJobs := totalCores / threadsPerSample
+	if numJobs < 1 {
+		numJobs = 1
+		threadsPerSample = totalCores
+	}
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, numJobs)
 
@@ -353,7 +377,7 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string, v
 				fmt.Printf("Creating known variants for bam file: %s\n", bam)
 				jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "STARTED")
-				knownSites, err = CreateKnownVariants(ref, bam, logFilePath, verbosity)
+				knownSites, err = CreateKnownVariants(ref, bam, logFilePath, gatkLogLevel, verbose)
 				if err != nil {
 					jlog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 					slog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -391,7 +415,7 @@ func BootstrapBqsr(ref string, bams []string, numJobs int, logFilePath string, v
 	return nil
 }
 
-func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string, verbosity string) {
+func BQSRconfig(configPath string, bootstrap bool, threadsPerSample int, logFilePath string, gatkLogLevel string, verbose bool) {
 
 	// ----------------------------------------- Log file ----------------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -441,7 +465,7 @@ func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string,
 		return
 	} else if len(knownSites) == 0 && bootstrap == true {
 		fmt.Println("Running with bootstrap method")
-		err := BootstrapBqsr(refFile, bams, jobs, logFilePath, verbosity)
+		err := BootstrapBqsr(refFile, bams, threadsPerSample, logFilePath, gatkLogLevel, verbose)
 		if err != nil {
 			return
 		}
@@ -459,7 +483,7 @@ func BQSRconfig(configPath string, bootstrap bool, jobs int, logFilePath string,
 		// ----------------------------------- Running dbSnpBQSR ---------------------------------------------------- //
 		jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
-		err := DbSnpBqsr(refFile, bams, knownSites, jobs, logFilePath)
+		err := DbSnpBqsr(refFile, bams, knownSites, threadsPerSample, logFilePath)
 		if err != nil {
 			jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))

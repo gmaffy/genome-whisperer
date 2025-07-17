@@ -135,14 +135,24 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting species flag: %v", sErr)
 		}
 
+		verbose, vErr := cmd.Flags().GetBool("verbose")
+		if vErr != nil {
+			log.Fatalf("Error getting verbose flag: %v", vErr)
+		}
+
+		aligner, aErr := cmd.Flags().GetString("aligner")
+		if aErr != nil {
+			log.Fatalf("Error getting aligner flag: %v", aErr)
+		}
+
 		if interactive {
 			fmt.Println("Running in interactive mode")
 			bsaseq.InteractiveRun(variantFile, popStructure, rep, outputDir)
 
 		} else {
-			//fmt.Println("Running in non-interactive mode")
+
 			if variantFile == "" {
-				//log.Fatal("Running from either bam or reads ...")
+
 				fmt.Println("Reading config file ...")
 				_, confErr := os.Stat(configFile)
 				if confErr != nil {
@@ -235,6 +245,7 @@ func init() {
 	// -------------------------------------------- BASIC PARAMS ---------------------------------------------------- //
 	GoBSAseqCmd.Flags().StringP("pop_structure", "p", "F2", "F2, BC or RIL")
 	GoBSAseqCmd.Flags().Int("rep", 10000, "Replications for threshold calculations ..")
+	GoBSAseqCmd.Flags().String("aligner", "bwa-mem", "bwa-mem, bowtie2")
 
 	// ------------------------------------------ PLOTTING PARAMS --------------------------------------------------- //
 	GoBSAseqCmd.Flags().IntP("window_size", "w", 2000000, "window size for plotting")
@@ -244,11 +255,12 @@ func init() {
 	GoBSAseqCmd.Flags().BoolP("smooth", "s", false, "smooth your plot")
 	GoBSAseqCmd.Flags().BoolP("interactive", "i", false, "interactive")
 	GoBSAseqCmd.Flags().Bool("bootstrap", false, "BSQR bootstrap")
-	//GoBSAseqCmd.Flags().Bool("bqsr", false, "enable base quality score recalibration")
+	GoBSAseqCmd.Flags().Bool("bqsr", false, "enable base quality score recalibration")
 
 	//----------------------------------------------- if config ----------------------------------------------------- //
 	GoBSAseqCmd.Flags().StringP("config", "c", "", "path to config file")
 	GoBSAseqCmd.Flags().Int("threads", 8, "number of threads")
 	GoBSAseqCmd.Flags().String("species", "", "number of threads")
-	
+	GoBSAseqCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
+
 }

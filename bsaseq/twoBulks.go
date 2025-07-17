@@ -638,7 +638,7 @@ func TwoBulkTwoParentsRun(
 	var tsvFile string
 	var filteredRecords []TwoBulkTwoParentsRecord
 	if strings.ToLower(filepath.Ext(vcfFile)) == ".vcf" || strings.ToLower(filepath.Ext(vcfFile)) == ".gz" {
-		fmt.Printf("Working with VCF file ...\n\n")
+		fmt.Printf("Working with VCF file ...............\n\n")
 
 		fmt.Println("Running gatk VariantsToTable ...")
 		tsvFile = filepath.Join(resultsDir, "rawVariants.tsv")

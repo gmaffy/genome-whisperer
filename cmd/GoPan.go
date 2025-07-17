@@ -36,8 +36,18 @@ var GoPanCmd = &cobra.Command{
 			log.Fatalf("Error getting assembler flag: %v", aErr)
 		}
 
+		verbose, verr := cmd.Flags().GetBool("verbose")
+		if verr != nil {
+			log.Fatalf("Error getting verbose flag: %v", verr)
+		}
+
+		gatkLogLevel, gErr := cmd.Flags().GetString("gatk-log-level")
+		if gErr != nil {
+			log.Fatalf("Error getting gatk-log-level flag: %v", gErr)
+		}
+
 		fmt.Printf("Running with the following parameters:\nConfig file: %s\nAssembler: %s\n ...\n\n", configFile, assembler)
-		pangenome.GoPan(configFile, assembler)
+		pangenome.GoPan(configFile, assembler, gatkLogLevel, verbose)
 	},
 }
 
@@ -45,6 +55,8 @@ func init() {
 	rootCmd.AddCommand(GoPanCmd)
 	GoPanCmd.Flags().StringP("assembler", "a", "mac", "masurca, megahit or mac")
 	GoPanCmd.Flags().StringP("config", "c", "", "Config file")
+	GoPanCmd.Flags().BoolP("verbose", "v", false, "verbosity")
+	GoPanCmd.Flags().StringP("gatk-log-level", "l", "INFO", "GATK log level (INFO, WARNING, ERROR)")
 	err := GoPanCmd.MarkFlagRequired("config")
 	if err != nil {
 		return

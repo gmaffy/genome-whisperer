@@ -201,7 +201,7 @@ func ConcatFasta(fastas []string, outFasta string) error {
 	return nil
 }
 
-func GoPan(config string, assembler string) {
+func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
 
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(config)
@@ -338,7 +338,7 @@ func GoPan(config string, assembler string) {
 			jlog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 			slog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 
-			aErr := alignment.RunAlignReads(latestRef, fwd, rev, "", sn, lb, sampleDir, 8, "bowtie2", []string{}, false, false, logFilePath, "", "INFO")
+			bam, aErr := alignment.RunAlignReads(latestRef, fwd, rev, "", sn, lb, sampleDir, 8, "bowtie2", []string{}, false, false, logFilePath, "", "INFO", verbose)
 			if aErr != nil {
 				jlog.Error("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", aErr))
 				slog.Error("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", aErr))
@@ -348,6 +348,7 @@ func GoPan(config string, assembler string) {
 
 			jlog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
 			slog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "COMPLETED")
+			fmt.Printf("Bam file %s created.\n------------------------------------------------------------------------------------\n\n", bam)
 		}
 
 		// ---------------------------------- Alignment Statistics -------------------------------------------------- //
@@ -369,7 +370,7 @@ func GoPan(config string, assembler string) {
 			jlog.Info("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 			slog.Info("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 
-			sErr := alignment.Stats(latestRef, bamFile)
+			sErr := alignment.Stats(latestRef, bamFile, verbose)
 			if sErr != nil {
 
 				jlog.Error("GOPAN", "PROGRAM", "ALIGNMENT_STATS", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", sErr))
