@@ -44,7 +44,7 @@ BSAseqBam: <path to bam/cram file> <HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULK
 			fmt.Println("Error writing to template file:", err)
 			return
 		}
-		fmt.Println("Template file created successfully.")q
+		fmt.Println("Template file created successfully.")
 
 	},
 }
