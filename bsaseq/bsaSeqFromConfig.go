@@ -9,10 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
-
 	"runtime"
-	"sync"
 )
 
 func RunBsaSeqFromConfig(
@@ -30,7 +27,16 @@ func RunBsaSeqFromConfig(
 	smoothing bool,
 	popStructure string,
 	rep int,
-	bootstrap bool) {
+	bootstrap bool,
+	bqsr bool,
+	caller string,
+	merger string,
+	aligner string,
+	preset string,
+	dvVer string,
+	modelType string,
+	gatkLogLevel string,
+	verbose bool) {
 
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configFile)
@@ -44,7 +50,7 @@ func RunBsaSeqFromConfig(
 
 	// ------------------------------------------ Check Paths ------------------------------------------------------- //
 
-	knownSites := cfg.KnownSites
+	//knownSites := cfg.KnownSites
 	refFile := cfg.Reference
 	_, err = os.Stat(refFile)
 	if err != nil {
@@ -81,7 +87,7 @@ func RunBsaSeqFromConfig(
 
 	configBams := cfg.BSAseqBams
 	readPairs := cfg.ReadPairs
-	seReads := cfg.SeReads
+	//seReads := cfg.SeReads
 
 	libMap := map[string]bool{"HIGH_BULK": true, "LOW_BULK": true, "HIGH_PARENT": true, "LOW_PARENT": true}
 
@@ -101,11 +107,14 @@ func RunBsaSeqFromConfig(
 
 	logged := utils.ParseLogFile(logFilePath)
 
+	allBams := []string{}
+	finalVcf := ""
+
 	jlog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 	slog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
 	// ------------------------------------ Get parents and bulks -------------------------------------------------- //
-	if len(readPairs) == 0 && len(configBams) == 0  {
+	if len(readPairs) == 0 && len(configBams) == 0 {
 		fmt.Println("You must provide at least one read pair or bam file")
 		return
 	} else if len(readPairs) > 0 && len(configBams) > 0 {
@@ -158,7 +167,24 @@ func RunBsaSeqFromConfig(
 
 		fmt.Printf("Aligning reads to ref ...........\n\n")
 
-		bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose)
+		if utils.StageHasCompleted(logged, "BSASEQ_ALIGNMENT", "ALL", "ALL") {
+			fmt.Printf("Alignment already completed. Skipping ........ \n ")
+		} else {
+			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+
+			bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose)
+			if err != nil {
+				jlog.Error("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
+				slog.Error("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", err))
+				return
+			}
+			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+			fmt.Printf("Alignment completed. Bams %s ...........\n\n", bams)
+			allBams = bams
+
+		}
 
 	} else {
 		fmt.Println("Working with bam files")
@@ -177,90 +203,61 @@ func RunBsaSeqFromConfig(
 			} else {
 				libSampleMap[bamType] = bam
 				fmt.Printf("Library name %s for sample %s is valid\n", bamType, bam)
+				allBams = append(allBams, bam)
 			}
+		}
 
 	}
 
-		// ---------------------------------------- Variant Calling ------------------------------------------------- //
-		finalVcf, err := variants.VariantCalling(refFile, bams, outDir, species, threads, gatkLogLevel, caller, merger, logFilePath, dvVer, modelType, verbose)
+	// ---------------------------------------- Variant Calling ------------------------------------------------- //
+	if utils.StageHasCompleted(logged, "BSASEQ_VARIANT_CALLING", "ALL", "ALL") {
+		fmt.Printf("Variant calling already completed. Skipping ........ \n ")
+	} else {
+		jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+		slog.Info("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-		fmt.Println("VARIANT CALLING DONE STARING BSAseq")
-		fmt.Println(libSampleMap)
-
-		highBulk := libSampleMap["HIGH_BULK"]
-		lowBulk := libSampleMap["LOW_BULK"]
-		highParent := libSampleMap["HIGH_PARENT"]
-		lowParent := libSampleMap["LOW_PARENT"]
-		fmt.Println("highParent: ", highParent, "lowParent: ", lowParent, "highBulk: ", highBulk, "lowBulk: ", lowBulk)
-		if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
-			fmt.Println("Running 2 bulks only analysis")
-			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
-		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
-			fmt.Println("Running 2 bulks 2 parents analysis")
-			TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
-
-		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
-			fmt.Println("Running 1 high bulk, 2 parent analysis")
-			outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
-
-		} else if highParent != "" && lowParent != "" && highBulk == "" && lowBulk != "" {
-			fmt.Println("Running 1 low bulk, 2 parent analysis")
-			outputName := highParent + "_samp_" + lowParent + "_samp_" + lowBulk + "_samp_low_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
-
-		} else {
-			log.Fatal("Invalid parameters. Valid combinations are:\n" +
-				"1. Two bulks only: provide high_bulk (-A) and low_bulk (-B) without parents\n" +
-				"2. Two bulks with two parents: provide high_parent (-H), low_parent (-L), high_bulk (-A), and low_bulk (-B)\n" +
-				"3. One bulk with two parents: provide high_parent (-H), low_parent (-L), and bulk (-X)")
+		hardFilteredVCF, err := variants.VariantCalling(refFile, allBams, outDir, species, threads, gatkLogLevel, caller, merger, logFilePath, dvVer, modelType, verbose)
+		if err != nil {
+			jlog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
+			slog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", err))
+			return
 		}
+		jlog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		slog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		finalVcf = hardFilteredVCF
+
+	}
+
+	fmt.Println("VARIANT CALLING DONE STARING BSAseq")
+	fmt.Println(libSampleMap)
+
+	highBulk := libSampleMap["HIGH_BULK"]
+	lowBulk := libSampleMap["LOW_BULK"]
+	highParent := libSampleMap["HIGH_PARENT"]
+	lowParent := libSampleMap["LOW_PARENT"]
+	fmt.Println("highParent: ", highParent, "lowParent: ", lowParent, "highBulk: ", highBulk, "lowBulk: ", lowBulk)
+	if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
+		fmt.Println("Running 2 bulks only analysis")
+		TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
+	} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
+		fmt.Println("Running 2 bulks 2 parents analysis")
+		TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
+
+	} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
+		fmt.Println("Running 1 high bulk, 2 parent analysis")
+		outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
+		OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
+
+	} else if highParent != "" && lowParent != "" && highBulk == "" && lowBulk != "" {
+		fmt.Println("Running 1 low bulk, 2 parent analysis")
+		outputName := highParent + "_samp_" + lowParent + "_samp_" + lowBulk + "_samp_low_bsaseq_stats.tsv"
+		OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
 
 	} else {
-		fmt.Println("Starting from bam files")
-		// ---------------------------------------- Variant Calling ------------------------------------------------- //
-		finalVcf, err := variants.VariantCalling(refFile, bams, outDir, species, threads, gatkLogLevel, caller, merger, logFilePath, dvVer, modelType, verbose)
-		finalVcf := filepath.Join(outDir, species+".joint_hard_filtered.vcf.gz")
-
-		// --------------------------------------------- BSAseq ----------------------------------------------------- //
-		highParent, lowParent, highBulk, lowBulk := "", "", "", ""
-		for _, lb := range libSampleMap {
-			if lb == "HIGH_PARENT" {
-				highParent = libSampleMap[lb]
-			} else if lb == "LOW_PARENT" {
-				lowParent = libSampleMap[lb]
-			} else if lb == "HIGH_BULK" {
-				highBulk = libSampleMap[lb]
-			} else if lb == "LOW_BULK" {
-				lowBulk = libSampleMap[lb]
-			} else {
-				fmt.Println("Something went wrong")
-			}
-		}
-		if highParent == "" && lowParent == "" && highBulk != "" && lowBulk != "" {
-			fmt.Println("Running 2 bulks only analysis")
-			TwoBulkOnlyRun(finalVcf, highBulk, lowBulk, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
-		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk != "" {
-			fmt.Println("Running 2 bulks 2 parents analysis")
-			TwoBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, lowBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
-
-		} else if highParent != "" && lowParent != "" && highBulk != "" && lowBulk == "" {
-			fmt.Println("Running 1 high bulk, 2 parent analysis")
-			outputName := highParent + "_samp_" + lowParent + "_samp_" + highBulk + "_samp_high_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, highBulk, minHighParentDepth, minLowParentDepth, minHighBulkDepth, highBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
-
-		} else if highParent != "" && lowParent != "" && highBulk == "" && lowBulk != "" {
-			fmt.Println("Running 1 low bulk, 2 parent analysis")
-			outputName := highParent + "_samp_" + lowParent + "_samp_" + lowBulk + "_samp_low_bsaseq_stats.tsv"
-			OneBulkTwoParentsRun(finalVcf, highParent, lowParent, lowBulk, minHighParentDepth, minLowParentDepth, minLowBulkDepth, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outputName, outDir)
-
-		} else {
-			log.Fatal("Invalid parameters. Valid combinations are:\n" +
-				"1. Two bulks only: provide high_bulk (-A) and low_bulk (-B) without parents\n" +
-				"2. Two bulks with two parents: provide high_parent (-H), low_parent (-L), high_bulk (-A), and low_bulk (-B)\n" +
-				"3. One bulk with two parents: provide high_parent (-H), low_parent (-L), and bulk (-X)")
-		}
-
+		log.Fatal("Invalid parameters. Valid combinations are:\n" +
+			"1. Two bulks only: provide high_bulk (-A) and low_bulk (-B) without parents\n" +
+			"2. Two bulks with two parents: provide high_parent (-H), low_parent (-L), high_bulk (-A), and low_bulk (-B)\n" +
+			"3. One bulk with two parents: provide high_parent (-H), low_parent (-L), and bulk (-X)")
 	}
 
 }

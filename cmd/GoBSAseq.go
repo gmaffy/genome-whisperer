@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 Godwin Mafireyi <mafireyi@gmai.com>
 */
 package cmd
 
@@ -140,9 +140,46 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting verbose flag: %v", vErr)
 		}
 
+		bqsr, bqsrErr := cmd.Flags().GetBool("bqsr")
+		if bqsrErr != nil {
+			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
+		}
+
 		aligner, aErr := cmd.Flags().GetString("aligner")
 		if aErr != nil {
 			log.Fatalf("Error getting aligner flag: %v", aErr)
+		}
+
+		caller, callerErr := cmd.Flags().GetString("caller")
+		if callerErr != nil {
+			log.Fatalf("Error getting caller flag: %v", callerErr)
+		}
+
+		merger, mergerErr := cmd.Flags().GetString("merger")
+		if mergerErr != nil {
+			log.Fatalf("Error getting merger flag: %v", mergerErr)
+
+		}
+
+		preset, preErr := cmd.Flags().GetString("preset")
+		if preErr != nil {
+			log.Fatalf("Error getting output dir flag: %v", preErr)
+
+		}
+		dvVer, dvErr := cmd.Flags().GetString("dvVer")
+		if dvErr != nil {
+			log.Fatalf("Error getting dvVer flag: %v", dvErr)
+
+		}
+		modelType, modelErr := cmd.Flags().GetString("modelType")
+		if modelErr != nil {
+			log.Fatalf("Error getting modelType flag: %v", modelErr)
+
+		}
+
+		gatkLogLevel, gatkErr := cmd.Flags().GetString("gatkLogLevel")
+		if gatkErr != nil {
+			log.Fatalf("Error getting gatkLogLevel flag: %v", gatkErr)
 		}
 
 		if interactive {
@@ -163,7 +200,7 @@ var GoBSAseqCmd = &cobra.Command{
 					log.Fatal("Please provide a species name")
 				}
 				fmt.Println("Running from config file")
-				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap)
+				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, aligner, preset, dvVer, modelType, gatkLogLevel, verbose)
 			} else {
 				if outputDir == "" {
 					fmt.Println("No output directory provided. Supply path to output directory with -o flag")
@@ -245,7 +282,15 @@ func init() {
 	// -------------------------------------------- BASIC PARAMS ---------------------------------------------------- //
 	GoBSAseqCmd.Flags().StringP("pop_structure", "p", "F2", "F2, BC or RIL")
 	GoBSAseqCmd.Flags().Int("rep", 10000, "Replications for threshold calculations ..")
+
+	// -------------------------- Alignment and variant calling ----------------------------------------------------- //
 	GoBSAseqCmd.Flags().String("aligner", "bwa-mem", "bwa-mem, bowtie2")
+	GoBSAseqCmd.Flags().String("preset", "HIFI", "Dpbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
+	GoBSAseqCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")
+	GoBSAseqCmd.Flags().String("merger", "gatk", "GVCF merger to use. Options: gatk or glnexus")
+	GoBSAseqCmd.Flags().String("modelType", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
+	GoBSAseqCmd.Flags().String("dvVer", "1.9.0", "DeepVariant Version")
+	GoBSAseqCmd.Flags().String("gatkLogLevel", "INFO", "GATK log level")
 
 	// ------------------------------------------ PLOTTING PARAMS --------------------------------------------------- //
 	GoBSAseqCmd.Flags().IntP("window_size", "w", 2000000, "window size for plotting")
