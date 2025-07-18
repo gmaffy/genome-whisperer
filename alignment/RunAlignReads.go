@@ -84,7 +84,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --verbosity %s`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --VERBOSITY %s`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
 
 			var mdupErr error
@@ -575,8 +575,8 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 
 				fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
 
-				jlog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				slog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
+				jlog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+				slog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
 
 				isDone := utils.StageHasCompleted(logged, "PE_ALIGNMENT", sn, "ALL")
 				if isDone {
@@ -614,8 +614,8 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 				defer func() { <-sem }()
 				seRead, sn, lb := se[0], se[1], se[2]
 
-				jlog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-				slog.Info("ALIGNMENT", "PROGRAM", "SR_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
+				jlog.Info("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+				slog.Info("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
 
 				isDone := utils.StageHasCompleted(logged, "PB_ALIGNMENT", sn, "ALL")
 				if isDone {

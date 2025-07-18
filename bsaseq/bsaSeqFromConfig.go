@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 )
 
 func RunBsaSeqFromConfig(
@@ -107,7 +108,35 @@ func RunBsaSeqFromConfig(
 
 	logged := utils.ParseLogFile(logFilePath)
 
-	allBams := []string{}
+	// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
+	knownSites := cfg.KnownSites
+	if bqsr {
+		fmt.Println("----------------------------------------------- Check Paths if bqsr ------------------------------------------")
+		if aligner == "pbmm2" {
+			fmt.Println("We do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
+			return
+		}
+		if len(knownSites) == 0 && bootstrap == false {
+			fmt.Println("Either pass a known-sites file or enable bootstrap method")
+			return
+		} else if len(knownSites) > 0 {
+			fmt.Println("Running with known-sites flag")
+			// ---------------------------- Checking Known sites file paths ----------------------------------------- //
+			for j, _ := range knownSites {
+				_, err := os.Stat(knownSites[j])
+				if err != nil {
+					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
+					return
+				}
+			}
+			if bootstrap == true {
+				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
+				return
+			}
+		}
+	}
+
+	var allBams []string
 	finalVcf := ""
 
 	jlog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
@@ -172,18 +201,55 @@ func RunBsaSeqFromConfig(
 
 		fmt.Printf("Aligning reads to ref ...........\n\n")
 
+		fmt.Printf("Running up to %d jobs in parallel with %d threads each\n", maxParallelJobs, threads)
+
 		if utils.StageHasCompleted(logged, "BSASEQ_ALIGNMENT", "ALL", "ALL") {
 			fmt.Printf("Alignment already completed. Skipping ........ \n ")
 		} else {
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+			var bams []string
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, maxParallelJobs)
+			for _, pair := range cfg.ReadPairs {
+				if len(pair) < 4 {
+					fmt.Printf("This read pair is wrongly formated %s\n", pair)
+					fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name>")
+					continue
+				}
 
-			bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose)
-			if err != nil {
-				jlog.Error("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
-				slog.Error("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", err))
-				return
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(pair []string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+
+					fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
+
+					jlog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+					slog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
+
+					isDone := utils.StageHasCompleted(logged, "PE_ALIGNMENT", sn, "ALL")
+					if isDone {
+						msg := fmt.Sprintf("%s and MarkDuplicates already completed for %s. Skipping.\n\n-------------------------------------------------------\n\n", aligner, sn)
+						slog.Info(msg)
+
+					} else {
+						bam, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
+						if alErr != nil {
+							jlog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
+							slog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))
+							return
+						}
+						jlog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+						slog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "COMPLETED")
+						bams = append(bams, bam)
+					}
+				}(pair)
+
 			}
+			wg.Wait()
+
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			fmt.Printf("Alignment completed. Bams %s ...........\n\n", bams)
