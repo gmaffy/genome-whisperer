@@ -203,13 +203,32 @@ func RunBsaSeqFromConfig(
 		fmt.Printf("Aligning reads to ref ...........\n\n")
 
 		fmt.Printf("Running up to %d jobs in parallel with %d threads each\n", maxParallelJobs, threads)
+		var bams []string
 
 		if utils.StageHasCompleted(logged, "BSASEQ_ALIGNMENT", "ALL", "ALL") {
 			fmt.Printf("Alignment already completed. Skipping ........ \n ")
+			for _, pair := range cfg.ReadPairs {
+				if len(pair) < 4 {
+					fmt.Printf("This read pair is wrongly formated %s\n", pair)
+					fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name>")
+					continue
+				}
+				_, _, sn, _ := pair[0], pair[1], pair[2], pair[3]
+				bam := ""
+
+				if bqsr {
+					lineDir := fmt.Sprintf("%s/%s", outDir, sn)
+					bam = fmt.Sprintf("%s/%s.RGMD_bqsr.bam", lineDir, sn)
+				} else {
+					lineDir := fmt.Sprintf("%s/%s", outDir, sn)
+					bam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
+				}
+				bams = append(bams, bam)
+			}
 		} else {
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
-			var bams []string
+
 			var bamsMu sync.Mutex
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, maxParallelJobs)
@@ -227,6 +246,15 @@ func RunBsaSeqFromConfig(
 					defer func() { <-sem }()
 
 					fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
+					bam := ""
+
+					if bqsr {
+						lineDir := fmt.Sprintf("%s/%s", outDir, sn)
+						bam = fmt.Sprintf("%s/%s.RGMD_bqsr.bam", lineDir, sn)
+					} else {
+						lineDir := fmt.Sprintf("%s/%s", outDir, sn)
+						bam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
+					}
 
 					jlog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 					slog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
@@ -235,6 +263,9 @@ func RunBsaSeqFromConfig(
 					if isDone {
 						msg := fmt.Sprintf("%s and MarkDuplicates already completed for %s. Skipping.\n\n-------------------------------------------------------\n\n", aligner, sn)
 						slog.Info(msg)
+						bamsMu.Lock()
+						bams = append(bams, bam)
+						bamsMu.Unlock()
 
 					} else {
 						bam, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
@@ -248,6 +279,7 @@ func RunBsaSeqFromConfig(
 						bamsMu.Lock()
 						bams = append(bams, bam)
 						bamsMu.Unlock()
+
 					}
 				}(pair)
 
