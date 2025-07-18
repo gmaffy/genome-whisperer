@@ -2,15 +2,16 @@ package bsaseq
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/alignment"
-	"github.com/gmaffy/genome-whisperer/utils"
-	"github.com/gmaffy/genome-whisperer/variants"
 	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+
+	"github.com/gmaffy/genome-whisperer/alignment"
+	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/gmaffy/genome-whisperer/variants"
 )
 
 func RunBsaSeqFromConfig(
@@ -209,6 +210,7 @@ func RunBsaSeqFromConfig(
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			var bams []string
+			var bamsMu sync.Mutex
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, maxParallelJobs)
 			for _, pair := range cfg.ReadPairs {
@@ -243,7 +245,9 @@ func RunBsaSeqFromConfig(
 						}
 						jlog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 						slog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "COMPLETED")
+						bamsMu.Lock()
 						bams = append(bams, bam)
+						bamsMu.Unlock()
 					}
 				}(pair)
 
@@ -263,7 +267,7 @@ func RunBsaSeqFromConfig(
 		for _, bamPair := range configBams {
 			if len(bamPair) != 1 {
 				fmt.Printf("The BSAseq bam is wrongly formated - %s\n", bamPair)
-				fmt.Println("Supply bam files in this format: BSAseqBam: <path to bam file> <bulk or parent: (HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULL)> ")
+				fmt.Println("Supply bam files in this format: BSAseqBam: <path to bam file> <bulk or parent: (HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULK)> ")
 				continue
 			}
 			bam, bamType := bamPair[0], bamPair[1]
