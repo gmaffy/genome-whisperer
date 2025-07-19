@@ -106,7 +106,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 		jointBCF := filepath.Join(vcfPath, species+"_"+chromDir+".joint.bcf")
 		snpVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".SNP.vcf.gz"
 		indelVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".INDEL.vcf.gz"
-		hardFilteredSNPs := strings.TrimSuffix(snpVCF, ".vcf.gz") + "..hard_filtered.vcf.gz"
+		hardFilteredSNPs := strings.TrimSuffix(snpVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 		hardFilteredINDELs := strings.TrimSuffix(indelVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 		hardFilteredVCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".hard_filtered.vcf.gz"
 		theDB := filepath.Join(chromDirPath, chromDir+"DB")
