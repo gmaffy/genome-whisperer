@@ -80,7 +80,8 @@ var VariantCallingCmd = &cobra.Command{
 		}
 
 		//-------------------------------------------- Check dependencies ------------------------------------------ //
-		if caller == "gatk" {
+		switch caller {
+		case "gatk":
 			gatkErr := utils.CheckDeps([]string{"gatk"})
 			if gatkErr != nil {
 				fmt.Println("Dependency check failed ... ", gatkErr)
@@ -92,7 +93,7 @@ var VariantCallingCmd = &cobra.Command{
 				}
 			}
 
-		} else if caller == "deepvariant" {
+		case "deepvariant":
 			docErr := utils.CheckDeps([]string{"docker"})
 			if docErr != nil {
 				fmt.Println("Dependency check failed ... ", docErr)

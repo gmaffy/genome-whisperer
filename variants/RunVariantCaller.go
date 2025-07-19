@@ -128,7 +128,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 		sem <- struct{}{}
 		wg.Add(1)
 
-		if caller == "gatk" {
+		switch caller {
+		case "gatk":
 
 			// ------------------------------------------------ Run ------------------------------------------------- //
 			go func(seq *linear.Seq) {
@@ -190,7 +191,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 				// ---------------------------------- MERGING (Skip completed) ------------------------------- //
 
-				if merger == "gatk" {
+				switch merger {
+				case "gatk":
 
 					if utils.StageHasCompleted(logged, "GenomicsDBImport", "ALL", seq.ID) {
 						msg := fmt.Sprintf("GenomicsDBImport already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
@@ -270,7 +272,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 					}
 
-				} else if merger == "glnexus" {
+				case "glnexus":
 
 					if utils.StageHasCompleted(logged, "GLNEXUS", "ALL", seq.ID) {
 						msg := fmt.Sprintf("glnexus_cli already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
@@ -326,7 +328,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 					}
 
-				} else {
+				default:
 					fmt.Println("Merger should either be gatk or glnexus")
 					os.Exit(1)
 				}
@@ -445,7 +447,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					slog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 					//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
-					mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --verbosity %s`, hardFilteredSNPs, hardFilteredINDELs, hardFilteredVCF, gatkLogLevel)
+					mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --VERBOSITY %s`, hardFilteredSNPs, hardFilteredINDELs, hardFilteredVCF, gatkLogLevel)
 
 					var mErr error
 					if verbose {
@@ -470,7 +472,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 				mu.Unlock()
 
 			}(seq)
-		} else if caller == "deepvariant" {
+		case "deepvariant":
 
 			// --------------------------------------- Check Deps -------------------------------------------------- //
 
@@ -708,7 +710,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 					slog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 
-					mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --verbosity %s`, hardFilteredSNPs, hardFilteredINDELs, hardFilteredVCF, gatkLogLevel)
+					mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --VERBOSITY %s`, hardFilteredSNPs, hardFilteredINDELs, hardFilteredVCF, gatkLogLevel)
 					var mErr error
 					if verbose {
 						mErr = utils.RunBashCmdVerbose(mergeCmdStr)
@@ -739,7 +741,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 	fmt.Println("Merging ALL Hard filtered VCFs ...")
 
-	mergeCmdStr2 := fmt.Sprintf(`gatk MergeVcfs %s -O %s --verbosity %s`, strings.Join(jointvSlice, " "), finalVcf, gatkLogLevel)
+	mergeCmdStr2 := fmt.Sprintf(`gatk MergeVcfs %s -O %s --VERBOSITY %s`, strings.Join(jointvSlice, " "), finalVcf, gatkLogLevel)
 
 	jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", mergeCmdStr2)
 	slog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
