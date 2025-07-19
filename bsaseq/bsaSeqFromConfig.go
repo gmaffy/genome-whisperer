@@ -117,20 +117,20 @@ func RunBsaSeqFromConfig(
 			fmt.Println("We do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
 			return
 		}
-		if len(knownSites) == 0 && bootstrap == false {
+		if len(knownSites) == 0 && !bootstrap {
 			fmt.Println("Either pass a known-sites file or enable bootstrap method")
 			return
 		} else if len(knownSites) > 0 {
 			fmt.Println("Running with known-sites flag")
 			// ---------------------------- Checking Known sites file paths ----------------------------------------- //
-			for j, _ := range knownSites {
+			for j := range knownSites {
 				_, err := os.Stat(knownSites[j])
 				if err != nil {
 					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
 					return
 				}
 			}
-			if bootstrap == true {
+			if bootstrap{
 				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
 				return
 			}
@@ -143,7 +143,7 @@ func RunBsaSeqFromConfig(
 	jlog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 	slog.Info("BSASEQ", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
-	// ------------------------------------ Get parents and bulks -------------------------------------------------- //
+	// ------------------------------------ Get parents and bulks & bam files names -------------------------------------------------- //
 	if len(readPairs) == 0 && len(configBams) == 0 {
 		fmt.Println("You must provide at least one read pair or bam file")
 		return
@@ -196,40 +196,37 @@ func RunBsaSeqFromConfig(
 				fmt.Println("You can only provide 4 read pairs")
 				return
 			}
+			bam := ""
+
+			if bqsr {
+				lineDir := fmt.Sprintf("%s/%s", outDir, sn)
+				bam = fmt.Sprintf("%s/%s.RGMD_bqsr.bam", lineDir, sn)
+			} else {
+				lineDir := fmt.Sprintf("%s/%s", outDir, sn)
+				bam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
+			}
+			allBams = append(allBams, bam)
 		}
 
 		fmt.Printf("BSAseq inputs fetched .....\n\n")
+		fmt.Printf("Total read pairs: %d\n", len(readPairs))
+		fmt.Printf("Bams to be created : %s\n\n", allBams)
+		
+		
 
 		fmt.Printf("Aligning reads to ref ...........\n\n")
 
 		fmt.Printf("Running up to %d jobs in parallel with %d threads each\n", maxParallelJobs, threads)
-		var bams []string
+		
 
 		if utils.StageHasCompleted(logged, "BSASEQ_ALIGNMENT", "ALL", "ALL") {
 			fmt.Printf("Alignment already completed. Skipping ........ \n ")
-			for _, pair := range cfg.ReadPairs {
-				if len(pair) < 4 {
-					fmt.Printf("This read pair is wrongly formated %s\n", pair)
-					fmt.Println("Supply reads in this format: ReadPair: <fwd reads> <rev reads> <sample name> <library name>")
-					continue
-				}
-				_, _, sn, _ := pair[0], pair[1], pair[2], pair[3]
-				bam := ""
-
-				if bqsr {
-					lineDir := fmt.Sprintf("%s/%s", outDir, sn)
-					bam = fmt.Sprintf("%s/%s.RGMD_bqsr.bam", lineDir, sn)
-				} else {
-					lineDir := fmt.Sprintf("%s/%s", outDir, sn)
-					bam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
-				}
-				bams = append(bams, bam)
-			}
+			
 		} else {
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			var bamsMu sync.Mutex
+			
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, maxParallelJobs)
 			for _, pair := range cfg.ReadPairs {
@@ -246,16 +243,7 @@ func RunBsaSeqFromConfig(
 					defer func() { <-sem }()
 
 					fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
-					bam := ""
-
-					if bqsr {
-						lineDir := fmt.Sprintf("%s/%s", outDir, sn)
-						bam = fmt.Sprintf("%s/%s.RGMD_bqsr.bam", lineDir, sn)
-					} else {
-						lineDir := fmt.Sprintf("%s/%s", outDir, sn)
-						bam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sn)
-					}
-
+					
 					jlog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 					slog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
 
@@ -263,12 +251,10 @@ func RunBsaSeqFromConfig(
 					if isDone {
 						msg := fmt.Sprintf("%s and MarkDuplicates already completed for %s. Skipping.\n\n-------------------------------------------------------\n\n", aligner, sn)
 						slog.Info(msg)
-						bamsMu.Lock()
-						bams = append(bams, bam)
-						bamsMu.Unlock()
+						
 
 					} else {
-						bam, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
+						_, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
 						if alErr != nil {
 							jlog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 							slog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))
@@ -276,10 +262,7 @@ func RunBsaSeqFromConfig(
 						}
 						jlog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 						slog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "COMPLETED")
-						bamsMu.Lock()
-						bams = append(bams, bam)
-						bamsMu.Unlock()
-
+						
 					}
 				}(pair)
 
@@ -288,8 +271,8 @@ func RunBsaSeqFromConfig(
 
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-			fmt.Printf("Alignment completed. Bams %s ...........\n\n", bams)
-			allBams = bams
+			fmt.Printf("Alignment completed. Bams %s ...........\n\n", allBams)
+			
 
 		}
 
@@ -297,9 +280,9 @@ func RunBsaSeqFromConfig(
 		fmt.Println("Working with bam files")
 
 		for _, bamPair := range configBams {
-			if len(bamPair) != 1 {
+			if len(bamPair) != 2 {
 				fmt.Printf("The BSAseq bam is wrongly formated - %s\n", bamPair)
-				fmt.Println("Supply bam files in this format: BSAseqBam: <path to bam file> <bulk or parent: (HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULK)> ")
+				fmt.Println("Supply bam files in this format: BSAseqBam: <path to bam file> <bulk or parent>: (HIGH_PARENT, LOW_PARENT, HIGH_BULK, LOW_BULK)> ")
 				continue
 			}
 			bam, bamType := bamPair[0], bamPair[1]
