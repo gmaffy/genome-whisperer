@@ -3,11 +3,6 @@ package variants
 import (
 	"compress/gzip"
 	"fmt"
-	"github.com/biogo/biogo/alphabet"
-	"github.com/biogo/biogo/io/seqio"
-	"github.com/biogo/biogo/io/seqio/fasta"
-	"github.com/biogo/biogo/seq/linear"
-	"github.com/gmaffy/genome-whisperer/utils"
 	"io"
 	"log"
 	"log/slog"
@@ -16,6 +11,12 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/biogo/biogo/alphabet"
+	"github.com/biogo/biogo/io/seqio"
+	"github.com/biogo/biogo/io/seqio/fasta"
+	"github.com/biogo/biogo/seq/linear"
+	"github.com/gmaffy/genome-whisperer/utils"
 )
 
 func VariantCalling(refFile string, bams []string, out string, species string, threadsPerSample int, gatkLogLevel string, caller string, merger string, logFilePath string, dvVer string, modelType string, verbose bool) (string, error) {
@@ -85,7 +86,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	maxParallelJobs := totalCores / threadsPerSample
 	if maxParallelJobs < 1 {
 		maxParallelJobs = 1
-		threadsPerSample = totalCores
+
 	}
 
 	var wg sync.WaitGroup
@@ -181,7 +182,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							log.Fatalf("FAILED: %v", hapErr)
 						}
 
-						jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED") //, "CMD", hapCmdStr)
+						jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
