@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-func RunAlignReads(referencePath string, forwardPath string, reversePath string, sePath string, sampleName string, libName string, outputDir string, threads int, aligner string, knownSites []string, bqsr bool, bootstrap bool, logFilePath string, preset string, gatkLogLevel string, verbose bool) (string, error) {
+func RunAlignReads(referencePath string, forwardPath string, reversePath string, sePath string, sampleName string, libName string, outputDir string, threads int, aligner string, knownSites []string, bqsr bool, bootstrap bool, logFilePath string, preset string, gatkLogLevel string, verbose bool, outputFmt string) (string, error) {
 
 	// ----------------------------------------- Log file ----------------------------------------------------------- //
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -27,12 +27,30 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 	// ----------------------------------------- Output Paths ------------------------------------------------------- //
 	lineDir := fmt.Sprintf("%s/%s", outputDir, sampleName)
-	rgBam := fmt.Sprintf("%s/%s.RG.bam", lineDir, sampleName)
-	rgmdBam := fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sampleName)
+	rgBam := ""
+	rgmdBam := ""
+	rgmdIndex := ""
+	sortedBam := ""
+	sortedBai := ""
+	if outputFmt == "bam" {
+		rgBam = fmt.Sprintf("%s/%s.RG.bam", lineDir, sampleName)
+		rgmdBam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sampleName)
+		rgmdIndex = fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sampleName)
+		sortedBam = fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
+		sortedBai = fmt.Sprintf("%s/%s.sorted.bai", lineDir, sampleName)
+
+	} else if outputFmt == "cram" {
+		rgBam = fmt.Sprintf("%s/%s.RG.cram", lineDir, sampleName)
+		rgmdBam = fmt.Sprintf("%s/%s.RGMD.cram", lineDir, sampleName)
+		rgmdIndex = fmt.Sprintf("%s/%s.RGMD.crai", lineDir, sampleName)
+		sortedBam = fmt.Sprintf("%s/%s.sorted.cram", lineDir, sampleName)
+		sortedBai = fmt.Sprintf("%s/%s.sorted.crai", lineDir, sampleName)
+
+	} else {
+		return "", fmt.Errorf("Invalid output format: %s", outputFmt)
+	}
+
 	rgmdMetrics := fmt.Sprintf("%s/%s.RGMD.metrics.txt", lineDir, sampleName)
-	rgmdIndex := fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sampleName)
-	sortedBam := fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
-	sortedBai := fmt.Sprintf("%s/%s.sorted.bai", lineDir, sampleName)
 
 	finalBam := ""
 
@@ -84,7 +102,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --VERBOSITY %s`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --VERBOSITY %s --CREATE_INDEX true`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
 
 			var mdupErr error
@@ -382,7 +400,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 	return finalBam, nil
 }
 
-func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool, aligner string, preset string, gatkLogLevel string, verbose bool) ([]string, error) {
+func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, bootstrap bool, aligner string, preset string, gatkLogLevel string, verbose bool, outputFmt string) ([]string, error) {
 
 	fmt.Printf(" ---------------------------------------- Checking File Paths --------------------------------------------------------- \n\n")
 	fmt.Println("Reading config file ...")
@@ -584,7 +602,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 					slog.Info(msg)
 
 				} else {
-					bam, alErr := RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
+					bam, alErr := RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose, outputFmt)
 					if alErr != nil {
 						jlog.Error("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 						slog.Error("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))
@@ -623,7 +641,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 					slog.Info(msg)
 
 				} else {
-					bam, alErr := RunAlignReads(cfg.Reference, "", "", seRead, sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
+					bam, alErr := RunAlignReads(cfg.Reference, "", "", seRead, sn, lb, cfg.OutputDir, threadsPerSample, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose, outputFmt)
 					if alErr != nil {
 						jlog.Error("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 						slog.Error("ALIGNMENT", "PROGRAM", "PB_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))

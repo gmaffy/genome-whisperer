@@ -103,6 +103,11 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting gatk-log-level flag: %v", glErr)
 		}
 
+		outputFmt, ofErr := cmd.Flags().GetString("output-fmt")
+		if ofErr != nil {
+			log.Fatalf("Error getting output format flag: %v", ofErr)
+		}
+
 		//--------------------------------------------------- Check dependencies ------------------------------------//
 		deps := []string{"samtools", "gatk"}
 		switch aligner {
@@ -129,7 +134,7 @@ var AlignReadsCmd = &cobra.Command{
 
 			//logFilePath := outDir + "/alignment.log"
 
-			bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose)
+			bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose, outputFmt)
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -213,7 +218,7 @@ var AlignReadsCmd = &cobra.Command{
 				}
 			}
 			logFilePath := outDir + "/alignment.log"
-			bam, err := alignment.RunAlignReads(referencePath, forwardPath, reversePath, sePath, sampleName, libName, outDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
+			bam, err := alignment.RunAlignReads(referencePath, forwardPath, reversePath, sePath, sampleName, libName, outDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose, outputFmt)
 			if err != nil {
 				return
 			} else {
@@ -243,5 +248,6 @@ func init() {
 	AlignReadsCmd.Flags().StringP("config", "c", "", "Path to reference genome index")
 	AlignReadsCmd.Flags().String("preset", "HIFI", "pbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
 	AlignReadsCmd.Flags().String("gatk-log-level", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
+	AlignReadsCmd.Flags().StringP("output-fmt", "O", "bam", "bam or cram")
 
 }
