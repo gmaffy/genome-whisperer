@@ -94,7 +94,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				fmt.Println("You must provide at least one bam file")
 				return
 			} else {
-				for i, _ := range bams {
+				for i := range bams {
 					_, err := os.Stat(bams[i])
 					if err != nil {
 						fmt.Printf("Bam file: %s is not a valid file path", bams[i])
@@ -103,10 +103,10 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 				}
 			}
 
-			if len(knownSites) == 0 && bootstrap == false {
+			if len(knownSites) == 0 && !bootstrap {
 				fmt.Println("Either pass a known-sites file or enable bootstrap method")
 				return
-			} else if len(knownSites) == 0 && bootstrap == true {
+			} else if len(knownSites) == 0 && bootstrap {
 				fmt.Println("Running with bootstrap method")
 				err := alignment.BootstrapBqsr(refFile, bams, threads, logFile, gatkLogLevel, verbose)
 				if err != nil {
@@ -115,7 +115,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 			} else if len(knownSites) > 0 {
 				fmt.Println("Running with known-sites flag")
 				// ------------------------ Checking Known sites file paths ----------------------------------------- //
-				for j, _ := range knownSites {
+				for j := range knownSites {
 					_, err := os.Stat(knownSites[j])
 					if err != nil {
 						fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])

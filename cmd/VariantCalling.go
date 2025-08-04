@@ -145,7 +145,7 @@ var VariantCallingCmd = &cobra.Command{
 				fmt.Println("You must provide at least one bam file")
 				return
 			} else {
-				for i, _ := range bams {
+				for i := range bams {
 					_, err := os.Stat(bams[i])
 					if err != nil {
 						fmt.Printf("Bam file: %s is not a valid file path", bams[i])

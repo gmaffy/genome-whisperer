@@ -5,10 +5,9 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"github.com/gmaffy/genome-whisperer/pangenome"
 	"github.com/gmaffy/genome-whisperer/utils"
-	"log"
-
 	"github.com/spf13/cobra"
 )
 
@@ -46,8 +45,13 @@ var GoPanCmd = &cobra.Command{
 			log.Fatalf("Error getting gatk-log-level flag: %v", gErr)
 		}
 
+		alignmentFmt, afErr := cmd.Flags().GetString("alignment-fmt")
+		if afErr != nil {
+			log.Fatalf("Error getting alignment format flag: %v", afErr)
+		}
+
 		fmt.Printf("Running with the following parameters:\nConfig file: %s\nAssembler: %s\n ...\n\n", configFile, assembler)
-		pangenome.GoPan(configFile, assembler, gatkLogLevel, verbose)
+		pangenome.GoPan(configFile, assembler, gatkLogLevel, verbose, alignmentFmt)
 	},
 }
 
@@ -57,6 +61,7 @@ func init() {
 	GoPanCmd.Flags().StringP("config", "c", "", "Config file")
 	GoPanCmd.Flags().BoolP("verbose", "v", false, "verbosity")
 	GoPanCmd.Flags().StringP("gatk-log-level", "l", "INFO", "GATK log level (INFO, WARNING, ERROR)")
+	GoPanCmd.Flags().String("alignment-fmt", "bam", "bam or cram")
 	err := GoPanCmd.MarkFlagRequired("config")
 	if err != nil {
 		return

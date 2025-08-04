@@ -43,7 +43,7 @@ var VariantAnnotationCmd = &cobra.Command{
 			fmt.Println("Please provide at least one vcf file")
 			return
 		} else {
-			for i, _ := range vcfs {
+			for i := range vcfs {
 				_, err := os.Stat(vcfs[i])
 				if err != nil {
 					fmt.Printf("Vcf file: %s is not a valid file path", vcfs[i])

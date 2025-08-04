@@ -49,14 +49,14 @@ func InteractiveRun(vcfFile string, popStructure string, rep int, outDir string)
 	vcfTableFileOpen, vcfErr := os.Open(tsvFile)
 	if vcfErr != nil {
 		fmt.Printf("Error opening vcf file %s: %s\n", tsvFile, vcfErr)
-		panic(vcfErr)
+		//panic(vcfErr)
 		return
 	}
 	defer func(vcfTableFileOpen *os.File) {
 		voErr := vcfTableFileOpen.Close()
 		if voErr != nil {
 			fmt.Printf("Error closing vcf file %s: %s\n", vcfFile, voErr)
-			panic(voErr)
+			//panic(voErr)
 			return
 		}
 	}(vcfTableFileOpen)

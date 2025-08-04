@@ -38,7 +38,8 @@ func RunBsaSeqFromConfig(
 	dvVer string,
 	modelType string,
 	gatkLogLevel string,
-	verbose bool) {
+	verbose bool,
+	alignmentFmt string) {
 
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configFile)
@@ -254,7 +255,7 @@ func RunBsaSeqFromConfig(
 						
 
 					} else {
-						_, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose)
+						_, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose, alignmentFmt)
 						if alErr != nil {
 							jlog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 							slog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))

@@ -182,6 +182,11 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting gatkLogLevel flag: %v", gatkErr)
 		}
 
+		alignmentFmt, afErr := cmd.Flags().GetString("vcf")
+		if afErr != nil {
+			log.Fatalf("Error getting alignment fmt flag: %v", afErr)
+		}
+
 		if interactive {
 			fmt.Println("Running in interactive mode")
 			bsaseq.InteractiveRun(variantFile, popStructure, rep, outputDir)
@@ -200,7 +205,7 @@ var GoBSAseqCmd = &cobra.Command{
 					log.Fatal("Please provide a species name")
 				}
 				fmt.Println("Running from config file")
-				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, aligner, preset, dvVer, modelType, gatkLogLevel, verbose)
+				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, aligner, preset, dvVer, modelType, gatkLogLevel, verbose, alignmentFmt)
 			} else {
 				if outputDir == "" {
 					fmt.Println("No output directory provided. Supply path to output directory with -o flag")
@@ -307,5 +312,6 @@ func init() {
 	GoBSAseqCmd.Flags().Int("threads", 8, "number of threads")
 	GoBSAseqCmd.Flags().String("species", "", "number of threads")
 	GoBSAseqCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
+	GoBSAseqCmd.Flags().String("alignment-fmt", "bam", "bam or cram")
 
 }

@@ -201,7 +201,7 @@ func ConcatFasta(fastas []string, outFasta string) error {
 	return nil
 }
 
-func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
+func GoPan(config string, assembler string, gatkLogLevel string, verbose bool, alignmentFmt string) {
 
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(config)
@@ -295,6 +295,10 @@ func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
 	fmt.Println("")
 
 	i, latestRef, err := LatestRef(out, ref)
+	if err != nil{
+		fmt.Printf("Error : %v:", err)
+		return
+	}
 	fmt.Printf("Latest reference is: %s\n\n--------------------------------------------------------------------------------\n\n", latestRef)
 	for i < len(readPairs) {
 
@@ -338,7 +342,7 @@ func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
 			jlog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 			slog.Info("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", "STARTED")
 
-			bam, aErr := alignment.RunAlignReads(latestRef, fwd, rev, "", sn, lb, sampleDir, 8, "bowtie2", []string{}, false, false, logFilePath, "", "INFO", verbose)
+			bam, aErr := alignment.RunAlignReads(latestRef, fwd, rev, "", sn, lb, sampleDir, 8, "bowtie2", []string{}, false, false, logFilePath, "", "INFO", verbose, alignmentFmt)
 			if aErr != nil {
 				jlog.Error("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", aErr))
 				slog.Error("GOPAN", "PROGRAM", "BOWTIE2", "SAMPLE", sn, "CHROMOSOME", strconv.Itoa(i), "STATUS", fmt.Sprintf("FAILED - %s", aErr))
@@ -433,7 +437,8 @@ func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
 
 		//---------------------------------- Assemble unmapped reads ------------------------------------------------ //
 		var assembledContigs string
-		if assembler == "masurca" {
+		switch assembler {
+		case "masurca":
 			fmt.Printf("Assemble unmapped reads for %s with MASURCA only... \n", sn)
 			masurcaDir := filepath.Join(sampleDir, "MASURCA")
 			masurcaAssembly := filepath.Join(masurcaDir, "CA", "primary.genome.scf.fasta")
@@ -479,7 +484,7 @@ func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
 				assembledContigs = masurcaAssembly
 			}
 
-		} else if assembler == "megahit" {
+		case "megahit":
 
 			fmt.Printf("Assemble unmapped reads for %s with MEGAHIT only... \n", sn)
 			megahitDir := filepath.Join(sampleDir, "MegaHit")
@@ -517,7 +522,7 @@ func GoPan(config string, assembler string, gatkLogLevel string, verbose bool) {
 				assembledContigs = megahitAssembly
 			}
 
-		} else {
+		default:
 			// --------------------------------------- BOTH ASSEMBLERS ---------------------------------------------- //
 
 			// --------------------------------------- Run Masurca first -------------------------------------------- //

@@ -125,6 +125,20 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Dependency check failed: %v", depErr)
 		}
 
+		if aligner == "bwa-mem" {
+			bwtFile := fmt.Sprintf("%s.bwt", referencePath)
+			_, bwErr := os.Stat(bwtFile)
+			if bwErr != nil {
+				fmt.Printf("reference file %s is not indexed using bwa ....\n\n", referencePath)
+				fmt.Println("Preparing reference file ...")
+				pErr := utils.PrepareFasta(referencePath, aligner)
+				if pErr != nil {
+					log.Fatal("Failed to index reference file")
+				}
+				
+			}
+		}
+
 		if configFile != "" {
 			fmt.Println("Reading config file ...")
 			_, confErr := os.Stat(configFile)
@@ -198,20 +212,20 @@ var AlignReadsCmd = &cobra.Command{
 					fmt.Println("We do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
 					return
 				}
-				if len(knownSites) == 0 && bootstrap == false {
+				if len(knownSites) == 0 && !bootstrap {
 					fmt.Println("Either pass a known-sites file or enable bootstrap method")
 					return
 				} else if len(knownSites) > 0 {
 					fmt.Println("Running with known-sites flag")
 					// ---------------------------- Checking Known sites file paths ----------------------------------------- //
-					for j, _ := range knownSites {
+					for j := range knownSites {
 						_, err := os.Stat(knownSites[j])
 						if err != nil {
 							fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
 							log.Fatal(err)
 						}
 					}
-					if bootstrap == true {
+					if bootstrap {
 						fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
 						return
 					}

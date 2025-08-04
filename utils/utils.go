@@ -255,3 +255,45 @@ func CopyFile(src, dst string) error {
 
 	return nil
 }
+
+
+func PrepareFasta(ref, aligner string) error {
+
+	fmt.Println("Starting prepare fasta ................")
+	indexStr := ``
+	switch aligner {
+	case "bwa-mem":
+		indexStr = fmt.Sprintf(`bwa index %s`, ref)
+	case "bowtie2":
+		indexStr = fmt.Sprintf(`bowtie2-build %s %s`, ref, ref)
+
+	case "pbmm2":
+		indexStr = fmt.Sprintf(`pbmm2 index %s`, ref)
+
+	}
+	
+	fmt.Printf("Running %s ...\n\n", indexStr)
+
+	indexErr := RunBashCmdVerbose(indexStr)
+	if indexErr != nil {
+		return fmt.Errorf("bwa indexing failed: %v", indexErr)
+	}
+
+	samIndexStr := fmt.Sprintf(`samtools faidx %s`, ref)
+
+	fmt.Printf("\nRunning: %s ...\n\n", samIndexStr)
+
+	samIndexErr := RunBashCmdVerbose(samIndexStr)
+	if samIndexErr != nil {
+		return fmt.Errorf("samtools indexing failed: %v", samIndexErr)
+	}
+
+	dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s`, ref)
+	dicErr := RunBashCmdVerbose(dicStr)
+
+	if dicErr != nil {
+		return fmt.Errorf("gatk creating sequence dictionary failed: %s", dicErr)
+	}
+
+	return nil
+}

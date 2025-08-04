@@ -61,7 +61,7 @@ func readTsvToStructOneBulkTwoPar(tsvFile string, highPar string, lowPar string,
 
 	if len(records) < 2 {
 		// log.Fatalf("Expected at least 2 rows, got %d", len(records))
-		return data, fmt.Errorf("Expected at least 2 rows, got %d", len(records))
+		return data, fmt.Errorf("expected at least 2 rows, got %d", len(records))
 	}
 
 	header := records[0]
