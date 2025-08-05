@@ -493,14 +493,14 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	cfg, err := utils.ReadConfig(configPath)
 	if err != nil {
 		fmt.Printf("Error reading config: %v\n", err)
-		return nil, fmt.Errorf("error reading config: %v\n", err)
+		return nil, fmt.Errorf("error reading config: %v", err)
 	}
 
 	ref := cfg.Reference
 	_, refErr := os.Stat(ref)
 	if refErr != nil {
 		fmt.Printf("Reference genome path: %s, is not valid\n", ref)
-		return nil, fmt.Errorf("reference genome path: %s, is not valid\n", ref)
+		return nil, fmt.Errorf("reference genome path: %s, is not valid", ref)
 	}
 
 	out := cfg.OutputDir
@@ -509,19 +509,27 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	if outErr != nil {
 
 		if os.IsNotExist(outErr) {
-			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", out)
+			fmt.Printf("Output directory: %s does not exist. Attempting to create it.", out)
 			if createErr := os.MkdirAll(out, 0755); createErr != nil {
-				fmt.Printf("Failed to create output directory %s: %v\n", out, createErr)
-				return nil, fmt.Errorf("failed to create output directory %s: %v\n", out, createErr)
+				fmt.Printf("Failed to create output directory %s: %v", out, createErr)
+				return nil, fmt.Errorf("failed to create output directory %s: %v", out, createErr)
 			}
 			fmt.Printf("Output directory %s created successfully.\n", out)
 		} else {
 			fmt.Printf("Error accessing output directory %s: %v\n", out, outErr)
-			return nil, fmt.Errorf("error accessing output directory %s: %v\n", out, outErr)
+			return nil, fmt.Errorf("error accessing output directory %s: %v", out, outErr)
 		}
 	} else if !outInfo.IsDir() {
 		fmt.Printf("Output Directory %s file path is not a directory\n", out)
-		return nil, fmt.Errorf("output directory %s file path is not a directory\n", out)
+		return nil, fmt.Errorf("output directory %s file path is not a directory", out)
+	}
+
+	fmt.Println("Checking reference file index ...")
+
+	pErr := utils.PrepareFasta(ref, aligner, verbose)
+
+	if pErr != nil {
+		log.Fatalf("Error preparing reference file: %v", pErr)
 	}
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
@@ -552,20 +560,20 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 			fmt.Println("We do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
 			return nil, fmt.Errorf("we do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
 		}
-		if len(knownSites) == 0 && bootstrap == false {
+		if len(knownSites) == 0 && !bootstrap {
 			fmt.Println("Either pass a known-sites file or enable bootstrap method")
 			return nil, fmt.Errorf("either pass a known-sites file or enable bootstrap method")
 		} else if len(knownSites) > 0 {
 			fmt.Println("Running with known-sites flag")
 			// ---------------------------- Checking Known sites file paths ----------------------------------------- //
-			for j, _ := range knownSites {
+			for j := range knownSites {
 				_, err := os.Stat(knownSites[j])
 				if err != nil {
 					fmt.Printf("Known-sites file: %s is not a valid file path", knownSites[j])
 					return nil, fmt.Errorf("known-sites file: %s is not a valid file path", knownSites[j])
 				}
 			}
-			if bootstrap == true {
+			if bootstrap {
 				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
 				return nil, fmt.Errorf("choose either pass a known-sites file or enable bootstrap method, but not both")
 			}
@@ -575,7 +583,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	//----------------------------------------- Check reads based on SE OR PE ----------------------------------------//
 
 	i := 0
-	if aligner == "bwa-mem" || aligner == "bowtie2" {
+	if aligner == "bwa-mem" || aligner == "bowtie2" || aligner == "bwa-mem2" {
 		fmt.Printf("\n---------------------------------------------Checking Read pairs---------------------------------------------------\n\n")
 		for _, pair := range cfg.ReadPairs {
 			if len(pair) < 4 {
@@ -661,7 +669,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 
 	// For each sample, this outputs bam. Either bqsr bam or rgmd bams
 	var bams []string
-	if aligner == "bwa-mem" || aligner == "bowtie2" {
+	if aligner == "bwa-mem" || aligner == "bowtie2" || aligner == "bwa-mem2" {
 
 		// ----------------------------------------- RUNNING STATS HERE --------------------------------------------- //
 		for _, pair := range cfg.ReadPairs {

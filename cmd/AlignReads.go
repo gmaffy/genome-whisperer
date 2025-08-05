@@ -133,13 +133,7 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Dependency check failed: %v", depErr)
 		}
 
-		fmt.Println("Checking reference file index ...")
-
-		pErr := utils.PrepareFasta(referencePath, aligner, verbose)
-
-		if pErr != nil {
-			log.Fatalf("Error preparing reference file: %v", pErr)
-		}
+		
 
 		if configFile != "" {
 			fmt.Println("Reading config file ...")
@@ -206,6 +200,14 @@ var AlignReadsCmd = &cobra.Command{
 			}
 			fmt.Printf("All paths PASSED...\n ")
 			// ----------------------------------------------- Check Paths if bqsr ------------------------------------------ //
+			fmt.Println("Checking reference file index ...")
+
+			pErr := utils.PrepareFasta(referencePath, aligner, verbose)
+
+			if pErr != nil {
+				log.Fatalf("Error preparing reference file: %v", pErr)
+			}
+				
 			if bqsr {
 				fmt.Println("Running BQSR")
 				if aligner == "pbmm2" {
