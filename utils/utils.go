@@ -260,7 +260,7 @@ func CopyFile(src, dst string) error {
 
 func PrepareFasta(ref, aligner string, verbose bool) error {
 
-	fmt.Printf("Starting prepare fasta with %s................", aligner)
+	fmt.Printf("Starting prepare fasta with %s................\n\n", aligner)
 	indexStr := ``
 	indexFile := ""
 	if aligner == "bwa-mem" {
