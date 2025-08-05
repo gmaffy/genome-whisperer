@@ -2,13 +2,14 @@ package alignment
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
 	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+
+	"github.com/gmaffy/genome-whisperer/utils"
 )
 
 func RunAlignReads(referencePath string, forwardPath string, reversePath string, sePath string, sampleName string, libName string, outputDir string, threads int, aligner string, knownSites []string, bqsr bool, bootstrap bool, logFilePath string, preset string, gatkLogLevel string, verbose bool, outputFmt string) (string, error) {
@@ -33,22 +34,21 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 	sortedBam := ""
 	sortedBai := ""
 	if outputFmt == "bam" {
-		rgBam = fmt.Sprintf("%s/%s.RG.bam", lineDir, sampleName)
+
 		rgmdBam = fmt.Sprintf("%s/%s.RGMD.bam", lineDir, sampleName)
 		rgmdIndex = fmt.Sprintf("%s/%s.RGMD.bai", lineDir, sampleName)
-		sortedBam = fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
-		sortedBai = fmt.Sprintf("%s/%s.sorted.bai", lineDir, sampleName)
 
 	} else if outputFmt == "cram" {
-		rgBam = fmt.Sprintf("%s/%s.RG.cram", lineDir, sampleName)
+
 		rgmdBam = fmt.Sprintf("%s/%s.RGMD.cram", lineDir, sampleName)
-		rgmdIndex = fmt.Sprintf("%s/%s.RGMD.crai", lineDir, sampleName)
-		sortedBam = fmt.Sprintf("%s/%s.sorted.cram", lineDir, sampleName)
-		sortedBai = fmt.Sprintf("%s/%s.sorted.crai", lineDir, sampleName)
+		rgmdIndex = fmt.Sprintf("%s/%s.RGMD.cram.crai", lineDir, sampleName)
 
 	} else {
 		return "", fmt.Errorf("Invalid output format: %s", outputFmt)
 	}
+	rgBam = fmt.Sprintf("%s/%s.RG.bam", lineDir, sampleName)
+	sortedBam = fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
+	sortedBai = fmt.Sprintf("%s/%s.sorted.bai", lineDir, sampleName)
 
 	rgmdMetrics := fmt.Sprintf("%s/%s.RGMD.metrics.txt", lineDir, sampleName)
 
@@ -62,7 +62,93 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 
 	// ========================== CREATING RGMD (depending on aligner ) STARTS ====================================== //
 
-	if aligner == "bwa-mem" {
+	if aligner == "bwa-mem2" {
+		fmt.Printf("\n\n ----------------------------------------- Running aligner: bwa mem -------------------------------------------------------- \n\n")
+
+		if utils.StageHasCompleted(logged, "BWA_MEM", sampleName, "ALL") {
+			msg := fmt.Sprintf("BWA_MEM already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
+			slog.Info(msg)
+		} else {
+			jlog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+			slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+
+			readGroup := fmt.Sprintf("@RG\\tID:%s.1\\tSM:%s\\tLB:%s\\tPL:BGISEQ", sampleName, sampleName, libName)
+			cmdStr := fmt.Sprintf(`bwa-mem2 mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortedBam)
+			fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
+
+			var memErr error
+			if verbose {
+				memErr = utils.RunBashCmdVerbose(cmdStr)
+			} else {
+				memErr = utils.RunBashCmd(cmdStr)
+			}
+			if memErr != nil {
+				jlog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", memErr)) //, "CMD", "ALL")
+				slog.Error("BQSR", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", memErr))
+				return "", memErr
+			}
+
+			jlog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+			slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		}
+
+		fmt.Printf("\n\n------------------------------------------- Mark Duplicates -------------------------------------------------- \n\n")
+
+		if utils.StageHasCompleted(logged, "MARK_DUPLICATES", sampleName, "ALL") {
+			msg := fmt.Sprintf("MARK_DUPLICATES already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
+			slog.Info(msg)
+		} else {
+
+			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+
+			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --VERBOSITY %s`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+			fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
+
+			var mdupErr error
+			if verbose {
+				mdupErr = utils.RunBashCmdVerbose(mDupCmdStr)
+			} else {
+				mdupErr = utils.RunBashCmd(mDupCmdStr)
+			}
+			if mdupErr != nil {
+				jlog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr))
+				slog.Error("BQSR", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", mdupErr))
+				return "", mdupErr
+			}
+			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+		}
+
+		fmt.Printf("\n\n------------------------------------------- BAM/CRAM INDEXING -------------------------------------------------- \n\n")
+
+		if utils.StageHasCompleted(logged, "BAM_INDEX", sampleName, "ALL") {
+			msg := fmt.Sprintf("BAM INDEXING already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
+			slog.Info(msg)
+		} else {
+			jlog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
+			slog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+
+			indexCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" BuildBamIndex -I %s -O %s`, rgmdBam, rgmdIndex)
+			fmt.Printf("%s\n-----------------------------------------------\n\n", indexCmdStr)
+
+			var indErr error
+			if verbose {
+				indErr = utils.RunBashCmdVerbose(indexCmdStr)
+			} else {
+				indErr = utils.RunBashCmd(indexCmdStr)
+			}
+			if indErr != nil {
+				jlog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr)) //, "CMD", "ALL")
+				slog.Error("BQSR", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", indErr))
+				return "", indErr
+			}
+			jlog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED") //, "CMD", "ALL")
+			slog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+
+		}
+
+	} else if aligner == "bwa-mem" {
 		fmt.Printf("\n\n ----------------------------------------- Running aligner: bwa mem -------------------------------------------------------- \n\n")
 
 		if utils.StageHasCompleted(logged, "BWA_MEM", sampleName, "ALL") {
@@ -102,7 +188,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --VERBOSITY %s --CREATE_INDEX true`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+			mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -I %s -O %s -M %s --VERBOSITY %s`, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
 
 			var mdupErr error
@@ -120,7 +206,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			slog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 		}
 
-		fmt.Printf("\n\n------------------------------------------- BAM INDEXING -------------------------------------------------- \n\n")
+		fmt.Printf("\n\n------------------------------------------- BAM/CRAM INDEXING -------------------------------------------------- \n\n")
 
 		if utils.StageHasCompleted(logged, "BAM_INDEX", sampleName, "ALL") {
 			msg := fmt.Sprintf("BAM INDEXING already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)

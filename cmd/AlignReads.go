@@ -5,24 +5,25 @@ package cmd
 
 import (
 	"fmt"
+	"log"
+	"os"
+
 	"github.com/gmaffy/genome-whisperer/alignment"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/spf13/cobra"
-	"log"
-	"os"
 )
 
 // AlignReadsCmd represents the AlignReads command
 var AlignReadsCmd = &cobra.Command{
 	Use:   "AlignReads",
-	Short: "Reads alignment using bwa, bowtie2 or pbmm2.",
+	Short: "Reads alignment using bwa, bwa-mem2 bowtie2 or pbmm2.",
 	Long: `AlignReads
         - Aligns short paired reads to reference using bwa mem or bowtie2
         - Aligns long reads to reference using pbmm2
         - Marks duplicates using picard tools
         - Recalibrates bam using GATK's BQSR pipeline`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("AlignReads called")
+		//fmt.Println("AlignReads called")
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
 			log.Fatalf("Error getting config flag: %v", cErr)
@@ -110,13 +111,20 @@ var AlignReadsCmd = &cobra.Command{
 
 		//--------------------------------------------------- Check dependencies ------------------------------------//
 		deps := []string{"samtools", "gatk"}
+
 		switch aligner {
 		case "bwa-mem":
 			deps = append(deps, "bwa")
+
+		case "bwa-mem2":
+			deps = append(deps, "bwa-mem2")
+
 		case "bowtie2":
 			deps = append(deps, "bowtie2")
+
 		case "pbmm2":
 			deps = append(deps, "pbmm2", "pbmarkdup")
+
 		default:
 			log.Fatalf("Unsupported aligner: %s. Supported aligners are 'bwa-mem', 'bowtie2', 'pbmm2'", aligner)
 		}
@@ -125,18 +133,12 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Dependency check failed: %v", depErr)
 		}
 
-		if aligner == "bwa-mem" {
-			bwtFile := fmt.Sprintf("%s.bwt", referencePath)
-			_, bwErr := os.Stat(bwtFile)
-			if bwErr != nil {
-				fmt.Printf("reference file %s is not indexed using bwa ....\n\n", referencePath)
-				fmt.Println("Preparing reference file ...")
-				pErr := utils.PrepareFasta(referencePath, aligner)
-				if pErr != nil {
-					log.Fatal("Failed to index reference file")
-				}
-				
-			}
+		fmt.Println("Checking reference file index ...")
+
+		pErr := utils.PrepareFasta(referencePath, aligner, verbose)
+
+		if pErr != nil {
+			log.Fatalf("Error preparing reference file: %v", pErr)
 		}
 
 		if configFile != "" {
@@ -146,8 +148,6 @@ var AlignReadsCmd = &cobra.Command{
 				log.Fatalf("Error reading config file: %v", confErr)
 			}
 
-			//logFilePath := outDir + "/alignment.log"
-
 			bams, err := alignment.RunAlignReadsConfig(configFile, threads, bqsr, bootstrap, aligner, preset, gatkLogLevel, verbose, outputFmt)
 			if err != nil {
 				fmt.Println(err)
@@ -156,7 +156,7 @@ var AlignReadsCmd = &cobra.Command{
 				fmt.Printf("%v BAMs generated", len(bams))
 			}
 		} else {
-			fmt.Println("inline ...")
+			//fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
 			_, fwdErr := os.Stat(forwardPath)
 			_, revErr := os.Stat(reversePath)
@@ -255,7 +255,7 @@ func init() {
 	AlignReadsCmd.Flags().IntP("threads", "t", 8, "number of threads")
 	AlignReadsCmd.Flags().Bool("bqsr", false, "perform BQSR")
 	AlignReadsCmd.Flags().Bool("verbose", false, "verbose mode")
-	AlignReadsCmd.Flags().String("aligner", "bwa-mem", "bwa-mem, bowtie2 or pbmm2")
+	AlignReadsCmd.Flags().String("aligner", "bwa-mem2", "bwa-mem,bwa-mem2, bowtie2 or pbmm2")
 	AlignReadsCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
 	AlignReadsCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
 	AlignReadsCmd.Flags().StringP("reference", "r", "", "Path to reference genome")

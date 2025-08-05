@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -155,6 +156,7 @@ func CheckDeps(deps []string) error {
 	for dep, path := range paths {
 		fmt.Printf("Using %s at %s\n", dep, path)
 	}
+	fmt.Println("")
 	return nil
 }
 
@@ -189,7 +191,7 @@ func ParseLogFile(logFilePath string) []LogEntry {
 		return data
 	}
 	defer file.Close()
-	fmt.Println("Parsing log file ...")
+	//fmt.Println("Parsing log file ...")
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -256,44 +258,83 @@ func CopyFile(src, dst string) error {
 	return nil
 }
 
+func PrepareFasta(ref, aligner string, verbose bool) error {
 
-func PrepareFasta(ref, aligner string) error {
-
-	fmt.Println("Starting prepare fasta ................")
+	fmt.Printf("Starting prepare fasta with %s................", aligner)
 	indexStr := ``
-	switch aligner {
-	case "bwa-mem":
+	indexFile := ""
+	if aligner == "bwa-mem" {
 		indexStr = fmt.Sprintf(`bwa index %s`, ref)
-	case "bowtie2":
+		indexFile = fmt.Sprintf("%s.bwt", ref)
+	} else if aligner == "bwa-mem2" {
+		indexStr = fmt.Sprintf(`bwa-mem2 index %s`, ref)
+		indexFile = fmt.Sprintf("%s.bwt.2bit.64", ref)
+	} else if aligner == "bowtie2" {
 		indexStr = fmt.Sprintf(`bowtie2-build %s %s`, ref, ref)
-
-	case "pbmm2":
+		indexFile = fmt.Sprintf("%s.1.bt2", ref)
+	} else if aligner == "pbmm2" {
 		indexStr = fmt.Sprintf(`pbmm2 index %s`, ref)
-
-	}
-	
-	fmt.Printf("Running %s ...\n\n", indexStr)
-
-	indexErr := RunBashCmdVerbose(indexStr)
-	if indexErr != nil {
-		return fmt.Errorf("bwa indexing failed: %v", indexErr)
+		indexFile = fmt.Sprintf("%s.mmi", ref)
+	} else {
+		return fmt.Errorf("Unsupported aligner: %s. Supported aligners are 'bwa-mem', bwa-mem2, 'bowtie2', 'pbmm2'", aligner)
 	}
 
-	samIndexStr := fmt.Sprintf(`samtools faidx %s`, ref)
+	_, bwErr := os.Stat(indexFile)
+	if bwErr != nil {
+		fmt.Printf("\nreference file %s is not indexed using  %s....\n\n", ref, aligner)
+		fmt.Printf("Running %s ...\n\n", indexStr)
 
-	fmt.Printf("\nRunning: %s ...\n\n", samIndexStr)
+		var indexErr error
+		if verbose {
+			indexErr = RunBashCmdVerbose(indexStr)
+		} else {
+			indexErr = RunBashCmd(indexStr)
+		}
 
-	samIndexErr := RunBashCmdVerbose(samIndexStr)
-	if samIndexErr != nil {
-		return fmt.Errorf("samtools indexing failed: %v", samIndexErr)
+		if indexErr != nil {
+			return fmt.Errorf("%s indexing failed: %v", aligner, indexErr)
+
+		}
 	}
 
-	dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s`, ref)
-	dicErr := RunBashCmdVerbose(dicStr)
+	_, faiErr := os.Stat(ref + ".fai")
+	if faiErr != nil {
+		samIndexStr := fmt.Sprintf(`samtools faidx %s`, ref)
+		fmt.Printf("Running %s ...\n\n", samIndexStr)
 
-	if dicErr != nil {
-		return fmt.Errorf("gatk creating sequence dictionary failed: %s", dicErr)
+		fmt.Printf("\nRunning: %s ...\n\n", samIndexStr)
+
+		var samIndexErr error
+		if verbose {
+			samIndexErr = RunBashCmdVerbose(samIndexStr)
+		} else {
+			samIndexErr = RunBashCmd(samIndexStr)
+		}
+		//samIndexErr := RunBashCmd(samIndexStr)
+		if samIndexErr != nil {
+			return fmt.Errorf("samtools indexing failed: %v", samIndexErr)
+		}
 	}
+	baseName := ref[:len(ref)-len(filepath.Ext(ref))]
+	_, dicfErr := os.Stat(baseName + ".dict")
+	if dicfErr != nil {
+		fmt.Printf("Running %s ...\n\n", ref)
+		dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s`, ref)
+
+		var dicErr error
+		if verbose {
+			dicErr = RunBashCmdVerbose(dicStr)
+		} else {
+			dicErr = RunBashCmd(dicStr)
+		}
+		//dicErr := RunBashCmd(dicStr)
+
+		if dicErr != nil {
+			return fmt.Errorf("gatk creating sequence dictionary failed: %s", dicErr)
+		}
+
+	}
+	fmt.Printf("Fasta file indexed ...\n\n")
 
 	return nil
 }
