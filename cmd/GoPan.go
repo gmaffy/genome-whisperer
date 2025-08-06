@@ -5,10 +5,10 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"github.com/gmaffy/genome-whisperer/pangenome"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/spf13/cobra"
+	"log"
 )
 
 // GoPanCmd represents the GoPan command
@@ -20,7 +20,7 @@ var GoPanCmd = &cobra.Command{
 		fmt.Println("GoPan called")
 		fmt.Printf("Checking dependencies ...\n\n")
 
-		if err := utils.CheckDeps([]string{"gatk", "samtools", "bwa", "java", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools"}); err != nil {
+		if err := utils.CheckDeps([]string{"gatk", "samtools", "bwa", "java", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools", "masurca"}); err != nil {
 			log.Fatalf("Dependency check failed: %v", err)
 		}
 

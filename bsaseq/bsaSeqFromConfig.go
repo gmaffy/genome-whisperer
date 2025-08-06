@@ -131,7 +131,7 @@ func RunBsaSeqFromConfig(
 					return
 				}
 			}
-			if bootstrap{
+			if bootstrap {
 				fmt.Println("Choose either pass a known-sites file or enable bootstrap method, but not both")
 				return
 			}
@@ -212,24 +212,21 @@ func RunBsaSeqFromConfig(
 		fmt.Printf("BSAseq inputs fetched .....\n\n")
 		fmt.Printf("Total read pairs: %d\n", len(readPairs))
 		fmt.Printf("Bams to be created : %s\n\n", allBams)
-		
-		
 
 		fmt.Printf("Aligning reads to ref ...........\n\n")
 
 		fmt.Printf("Running up to %d jobs in parallel with %d threads each\n", maxParallelJobs, threads)
-		
 
 		if utils.StageHasCompleted(logged, "BSASEQ_ALIGNMENT", "ALL", "ALL") {
 			fmt.Printf("Alignment already completed. Skipping ........ \n ")
-			
+
 		} else {
 			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, maxParallelJobs)
+			var failedAlignments []string
 			for _, pair := range cfg.ReadPairs {
 				if len(pair) < 4 {
 					fmt.Printf("This read pair is wrongly formated %s\n", pair)
@@ -244,7 +241,7 @@ func RunBsaSeqFromConfig(
 					defer func() { <-sem }()
 
 					fwd, rev, sn, lb := pair[0], pair[1], pair[2], pair[3]
-					
+
 					jlog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 					slog.Info("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "STARTED")
 
@@ -252,30 +249,40 @@ func RunBsaSeqFromConfig(
 					if isDone {
 						msg := fmt.Sprintf("%s and MarkDuplicates already completed for %s. Skipping.\n\n-------------------------------------------------------\n\n", aligner, sn)
 						slog.Info(msg)
-						
 
 					} else {
 						_, alErr := alignment.RunAlignReads(cfg.Reference, fwd, rev, "", sn, lb, cfg.OutputDir, threads, aligner, knownSites, bqsr, bootstrap, logFilePath, preset, gatkLogLevel, verbose, alignmentFmt)
 						if alErr != nil {
 							jlog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", alErr))
 							slog.Error("BSASEQ", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", fmt.Sprintf("FAILED - %v", alErr))
-							return
+							failedAlignments = append(failedAlignments, sn)
 						}
 						jlog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 						slog.Info("ALIGNMENT", "PROGRAM", "PE_ALIGNMENT", "SAMPLE", sn, "STATUS", "COMPLETED")
-						
+
 					}
 				}(pair)
 
 			}
 			wg.Wait()
 
-			jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-			slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-			fmt.Printf("Alignment completed. Bams %s ...........\n\n", allBams)
-			
+			// jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+			// slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+			// fmt.Printf("Alignment completed. Bams %s ...........\n\n", allBams)
+			if len(failedAlignments) > 0 {
+				fmt.Printf("Alignments failed for the following samples: %v ", failedAlignments)
+				return
+			} else {
+				jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				slog.Info("BSASEQ", "PROGRAM", "BSASEQ_ALIGNMENT", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+				fmt.Printf("Alignment completed. Bams %s ...........\n\n", allBams)
+
+			}
 
 		}
+
+		
+		
 
 	} else {
 		fmt.Println("Working with bam files")

@@ -182,7 +182,7 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting gatkLogLevel flag: %v", gatkErr)
 		}
 
-		alignmentFmt, afErr := cmd.Flags().GetString("vcf")
+		alignmentFmt, afErr := cmd.Flags().GetString("alignment-fmt")
 		if afErr != nil {
 			log.Fatalf("Error getting alignment fmt flag: %v", afErr)
 		}
@@ -289,7 +289,7 @@ func init() {
 	GoBSAseqCmd.Flags().Int("rep", 10000, "Replications for threshold calculations ..")
 
 	// -------------------------- Alignment and variant calling ----------------------------------------------------- //
-	GoBSAseqCmd.Flags().String("aligner", "bwa-mem", "bwa-mem, bowtie2")
+	GoBSAseqCmd.Flags().String("aligner", "bwa-mem2", "bwa-mem, bwa-mem2 bowtie2")
 	GoBSAseqCmd.Flags().String("preset", "HIFI", "Dpbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
 	GoBSAseqCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")
 	GoBSAseqCmd.Flags().String("merger", "gatk", "GVCF merger to use. Options: gatk or glnexus")
