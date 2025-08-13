@@ -86,8 +86,6 @@ func ReadConfig(configPath string) (Config, error) {
 			cfg.Species = value
 		case "OutputDir":
 			cfg.OutputDir = value
-		case "BaseName":
-			cfg.BaseName = value
 		case "bam":
 			cfg.Bams = append(cfg.Bams, value)
 		case "BSAseqBam":
@@ -276,7 +274,7 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 		indexStr = fmt.Sprintf(`pbmm2 index %s`, ref)
 		indexFile = fmt.Sprintf("%s.mmi", ref)
 	} else {
-		return fmt.Errorf("Unsupported aligner: %s. Supported aligners are 'bwa-mem', bwa-mem2, 'bowtie2', 'pbmm2'", aligner)
+		return fmt.Errorf("unsupported aligner: %s. Supported aligners are 'bwa-mem', bwa-mem2, 'bowtie2', 'pbmm2'", aligner)
 	}
 
 	_, bwErr := os.Stat(indexFile)

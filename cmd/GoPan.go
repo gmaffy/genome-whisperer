@@ -17,7 +17,7 @@ var GoPanCmd = &cobra.Command{
 	Short: "Creates a pangenome using the iterative mapping approach",
 	Long:  `Creates a pangenome using the iterative mapping approach. Inputs are short reads and reference genome`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("GoPan called")
+		
 		fmt.Printf("Checking dependencies ...\n\n")
 
 		if err := utils.CheckDeps([]string{"gatk", "samtools", "bwa", "java", "gffread", "MAC2.0", "megahit", "seqtk", "bowtie2", "bedtools", "masurca"}); err != nil {
