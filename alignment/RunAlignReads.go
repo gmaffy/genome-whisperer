@@ -409,15 +409,15 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 	// ==================================== BSQR CREATION STARTS (IT TRUE) ========================================== //
 	if bqsr {
 		fmt.Println("Running BQSR")
-		fmt.Println("Check if mark duplicates was successful")
-		_, mdErr := os.Stat(rgmdBam)
-		_, mdiErr := os.Stat(rgmdIndex)
-
-		if mdErr != nil || mdiErr != nil {
-			fmt.Println("Mark duplicates failed")
-			return "", fmt.Errorf("mark duplicates failed\n\n")
-		}
-		fmt.Println("Mark duplicates successful")
+		//fmt.Println("Check if mark duplicates was successful")
+		//_, mdErr := os.Stat(rgmdBam)
+		//_, mdiErr := os.Stat(rgmdIndex)
+		//
+		//if mdErr != nil || mdiErr != nil {
+		//	fmt.Println("Mark duplicates failed")
+		//	return "", fmt.Errorf("mark duplicates failed\n\n")
+		//}
+		//fmt.Println("Mark duplicates successful")
 
 		if len(knownSites) == 0 && bootstrap == true {
 			fmt.Println("Running with bootstrap method")
