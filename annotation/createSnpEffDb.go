@@ -2,12 +2,13 @@ package annotation
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gmaffy/genome-whisperer/utils"
 )
 
 func checkErr(err error) {
@@ -22,6 +23,11 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	snEffPath, err := exec.LookPath("snpEff")
 	if err != nil {
 		return fmt.Errorf("snpEff not found: %w", err)
+	}
+
+	_, err = exec.LookPath("gffread")
+	if err != nil {
+		return fmt.Errorf("gffresd not found: %w", err)
 	}
 
 	scriptsDir := filepath.Dir(snEffPath)
@@ -109,10 +115,8 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 
 	var gffreadCmd string
 	if strings.HasSuffix(gff, ".gz") {
-		// For gzipped files, pipe through gunzip
 		gffreadCmd = fmt.Sprintf(`gunzip -c %s | gffread - -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
 	} else {
-		// For uncompressed files, use direct gffread
 		gffreadCmd = fmt.Sprintf(`gffread %s -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
 	}
 

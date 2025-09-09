@@ -6,9 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="2ed741eb-c74a-40b0-aecf-7a60442acf3a" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/RunAlignReads.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/CreateTemplate.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/CreateTemplate.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/genome-whisperer" beforeDir="false" afterPath="$PROJECT_DIR$/genome-whisperer" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/annotation/createSnpEffDb.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/createSnpEffDb.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/genome-whisperer" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -57,8 +57,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-gosdk-f466f9b0953e-3d2cccfc42a2-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-252.23892.530" />
-        <option value="bundled-js-predefined-d6986cc7102b-e03c56caf84a-JavaScript-GO-252.23892.530" />
+        <option value="bundled-gosdk-f466f9b0953e-3d2cccfc42a2-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-252.25557.175" />
+        <option value="bundled-js-predefined-d6986cc7102b-b598e85cdad2-JavaScript-GO-252.25557.175" />
       </set>
     </attachedChunks>
   </component>
