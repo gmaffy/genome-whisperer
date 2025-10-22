@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/gmaffy/genome-whisperer/utils"
@@ -423,8 +424,35 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			fmt.Println("Running with bootstrap method")
 			fmt.Println("Create Known variants ..............")
 			if utils.StageHasCompleted(logged, "BOOTSTRAP_CKV", sampleName, "ALL") {
-				msg := fmt.Sprintf("BOOTSTRAP already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
+				msg := fmt.Sprintf("BOOTSTRAP already completed for bam file: %s. Reusing known-sites.\n\n------------------------------------------------------------------------\n\n", sampleName)
 				slog.Info(msg)
+				// Derive expected known-sites paths from the BAM name
+				baseName := ""
+				if strings.HasSuffix(rgmdBam, ".bam") {
+					baseName = strings.TrimSuffix(rgmdBam, ".bam")
+				} else {
+					baseName = strings.TrimSuffix(rgmdBam, ".cram")
+				}
+				snpVCF := baseName + ".raw.SNP.hard_filtered.vcf.gz"
+				indelVCF := baseName + ".raw.INDEL.hard_filtered.vcf.gz"
+				// Use existing known-sites if present
+				if _, err := os.Stat(snpVCF); err == nil {
+					knownSites = append(knownSites, snpVCF)
+				}
+				if _, err := os.Stat(indelVCF); err == nil {
+					knownSites = append(knownSites, indelVCF)
+				}
+				if len(knownSites) == 0 {
+					// Fallback to recomputing if files are missing
+					jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "RETRYING_CREATE_KNOWN_VARIANTS")
+					newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel, verbose)
+					if ksErr != nil {
+						jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+						slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+						return "", fmt.Errorf("create known variants failed\n\n")
+					}
+					knownSites = newKnownSites
+				}
 			} else {
 				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
@@ -437,7 +465,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 				jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 				slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 				knownSites = newKnownSites
-				fmt.Printf("Known variants created at %s\n...................................................\n", knownSites)
+				fmt.Printf("Known variants created at %v\n...................................................\n", knownSites)
 
 			}
 

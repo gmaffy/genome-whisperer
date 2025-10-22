@@ -328,6 +328,30 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						}
 
+						if utils.StageHasCompleted(logged, "GLNEXUS_INDEX", "ALL", seq.ID) {
+							msg := fmt.Sprintf("VCF INDEXING already completed for %s. Skipping.\n\n---------------------------------------------------------\n\n", seq.ID)
+							slog.Info(msg)
+						} else {
+							indexCmdStr := fmt.Sprintf(`gatk IndexFeatureFile -I %s`, jointVCF)
+							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", indexCmdStr)
+							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+
+							var indErr error
+							if verbose {
+								indErr = utils.RunBashCmdVerbose(indexCmdStr)
+							} else {
+								indErr = utils.RunBashCmd(indexCmdStr)
+							}
+
+							if indErr != nil {
+								jlog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", indErr))
+								slog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", indErr))
+
+							}
+							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+						}
+
 					default:
 						fmt.Println("Merger should either be gatk or glnexus")
 						os.Exit(1)
