@@ -2,12 +2,6 @@ package bsaseq
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
-	"github.com/go-echarts/go-echarts/v2/charts"
-	"github.com/go-echarts/go-echarts/v2/components"
-	"github.com/go-echarts/go-echarts/v2/opts"
-	"github.com/go-echarts/go-echarts/v2/types"
-	"golang.org/x/sync/errgroup"
 	"io"
 	"log"
 	"log/slog"
@@ -17,6 +11,13 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/go-echarts/go-echarts/v2/charts"
+	"github.com/go-echarts/go-echarts/v2/components"
+	"github.com/go-echarts/go-echarts/v2/opts"
+	"github.com/go-echarts/go-echarts/v2/types"
+	"golang.org/x/sync/errgroup"
 )
 
 // =================================================== Filtering ==================================================== //

@@ -5,9 +5,10 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/bsaseq"
 	"log"
 	"os"
+
+	"github.com/gmaffy/genome-whisperer/bsaseq"
 
 	"github.com/spf13/cobra"
 )
@@ -155,6 +156,11 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting caller flag: %v", callerErr)
 		}
 
+		noMerging, noMergingErr := cmd.Flags().GetBool("noMerging")
+		if noMergingErr != nil {
+			log.Fatalf("Error getting noMerging flag: %v", noMergingErr)
+		}
+
 		merger, mergerErr := cmd.Flags().GetString("merger")
 		if mergerErr != nil {
 			log.Fatalf("Error getting merger flag: %v", mergerErr)
@@ -205,7 +211,7 @@ var GoBSAseqCmd = &cobra.Command{
 					log.Fatal("Please provide a species name")
 				}
 				fmt.Println("Running from config file")
-				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, aligner, preset, dvVer, modelType, gatkLogLevel, verbose, alignmentFmt)
+				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, noMerging, aligner, preset, dvVer, modelType, gatkLogLevel, verbose, alignmentFmt)
 			} else {
 				if outputDir == "" {
 					fmt.Println("No output directory provided. Supply path to output directory with -o flag")

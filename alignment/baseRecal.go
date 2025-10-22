@@ -2,14 +2,15 @@ package alignment
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
-	"github.com/gmaffy/genome-whisperer/variants"
 	"log"
 	"log/slog"
 	"os"
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/gmaffy/genome-whisperer/variants"
 )
 
 func Recalibrate(ref string, bam string, knownSites []string, logFilePath string, verbose bool) (string, error) {
@@ -30,11 +31,22 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 		kslice = append(kslice, "--known-sites "+site)
 	}
 	ks := strings.Join(kslice, " ")
+	recalTable := ""
+	recalTable2 := ""
+	plots := ""
+	bqsrBam := ""
+	if strings.HasSuffix(bam, ".bam") {
+		recalTable = strings.TrimSuffix(bam, ".bam") + "recal_table.txt"
+		recalTable2 = strings.TrimSuffix(bam, ".bam") + "recal_table2.txt"
+		plots = strings.TrimSuffix(bam, ".bam") + "recal_table_plots.pdf"
+		bqsrBam = strings.TrimSuffix(bam, ".bam") + "_bqsr.bam"
+	} else {
+		recalTable = strings.TrimSuffix(bam, ".cram") + "recal_table.txt"
+		recalTable2 = strings.TrimSuffix(bam, ".cram") + "recal_table2.txt"
+		plots = strings.TrimSuffix(bam, ".cram") + "recal_table_plots.pdf"
+		bqsrBam = strings.TrimSuffix(bam, ".cram") + "_bqsr.cram"
 
-	recalTable := strings.TrimSuffix(bam, ".bam") + "recal_table.txt"
-	recalTable2 := strings.TrimSuffix(bam, ".bam") + "recal_table2.txt"
-	plots := strings.TrimSuffix(bam, ".bam") + "recal_table_plots.pdf"
-	bqsrBam := strings.TrimSuffix(bam, ".bam") + "_bqsr.bam"
+	}
 
 	// ----------------------------------- First Recalibration table ------------------------------------------------ //
 	if utils.StageHasCompleted(logged, "BaseRecalibrator", bam, "ALL") {
@@ -215,11 +227,17 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, gatkLogLeve
 	logged := utils.ParseLogFile(logFilePath)
 
 	// --------------------------------------------- Output Paths --------------------------------------------------- //
-	rawVCF := strings.TrimSuffix(bam, ".bam") + ".raw.vcf.gz"
-	snpVCF := strings.TrimSuffix(bam, ".bam") + ".raw.SNP.vcf.gz"
-	indelVCF := strings.TrimSuffix(bam, ".bam") + ".raw.INDEL.vcf.gz"
-	hardFilteredSnpVCF := strings.TrimSuffix(bam, ".bam") + ".raw.SNP.hard_filtered.vcf.gz"
-	hardFilteredIndelVCF := strings.TrimSuffix(bam, ".bam") + ".raw.INDEL.hard_filtered.vcf.gz"
+	baseName := ""
+	if strings.HasSuffix(bam, ".bam") {
+		baseName = strings.TrimSuffix(bam, ".bam")
+	} else {
+		baseName = strings.TrimSuffix(bam, ".cram")
+	}
+	rawVCF := baseName + ".raw.vcf.gz"
+	snpVCF := baseName + ".raw.SNP.vcf.gz"
+	indelVCF := baseName + ".raw.INDEL.vcf.gz"
+	hardFilteredSnpVCF := baseName + ".raw.SNP.hard_filtered.vcf.gz"
+	hardFilteredIndelVCF := baseName + ".raw.INDEL.hard_filtered.vcf.gz"
 
 	// --------------------------------------------- Haplotype Caller ----------------------------------------------- //
 	if utils.StageHasCompleted(logged, "HaplotypeCaller", bam, "ALL") {
@@ -363,6 +381,7 @@ func BootstrapBqsr(ref string, bams []string, threadsPerSample int, logFilePath 
 	sem := make(chan struct{}, numJobs)
 
 	var knownSites []string
+	var mu sync.Mutex
 	// -------------------------------- Get Known variants from each bam file --------------------------------------- //
 	for _, bam := range bams {
 		wg.Add(1)
@@ -370,22 +389,42 @@ func BootstrapBqsr(ref string, bams []string, threadsPerSample int, logFilePath 
 		go func(bam string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+
+			var newSites []string
 			if utils.StageHasCompleted(logged, "CREATE_KNOWN_VARIANTS", bam, "ALL") {
 				msg := fmt.Sprintf("CREATE_KNOWN_VARIANTS already completed for bam file: %s. Skipping\n", bam)
 				slog.Info(msg)
+
+				baseName := ""
+				if strings.HasSuffix(bam, ".bam") {
+					baseName = strings.TrimSuffix(bam, ".bam")
+				} else {
+					baseName = strings.TrimSuffix(bam, ".cram")
+				}
+				hardFilteredSnpVCF := baseName + ".raw.SNP.hard_filtered.vcf.gz"
+				hardFilteredIndelVCF := baseName + ".raw.INDEL.hard_filtered.vcf.gz"
+				newSites = []string{hardFilteredSnpVCF, hardFilteredIndelVCF}
 			} else {
 				fmt.Printf("Creating known variants for bam file: %s\n", bam)
 				jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 				slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "STARTED")
-				knownSites, err = CreateKnownVariants(ref, bam, logFilePath, gatkLogLevel, verbose)
+
+				sites, err := CreateKnownVariants(ref, bam, logFilePath, gatkLogLevel, verbose)
 				if err != nil {
 					jlog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 					slog.Error("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", fmt.Sprintf("FAILED - %v", err))
 					return
 				}
+				newSites = sites
+
 				jlog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
 				slog.Info("BQSR", "PROGRAM", "CREATE_KNOWN_VARIANTS", "SAMPLE", bam, "STATUS", "COMPLETED")
+			}
 
+			if len(newSites) > 0 {
+				mu.Lock()
+				knownSites = append(knownSites, newSites...)
+				mu.Unlock()
 			}
 
 		}(bam)
@@ -393,24 +432,16 @@ func BootstrapBqsr(ref string, bams []string, threadsPerSample int, logFilePath 
 	wg.Wait()
 
 	// --------------------------------------------- Run BQSR ------------------------------------------------------- //
-
-	if utils.StageHasCompleted(logged, "BQSR", "ALL", "ALL") {
-		msg := fmt.Sprintf("BQSR already completed for ALL samples. Skipping\n")
-		slog.Info(msg)
-		//return nil
-	} else {
-		jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
-		err = DbSnpBqsr(ref, bams, knownSites, numJobs, logFilePath)
-		if err != nil {
-			jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
-			slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
-			return err
-		}
-		jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-		slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "COMPLETED")
-
+	jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
+	slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "STARTED")
+	err = DbSnpBqsr(ref, bams, knownSites, threadsPerSample, logFilePath)
+	if err != nil {
+		jlog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
+		slog.Error("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
+		return err
 	}
+	jlog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+	slog.Info("BQSR", "PROGRAM", "BQSR", "SAMPLE", "ALL", "STATUS", "COMPLETED")
 
 	return nil
 }

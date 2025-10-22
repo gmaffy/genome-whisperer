@@ -133,8 +133,6 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Dependency check failed: %v", depErr)
 		}
 
-		
-
 		if configFile != "" {
 			fmt.Println("Reading config file ...")
 			_, confErr := os.Stat(configFile)
@@ -207,9 +205,9 @@ var AlignReadsCmd = &cobra.Command{
 			if pErr != nil {
 				log.Fatalf("Error preparing reference file: %v", pErr)
 			}
-				
+
 			if bqsr {
-				fmt.Println("Running BQSR")
+				fmt.Println("Aligning with BQSR")
 				if aligner == "pbmm2" {
 					fmt.Println("We do not support BQSR for pbmm2 aligner. Please use bwa-mem or bowtie2 aligner or disable BQSR")
 					return
@@ -261,7 +259,7 @@ func init() {
 	AlignReadsCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
 	AlignReadsCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
 	AlignReadsCmd.Flags().StringP("reference", "r", "", "Path to reference genome")
-	AlignReadsCmd.Flags().StringP("config", "c", "", "Path to reference genome index")
+	AlignReadsCmd.Flags().StringP("config", "c", "", "Path to config file")
 	AlignReadsCmd.Flags().String("preset", "HIFI", "pbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
 	AlignReadsCmd.Flags().String("gatk-log-level", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
 	AlignReadsCmd.Flags().StringP("output-fmt", "O", "bam", "bam or cram")

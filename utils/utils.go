@@ -316,7 +316,7 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 	baseName := ref[:len(ref)-len(filepath.Ext(ref))]
 	_, dicfErr := os.Stat(baseName + ".dict")
 	if dicfErr != nil {
-		fmt.Printf("Running %s ...\n\n", ref)
+		fmt.Printf("Running  gatk CreateSequenceDictionary -R %s ...\n\n", ref)
 		dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s`, ref)
 
 		var dicErr error
@@ -325,7 +325,6 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 		} else {
 			dicErr = RunBashCmd(dicStr)
 		}
-		//dicErr := RunBashCmd(dicStr)
 
 		if dicErr != nil {
 			return fmt.Errorf("gatk creating sequence dictionary failed: %s", dicErr)

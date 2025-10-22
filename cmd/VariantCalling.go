@@ -5,11 +5,12 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
-	"github.com/gmaffy/genome-whisperer/variants"
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/gmaffy/genome-whisperer/variants"
 
 	"github.com/spf13/cobra"
 )
@@ -57,6 +58,11 @@ var VariantCallingCmd = &cobra.Command{
 		caller, callerErr := cmd.Flags().GetString("caller")
 		if callerErr != nil {
 			log.Fatalf("Error getting caller flag: %v", callerErr)
+		}
+
+		nomerging, nErr := cmd.Flags().GetBool("no-merging")
+		if nErr != nil {
+			log.Fatalf("Error getting no-merging flag: %v", nErr)
 		}
 
 		merger, mergerErr := cmd.Flags().GetString("merger")
@@ -125,7 +131,7 @@ var VariantCallingCmd = &cobra.Command{
 				verbose = false
 			}
 
-			variants.VariantCallingConfig(configFile, speciesName, threads, verbosity, caller, merger, dvVer, modelType, verbose)
+			variants.VariantCallingConfig(configFile, speciesName, threads, verbosity, caller, merger, dvVer, modelType, verbose, nomerging)
 
 		} else {
 			fmt.Printf("Running without config flag\n")
@@ -182,7 +188,7 @@ var VariantCallingCmd = &cobra.Command{
 				verbose = false
 			}
 
-			_, err := variants.VariantCalling(refFile, bams, outDir, speciesName, threads, verbosity, caller, merger, logFilePath, dvVer, modelType, verbose)
+			_, err := variants.VariantCalling(refFile, bams, outDir, speciesName, threads, verbosity, caller, merger, logFilePath, dvVer, modelType, verbose, nomerging)
 			if err != nil {
 				return
 			}
@@ -202,8 +208,9 @@ func init() {
 	VariantCallingCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
 	VariantCallingCmd.Flags().StringP("config", "c", "", "Config file")
 	VariantCallingCmd.Flags().StringP("reference", "r", "", "Reference file")
-	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")
+	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or DeepVariant")
 	VariantCallingCmd.Flags().StringP("merger", "m", "gatk", "GVCF merger to use. Options: gatk or glnexus")
+	VariantCallingCmd.Flags().Bool("no-merging", false, "do not merge gvcfs.")
 	VariantCallingCmd.Flags().String("deepvariant-version", "1.9.0", "DeepVariant version")
 	VariantCallingCmd.Flags().String("model-type", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
 }

@@ -44,7 +44,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 		rgmdIndex = fmt.Sprintf("%s/%s.RGMD.cram.crai", lineDir, sampleName)
 
 	} else {
-		return "", fmt.Errorf("Invalid output format: %s", outputFmt)
+		return "", fmt.Errorf("invalid output format: %s", outputFmt)
 	}
 	rgBam = fmt.Sprintf("%s/%s.RG.bam", lineDir, sampleName)
 	sortedBam = fmt.Sprintf("%s/%s.sorted.bam", lineDir, sampleName)
