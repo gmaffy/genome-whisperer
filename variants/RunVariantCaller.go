@@ -89,6 +89,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	// Mutex to ensure GLnexus (and its follow-ups) run strictly one-at-a-time across chromosomes
+	var glnxMu sync.Mutex
 	sem := make(chan struct{}, maxParallelJobs)
 	var jointvSlice []string
 
@@ -278,16 +280,28 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							msg := fmt.Sprintf("glnexus_cli already completed for %s. Skipping.\n\n------------------------------\n\n", seq.ID)
 							slog.Info(msg)
 						} else {
+							glnxMu.Lock()
 							glnexusCmdStr := fmt.Sprintf(`glnexus_cli --config gatk  %s/*.vcf.gz > %s`, gvcfPath, jointBCF)
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", glnexusCmdStr)
 							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-
+							rmErr := os.RemoveAll("GLnexus.DB")
+							if rmErr != nil {
+								fmt.Println("Error removing the GLnexus.DB directory:", rmErr)
+								//log.Fatalf("Error removing directory: %v", rmErr)
+							}
 							var glErr error
 							if verbose {
 								glErr = utils.RunBashCmdVerbose(glnexusCmdStr)
 							} else {
 								glErr = utils.RunBashCmd(glnexusCmdStr)
 							}
+
+							rErr := os.RemoveAll("GLnexus.DB")
+							if rErr != nil {
+								fmt.Println("Error removing the GLnexus.DB directory:", rErr)
+								log.Fatalf("Error removing directory: %v", rErr)
+							}
+							glnxMu.Unlock()
 
 							if glErr != nil {
 								jlog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", glErr))
@@ -319,11 +333,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 								log.Fatalf("FAILED: %v", glErr)
 							}
 
-							rmErr := os.RemoveAll("GLnexus.DB")
-							if rmErr != nil {
-								fmt.Println("Error removing the GLnexus.DB directory:", rmErr)
-								log.Fatalf("Error removing directory: %v", rmErr)
-							}
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_BCFTOOLS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						}
@@ -570,6 +579,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 						} else {
 
+							glnxMu.Lock()
 							glnexusCmdStr := fmt.Sprintf(`glnexus_cli --config %s  %s/*.vcf.gz > %s`, caller, gvcfPath, jointBCF)
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", glnexusCmdStr)
 							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
@@ -580,6 +590,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							} else {
 								glErr = utils.RunBashCmd(glnexusCmdStr)
 							}
+							glnxMu.Unlock()
 
 							if glErr != nil {
 								jlog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", glErr))

@@ -2,6 +2,7 @@ package bsaseq
 
 import (
 	"fmt"
+
 	"github.com/go-gota/gota/dataframe"
 	"github.com/go-gota/gota/series"
 
@@ -198,7 +199,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int, outDir string)
 		fmt.Printf("HIGH parent (%s) min depth is: %v \n\n", highParent, highParentDepth)
 	}
 
-	if lowBulkDepth != 0 {
+	if lowParentChoice != 0 {
 		fmt.Printf("Enter minimum depth for LOW PARENT %s (integer): \n", lowParent)
 		_, lowParDepErr := fmt.Scan(&lowParentDepth)
 		if lowParDepErr != nil {
@@ -212,7 +213,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int, outDir string)
 	fmt.Printf("--------------------------------------- BULK DEPTHS ---------------------------------------\n\n")
 
 	if lowBulkChoice != 0 && highBulkChoice != 0 && highParentChoice == 0 && lowParentChoice == 0 {
-		fmt.Println("Runnng bulks only")
+		fmt.Println("Running bulks only")
 		fmt.Printf("Enter minimum depth for HIGH BULK %s (integer): \n", highBulk)
 
 		_, highBulkDepErr := fmt.Scan(&highBulkDepth)

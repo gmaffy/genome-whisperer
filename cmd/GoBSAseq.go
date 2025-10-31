@@ -156,10 +156,11 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting caller flag: %v", callerErr)
 		}
 
-		noMerging, noMergingErr := cmd.Flags().GetBool("noMerging")
-		if noMergingErr != nil {
-			log.Fatalf("Error getting noMerging flag: %v", noMergingErr)
-		}
+		//noMerging, noMergingErr := cmd.Flags().GetBool("noMerging")
+		//if noMergingErr != nil {
+		//	log.Fatalf("Error getting noMerging flag: %v", noMergingErr)
+		//}
+		noMerging := false
 
 		merger, mergerErr := cmd.Flags().GetString("merger")
 		if mergerErr != nil {
