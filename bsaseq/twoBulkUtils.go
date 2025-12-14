@@ -3,9 +3,6 @@ package bsaseq
 import (
 	"encoding/csv"
 	"fmt"
-	"golang.org/x/exp/rand"
-	"gonum.org/v1/gonum/stat"
-	"gonum.org/v1/gonum/stat/distuv"
 	"log"
 	"math"
 	"os"
@@ -14,6 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/exp/rand"
+	"gonum.org/v1/gonum/stat"
+	"gonum.org/v1/gonum/stat/distuv"
 )
 
 var thresholdCache = make(map[string]map[string]float64)
@@ -165,6 +166,8 @@ func readTsvToStructTwoBulkOnly(tsvFile string, highBulk string, lowBulk string)
 
 	reader := csv.NewReader(file)
 	reader.Comma = '\t'
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1
 	reader.TrimLeadingSpace = true
 
 	records, err := reader.ReadAll()

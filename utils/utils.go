@@ -331,7 +331,26 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 		}
 
 	}
-	fmt.Printf("Fasta file indexed ...\n\n")
+
+	_, nsqErr := os.Stat(ref + ".nsq")
+	if nsqErr != nil {
+		mbdbStr := fmt.Sprintf(`makeblastdb -in %s -dbtype nucl -out %s`, ref, ref)
+		fmt.Printf("Running %s ...\n\n", mbdbStr)
+
+		fmt.Printf("\nRunning: %s ...\n\n", mbdbStr)
+
+		var mbdbErr error
+		if verbose {
+			mbdbErr = RunBashCmdVerbose(mbdbStr)
+		} else {
+			mbdbErr = RunBashCmd(mbdbStr)
+		}
+		
+		if mbdbErr != nil {
+			return fmt.Errorf("makeblastdb creation failed: %v", mbdbErr)
+		}
+	}
+	fmt.Printf("Fasta file prep done ...\n\n")
 
 	return nil
 }

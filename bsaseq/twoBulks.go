@@ -911,7 +911,7 @@ func TwoBulkOnlyRun(
 		}
 		jlog.Info("BSASEQ", "PROGRAM", "STATS", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
 		slog.Info("BSASEQ", "PROGRAM", "STATS", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "COMPLETED", "CMD", "ALL")
-		statsFile := filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_stats.tsv")
+		statsFile := filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_bulks_only_stats.tsv")
 
 		fmt.Printf("Writing stats file to %s... \n\n", statsFile)
 		err = writeTwoBulkOnly(statsRecords, highBulk, lowBulk, statsFile)
@@ -943,7 +943,7 @@ func TwoBulkOnlyRun(
 		slidingRecordsSNPs = slidingWindowAnalysis(statsRecords, "SNP", windowSize, stepSize)
 
 		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats.tsv"))
-		err = writeTwoBulkOnly(slidingRecordsSNPs, highBulk, lowBulk, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_SNP.tsv"))
+		err = writeTwoBulkOnly(slidingRecordsSNPs, highBulk, lowBulk, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_bulks_only_sliding_stats_SNP.tsv"))
 		if err != nil {
 			jlog.Error("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
 			slog.Error("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -960,7 +960,7 @@ func TwoBulkOnlyRun(
 		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
-		err = plottingCharts(slidingRecordsSNPs, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot_SNP.html"), filepath.Join(resultsDir, "goBSAseq_SNP.tsv"), smoothing)
+		err = plottingCharts(slidingRecordsSNPs, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_bulks_only_plot_SNP.html"), filepath.Join(resultsDir, "goBSAseq_SNP.tsv"), smoothing)
 		if err != nil {
 			fmt.Println("Error plotting charts: ", err)
 			jlog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "SNP", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -981,8 +981,8 @@ func TwoBulkOnlyRun(
 		fmt.Printf("Performing sliding window analysis for INDELs ...\n\n")
 		slidingRecordsIndels := slidingWindowAnalysis(statsRecords, "INDEL", windowSize, stepSize)
 
-		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_INDELS.tsv"))
-		err = writeTwoBulkOnly(slidingRecordsIndels, highBulk, lowBulk, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_sliding_stats_INDELS.tsv"))
+		fmt.Printf("Writing sliding window analysis file to %s... \n\n", filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_bulks_only_stats_INDELS.tsv"))
+		err = writeTwoBulkOnly(slidingRecordsIndels, highBulk, lowBulk, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_bulks_only_sliding_stats_INDELS.tsv"))
 		if err != nil {
 			fmt.Println("Error writing stats file to file")
 			jlog.Error("BSASEQ", "PROGRAM", "SLIDING_WINDOW", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))
@@ -1000,7 +1000,7 @@ func TwoBulkOnlyRun(
 		jlog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 		slog.Info("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", "STARTED", "CMD", "ALL")
 
-		err = plottingCharts(slidingRecordsINDELs, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_both_bsaseq_plot_indel.html"), filepath.Join(resultsDir, "goBSAseq_indel.tsv"), smoothing)
+		err = plottingCharts(slidingRecordsINDELs, filepath.Join(resultsDir, highBulk+"_samp_"+lowBulk+"_bulks_only_plot_indel.html"), filepath.Join(resultsDir, "goBSAseq_indel.tsv"), smoothing)
 		if err != nil {
 			fmt.Println("Error plotting charts: ", err)
 			jlog.Error("BSASEQ", "PROGRAM", "PLOTTING", "SAMPLE", "INDEL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %v", err))

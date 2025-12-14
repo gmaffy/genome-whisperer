@@ -114,11 +114,30 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	checkErr(ccErr)
 
 	var gffreadCmd string
-	if strings.HasSuffix(gff, ".gz") {
+
+	if strings.HasSuffix(gff, ".gff3.gz") || strings.HasSuffix(gff, ".gff.gz") {
 		gffreadCmd = fmt.Sprintf(`gunzip -c %s | gffread - -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
-	} else {
+	} else if strings.HasSuffix(gff, ".gff3") || strings.HasSuffix(gff, ".gff") {
 		gffreadCmd = fmt.Sprintf(`gffread %s -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
+	} else if strings.HasSuffix(gff, ".gtf.gz") {
+		err2 := CopyFile(gff, filepath.Join(dbDir, "genes.gtf.gz"))
+		if err2 != nil {
+			return err2
+		}
+	} else if strings.HasSuffix(gff, ".gtf") {
+		err2 := CopyFile(gff, filepath.Join(dbDir, "genes.gtf"))
+		if err2 != nil {
+			return err2
+		}
 	}
+
+	//if strings.HasSuffix(gff, ".gz") {
+	//	gffreadCmd = fmt.Sprintf(`gunzip -c %s | gffread - -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
+	//} else {
+	//	gffreadCmd = fmt.Sprintf(`gffread %s -T -o %s`, gff, filepath.Join(dbDir, "genes.gtf"))
+	//}
+	//
+	//
 
 	fmt.Printf("Running: %s\n", gffreadCmd)
 	err3 := utils.RunBashCmdVerbose(gffreadCmd)

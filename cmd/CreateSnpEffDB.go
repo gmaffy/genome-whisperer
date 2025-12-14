@@ -5,9 +5,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/gmaffy/genome-whisperer/annotation"
 	"github.com/gmaffy/genome-whisperer/utils"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -80,6 +81,7 @@ var CreateSnpEffDBCmd = &cobra.Command{
 			}
 
 		} else {
+			fmt.Println("Creating custom db from command line arguments")
 			_, err := os.Stat(refFile)
 			if err != nil {
 				fmt.Printf("Reference file: %s is not a valid file path", refFile)
@@ -113,8 +115,12 @@ var CreateSnpEffDBCmd = &cobra.Command{
 				fmt.Println("Please provide version")
 				return
 			}
+
+			fmt.Println("All arguments passed are valid")
+
 			err1 := annotation.CreateCustomDb(refFile, protein, cds, species, gff, version)
 			if err1 != nil {
+				fmt.Printf("Error creating custom db: %v", err1)
 				return
 			}
 

@@ -268,7 +268,7 @@ func InteractiveRun(vcfFile string, popStructure string, rep int, outDir string)
 		}
 
 		fmt.Println("LETS RUN ....")
-		TwoBulkOnlyRun(vcfFile, highBulk, lowBulk, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
+		TwoBulkOnlyRun(tsvFile, highBulk, lowBulk, highBulkDepth, lowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, outDir)
 	} else if lowBulkChoice == 0 && highBulkChoice != 0 && lowParentChoice != 0 && highParentChoice != 0 {
 		fmt.Println("Working with one bulk BSAseq (HIGH bulk)...")
 		fmt.Printf("Enter minimum depth for HIGH BULK %s (integer): \n", highBulk)
