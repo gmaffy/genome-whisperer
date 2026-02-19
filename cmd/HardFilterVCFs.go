@@ -5,10 +5,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
-	"github.com/gmaffy/genome-whisperer/variants"
 	"os"
 	"strings"
+
+	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/gmaffy/genome-whisperer/variants"
 
 	"github.com/spf13/cobra"
 )
@@ -16,13 +17,8 @@ import (
 // HardFilterVCFsCmd represents the HardFilterVCFs command
 var HardFilterVCFsCmd = &cobra.Command{
 	Use:   "HardFilterVCFs",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Hard filter all variants (snps and indels)",
+	Long:  `Filters both SNPs and INDELs using GATK recommended parameters and merges them to hard filtered VCF ... `,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("HardFilterVCFs called")
 		variant, vErr := cmd.Flags().GetString("variant")
