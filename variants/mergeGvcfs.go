@@ -36,33 +36,6 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		}
 		fmt.Printf("Data directory: %s\n", dataDirAbs)
 
-		if outDir == "" {
-			fmt.Println("No output directory provided. Using current directory")
-			outDir = filepath.Join(dataDirAbs, refVer, "VCFs", species)
-			mkdirErr := os.MkdirAll(outDir, 0755)
-			if mkdirErr != nil {
-				fmt.Printf("Failed to create output directory %s: %v\n", outDir, mkdirErr)
-
-			}
-			//return
-		}
-
-		fmt.Printf("Output directory: %s\n", outDir)
-		oInfo, err := os.Stat(outDir)
-		if err != nil {
-			fmt.Printf("Error accessing output directory: %s\n", outDir)
-			return
-		}
-		if !oInfo.IsDir() {
-			fmt.Printf("Output directory %s is not a directory\n", outDir)
-			fmt.Println("Creating output directory ...")
-			mkdirErr := os.MkdirAll(outDir, 0755)
-			if mkdirErr != nil {
-				fmt.Printf("Failed to create output directory %s: %v\n", outDir, mkdirErr)
-
-			}
-		}
-
 		// ---------------------------------------- Species & Version ----------------------------------------------- //
 
 		if species == "" {
@@ -101,6 +74,38 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 
 		fmt.Printf("Reference fasta: %s\n", refFasta)
 		fmt.Printf("Reference dict: %s\n", dictFilePath)
+
+		// --------------------------------- Output directory ------------------------------------------------------- //
+		if outDir == "" {
+			fmt.Println("No output directory provided. ")
+			outDir = filepath.Join(dataDirAbs, species, "VCFs", refVer)
+			fmt.Printf("Creating output directory at: %s...\n", outDir)
+			mkdirErr := os.MkdirAll(outDir, 0755)
+			if mkdirErr != nil {
+				fmt.Printf("Failed to create output directory %s: %v\n", outDir, mkdirErr)
+				return
+
+			}
+			//return
+		} else {
+			fmt.Printf("Output directory: %s\n", outDir)
+			oInfo, err := os.Stat(outDir)
+			if err != nil {
+				fmt.Printf("Error accessing output directory: %s\n", outDir)
+				return
+			}
+			if !oInfo.IsDir() {
+				fmt.Printf("Output directory %s is not a directory\n", outDir)
+				fmt.Println("Creating output directory ...")
+				mkdirErr := os.MkdirAll(outDir, 0755)
+				if mkdirErr != nil {
+					fmt.Printf("Failed to create output directory %s: %v\n", outDir, mkdirErr)
+					return
+
+				}
+			}
+
+		}
 
 		// ================================== Checking Samples in dir Structure ===================================== //
 		fmt.Println("Checking Samples in dir structure ...")
