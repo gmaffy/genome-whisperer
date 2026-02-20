@@ -41,17 +41,21 @@ var MergeGvcfsCmd = &cobra.Command{
 		if sErr != nil {
 			log.Fatalf("Error getting species flag: %v", sErr)
 		}
-		refName, rErr := cmd.Flags().GetString("reference")
+		refFasta, rErr := cmd.Flags().GetString("reference")
 		if rErr != nil {
 			log.Fatalf("Error getting reference flag: %v", rErr)
+		}
+		refVer, vErr := cmd.Flags().GetString("version")
+		if vErr != nil {
+			log.Fatalf("Error getting reference version flag: %v", vErr)
 		}
 		outDir, oErr := cmd.Flags().GetString("out-dir")
 		if oErr != nil {
 			log.Fatalf("Error getting out-dir flag: %v", oErr)
 		}
 
-		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refName: %v, outDir: %v, merger: %v \n", configFile, gvcfs, dataDir, species, refName, outDir, merger)
-		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refName, outDir, merger)
+		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, merger: %v \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger)
+		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger)
 	},
 }
 
@@ -67,6 +71,7 @@ func init() {
 	MergeGvcfsCmd.Flags().StringP("data-dir", "d", "", "path to data directory")
 	MergeGvcfsCmd.Flags().StringP("species", "s", "", "species name")
 	MergeGvcfsCmd.Flags().StringP("reference", "r", "", "reference genome name")
+	MergeGvcfsCmd.Flags().StringP("version", "v", "", "reference version")
 	MergeGvcfsCmd.Flags().StringP("out-dir", "o", "", "Output directory, (only pass if not using standard data directory structure)")
 	MergeGvcfsCmd.Flags().StringP("merger", "m", "glnexus", "GVCF merger to use. Options: glnexus or gatk")
 
