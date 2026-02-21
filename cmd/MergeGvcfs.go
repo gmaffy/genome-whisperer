@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
 	"github.com/spf13/cobra"
 )
@@ -54,8 +55,34 @@ var MergeGvcfsCmd = &cobra.Command{
 			log.Fatalf("Error getting out-dir flag: %v", oErr)
 		}
 
-		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, merger: %v \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger)
-		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger)
+		logFile, lErr := cmd.Flags().GetString("log")
+		if lErr != nil {
+			log.Fatalf("Error getting log file flag: %v", oErr)
+		}
+
+		//---------------------------------------------- Check dependencies ------------------------------------------------------ //
+		switch merger {
+		case "glnexus":
+			glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
+			if glnErr != nil {
+				fmt.Println("Dependency check failed ... ", glnErr)
+				return
+			}
+		case "gatk":
+			gatkErr := utils.CheckDeps([]string{"gatk"})
+			if gatkErr != nil {
+				fmt.Println("Dependency check failed ... ", gatkErr)
+				return
+			}
+		default:
+			fmt.Println("merger must be either glnexus or gatk")
+			return
+		}
+
+		//--------------------------------------------- Run merge gvcfs ---------------------------------------------------------- //
+		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, merger: %v, log file: %s \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger, logFile)
+		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger, logFile)
+
 	},
 }
 
@@ -74,6 +101,7 @@ func init() {
 	MergeGvcfsCmd.Flags().StringP("version", "v", "", "reference version")
 	MergeGvcfsCmd.Flags().StringP("out-dir", "o", "", "Output directory, (only pass if not using standard data directory structure)")
 	MergeGvcfsCmd.Flags().StringP("merger", "m", "glnexus", "GVCF merger to use. Options: glnexus or gatk")
+	MergeGvcfsCmd.Flags().StringP("log", "l", "", "log file path")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:

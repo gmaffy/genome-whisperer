@@ -96,6 +96,7 @@ var VariantCallingCmd = &cobra.Command{
 				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
 				if glnErr != nil {
 					fmt.Println("Dependency check failed ... ", glnErr)
+					return
 				}
 			}
 

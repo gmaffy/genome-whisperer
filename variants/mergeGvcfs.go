@@ -3,13 +3,32 @@ package variants
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/gmaffy/genome-whisperer/utils"
+	"golang.org/x/exp/slog"
 )
 
-func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, merger string) {
+func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
+	lines := []string{
+		"cd ~/", "rm -r GLnexus.DB",
+		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
+		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
+	}
+	return strings.Join(lines, "\n")
+}
+
+func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, merger string, logFilePath string) {
 	fmt.Println("Merging GVCFs ...")
+
+	if logFilePath == "" {
+		fmt.Println("No log file path specified. Set log file path")
+		return
+	}
+
 	if config != "" {
 		fmt.Printf("Using config file: %s\n", config)
 	} else if len(gvcfs) > 0 {
@@ -53,6 +72,7 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		// -------------------------------------- Reference fasta & Dict -------------------------------------------- //
 		if refFasta == "" {
 			fmt.Println("Please provide reference name")
+			return
 		}
 
 		fastaInfo, err := os.Stat(refFasta)
@@ -77,7 +97,7 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 
 		// --------------------------------- Output directory ------------------------------------------------------- //
 		if outDir == "" {
-			fmt.Println("No output directory provided. ")
+			fmt.Println("No output directory provided ... ")
 			outDir = filepath.Join(dataDirAbs, species, "VCFs", refVer)
 			fmt.Printf("Creating output directory at: %s...\n", outDir)
 			mkdirErr := os.MkdirAll(outDir, 0755)
@@ -141,62 +161,25 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		missingContigs := []string{}
 		contigsMissingSamples := []string{}
 		completeContigs := []string{}
-		//
-		//for scanner.Scan() {
-		//	//fmt.Printf("%s\n", scanner.Text())
-		//	if strings.HasPrefix(scanner.Text(), "@SQ") {
-		//		seqID := strings.Split(scanner.Text(), "\t")[1][3:]
-		//		pattern = fmt.Sprintf("%s/%s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz", dataDirAbs, strings.ToLower(species), refVer, seqID)
-		//
-		//		matches, err = filepath.Glob(pattern)
-		//		if err != nil {
-		//			fmt.Println("Error with glob pattern:", err)
-		//			return
-		//		}
-		//
-		//		if len(matches) == 0 {
-		//			missingContigs = append(missingContigs, seqID)
-		//		} else if len(matches) != len(samples) {
-		//			contigsMissingSamples = append(contigsMissingSamples, seqID)
-		//		} else {
-		//			completeContigs = append(completeContigs, seqID)
-		//		}
-		//
-		//		//seqLen := strings.Split(scanner.Text(), "\t")[2][3:]
-		//		//fmt.Printf("Found seqID: %s, Len:%v\n", seqID, seqLen)
-		//		//gvcfs = append(gvcfs, filepath.Join(dataDir, seqID, species+"_"+refVer+"_"+seqID+".g.vcf.gz"))
-		//		//glnexusCmdStr := fmt.Sprintf(`glnexus_cli --config gatk  %s/%s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf`, dataDirAbs, strings.ToLower(species), refVer, seqID, outDir, strings.ToUpper(species), seqID)
-		//		//bcftoolsCmdStr := fmt.Sprintf(`bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz`, outDir, strings.ToUpper(species), seqID, outDir, strings.ToUpper(species), seqID)
-		//		//
-		//		//fmt.Println(glnexusCmdStr)
-		//		//fmt.Println(bcftoolsCmdStr)
-		//	}
-		//}
-		//
-		//fmt.Printf("Found %v contigs with no gvcfs: %v\n", len(missingContigs), missingContigs)
-		//fmt.Printf("Found %v contigs with some missing samples: %v\n", len(contigsMissingSamples), contigsMissingSamples)
-		//fmt.Printf("Found %v contigs with all samples: %v\n", len(completeContigs), completeContigs)
 
-		// One glob to get all gvcf files upfront
-		allPattern := fmt.Sprintf("%s/%s/*/*/reference_genomes/%s/gvcfs/*.g.vcf.gz", dataDirAbs, strings.ToLower(species), refVer)
+		allPattern := fmt.Sprintf(
+			"%s/%s/*/*/reference_genomes/%s/gvcfs/*.g.vcf.gz",
+			dataDirAbs, strings.ToLower(species), refVer)
+
 		allMatches, err := filepath.Glob(allPattern)
 		if err != nil {
 			fmt.Println("Error with glob pattern:", err)
 			return
 		}
 
-		// Build map: seqID -> count of matching files
 		contigCounts := make(map[string]int)
 		for _, match := range allMatches {
-			base := filepath.Base(match) // e.g. "SAMPLE.CONTIG.g.vcf.gz"
-			// extract seqID from filename - adjust based on your naming convention
-			// if filename is *SEQID.g.vcf.gz, extract the part before .g.vcf.gz
+			base := filepath.Base(match)
 			seqID := strings.TrimSuffix(base, ".g.vcf.gz")
-			seqID = seqID[strings.LastIndex(seqID, ".")+1:] // get last segment
+			seqID = seqID[strings.LastIndex(seqID, ".")+1:]
 			contigCounts[seqID]++
 		}
 
-		// Now scan is fast - just map lookups
 		for scanner.Scan() {
 			if strings.HasPrefix(scanner.Text(), "@SQ") {
 				seqID := strings.Split(scanner.Text(), "\t")[1][3:]
@@ -216,37 +199,58 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		fmt.Printf("Found %v contigs with some missing samples: %v\n", len(contigsMissingSamples), contigsMissingSamples)
 		fmt.Printf("Found %v contigs with all samples: %v\n", len(completeContigs), completeContigs)
 
+		// ----------------------------------- Create/Open log file ----------------------------------------------------- //
+		fmt.Println("Reading log file ...")
+
+		logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			fmt.Printf("failed to open log file %s - %s", logFilePath, err)
+			return
+		}
+		defer logFile.Close()
+
+		jsonHandler := slog.NewJSONHandler(logFile, nil)
+		jlog := slog.New(jsonHandler)
+
+		logged := utils.ParseLogFile(logFilePath)
+
 		switch merger {
 		case "gatk":
 			fmt.Println("Using GATK MergeVcfs")
-			break
+
 		case "glnexus":
 			fmt.Println("Using GLNEXUS merge")
 			for _, sID := range completeContigs {
-				speciesDir := filepath.Join(dataDirAbs, strings.ToLower(species))
-				glnexusCmdStr := fmt.Sprintf(`cd ~/
+				if utils.StageHasCompleted(logged, "GLNEXUS", "ALL", sID) {
+					msg := fmt.Sprintf("GLNEXUS already completed for ALL gvcfs, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", sID)
+					slog.Info(msg)
 
-glnexus_cli --config gatk  %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf
+				} else {
 
-bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %v/%v.%v.joint.vcf.gz`, speciesDir, refVer, sID, outDir, strings.ToUpper(species), sID, sID, outDir, strings.ToUpper(species), sID, outDir, strings.ToUpper(species), sID)
-				fmt.Println(glnexusCmdStr)
+					speciesDir := filepath.Join(dataDirAbs, strings.ToLower(species))
+					speciesUpper := strings.ToUpper(species)
+					glnexusCmdStr := glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper)
+					fmt.Println(glnexusCmdStr)
+					jlog.Info("GVCF MERGING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", sID, "STATUS", "STARTED", "CMD", glnexusCmdStr)
+
+					slog.Info("GVCF MERGING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", sID, "STATUS", "STARTED")
+
+					hapErr := utils.RunBashCmdVerbose(glnexusCmdStr)
+
+					if hapErr != nil {
+						jlog.Error("GVCF MERGING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", sID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
+						slog.Error("GVCF MERGING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", sID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
+						log.Fatalf("FAILED: %v", hapErr)
+					}
+
+					jlog.Info("GVCF MERGING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", sID, "STATUS", "COMPLETED")
+					slog.Info("GVCF MERGING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", sID, "STATUS", "COMPLETED")
+					fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
+				}
 			}
 		default:
 			fmt.Println("Please provide a valid merger: Either gatk or glnexus")
 
 		}
-
 	}
-	//if merger == "gatk" {
-	//	fmt.Println("Using GATK MergeVcfs")
-	//} else if merger == "glnexus" {
-	//	fmt.Println("Using GLNEXUS merge")
-	//	for sID := range completeContigs {
-	//
-	//	}
-	//} else {
-	//	fmt.Println("Please provide a valid merger: Either gatk or glnexus")
-	//
-	//}
-
 }
