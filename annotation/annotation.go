@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/gmaffy/genome-whisperer/utils"
 	"regexp"
+
+	"github.com/gmaffy/genome-whisperer/utils"
 
 	"os"
 	"os/exec"
@@ -61,11 +62,11 @@ func checkSnpEffDB(db string) error {
 
 }
 
-func RunSnpEff(vcfs []string, db string, bsaseq bool) error {
+func RunSnpEff(vcfs []string, db string, bsaseq bool) (error, []string, []string) {
 	// --------------------------------------------------- Get Config file ---------------------------------------- //
 	snEffPath, err := exec.LookPath("snpEff")
 	if err != nil {
-		return fmt.Errorf("snpEff not found: %w", err)
+		return fmt.Errorf("snpEff not found: %w", err), []string{}, []string{}
 	}
 
 	scriptsDir := filepath.Dir(snEffPath)
@@ -75,7 +76,7 @@ func RunSnpEff(vcfs []string, db string, bsaseq bool) error {
 	_, rErr := os.Stat(configPath)
 	if rErr != nil {
 		fmt.Printf("Tried to find snpEff config file at: %s. It does not exist\n\n", configPath)
-		return rErr
+		return rErr, []string{}, []string{}
 	}
 	//fmt.Printf("snpEff config file found at %s\n", configPath)
 
@@ -100,52 +101,58 @@ func RunSnpEff(vcfs []string, db string, bsaseq bool) error {
 			fmt.Printf("\n")
 			fmt.Printf("Please install a custom database or look for installed databases by running: snpEff databases\n\n")
 		}
-		return dbErr
+		return dbErr, []string{}, []string{}
 	}
 	fmt.Printf("DATABASE FOUND: %s\n", db)
+
 	// ------------------------------------------------ Run SnpEff -------------------------------------------------- //
+	tsvFiles := []string{}
+	vcfFiles := []string{}
 	for _, vcf := range vcfs {
 		var snpEffVcf string
-		var snpEffTxt string
+		var snpEffTsv string
+
 		if strings.HasSuffix(vcf, ".vcf.gz") {
 			snpEffVcf = strings.TrimSuffix(vcf, ".vcf.gz") + ".snpEff.vcf"
-			snpEffTxt = strings.TrimSuffix(vcf, ".vcf.gz") + ".snpEff.txt"
+			snpEffTsv = strings.TrimSuffix(vcf, ".vcf.gz") + ".snpEff.tsv"
 		} else if strings.HasSuffix(vcf, ".vcf") {
 			snpEffVcf = strings.TrimSuffix(vcf, ".vcf") + ".snpEff.vcf"
-			snpEffTxt = strings.TrimSuffix(vcf, ".vcf") + ".snpEff.txt"
+			snpEffTsv = strings.TrimSuffix(vcf, ".vcf") + ".snpEff.tsv"
 		} else {
 			fmt.Println("vcf file must be in vcf or vcf.gz format")
-			return fmt.Errorf("vcf file must be in vcf or vcf.gz format")
+			return fmt.Errorf("vcf file must be in vcf or vcf.gz format"), "", ""
 		}
 
 		snpEffCmdStr := fmt.Sprintf(`snpEff -c %s -v -o gatk %s %s > %s`, configPath, db, vcf, snpEffVcf)
 		fmt.Println(snpEffCmdStr)
 		err := utils.RunBashCmdVerbose(snpEffCmdStr)
 		if err != nil {
-			return err
+			return err, []string{}, []string{}
 		}
 
 		fmt.Println("Converting vcf to table")
 		var vtCmdStr string
 		if bsaseq {
-			vtCmdStr = fmt.Sprintf(`gatk VariantsToTable -V %s -F CHROM -F POS -F REF -F ALT -F QUAL -F TYPE -GF GT -GF AD -GF DP -GF GQ -F EFF -O %s`, snpEffVcf, snpEffTxt)
+			vtCmdStr = fmt.Sprintf(`gatk VariantsToTable -V %s -F CHROM -F POS -F REF -F ALT -F QUAL -F TYPE -GF GT -GF AD -GF DP -GF GQ -F EFF -O %s`, snpEffVcf, snpEffTsv)
 		} else {
-			vtCmdStr = fmt.Sprintf(`gatk VariantsToTable -V %s -F CHROM -F POS -F REF -F ALT -F QUAL -F TYPE -GF GT -F EFF -O %s`, snpEffVcf, snpEffTxt)
+			vtCmdStr = fmt.Sprintf(`gatk VariantsToTable -V %s -F CHROM -F POS -F REF -F ALT -F QUAL -F TYPE -GF GT -F EFF -O %s`, snpEffVcf, snpEffTsv)
 		}
 		fmt.Println(vtCmdStr)
 		terr := utils.RunBashCmdVerbose(vtCmdStr)
 		if terr != nil {
-			return terr
+			return terr, []string{}, []string{}
 		}
 
-		sErr := splitEffColumns(snpEffTxt)
+		sErr := splitEffColumns(snpEffTsv)
 		if sErr != nil {
-			return sErr
+			return sErr, []string{}, []string{}
 		}
+		tsvFiles = append(tsvFiles, snpEffTsv)
+		vcfFiles = append(vcfFiles, snpEffVcf)
 
 	}
 
-	return nil
+	return nil, tsvFiles, vcfFiles
 }
 
 type SnpEffEffect struct {
@@ -296,4 +303,17 @@ func splitEffColumns(effFile string) error {
 	}
 
 	return writer.Flush()
+}
+
+func RunAnnotation(vcfs []string, db string, bsaseq bool, desc string, prg string) error {
+	fmt.Printf("Running snpEff for vcfs %s\n", vcfs)
+	err, tsvFiles, vcfFiles := RunSnpEff(vcfs, db, bsaseq)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("SnpEff done for vcfs %s complete: tsvFiles: %s, annotated vcf files: %s \n", vcfs, tsvFiles, vcfFiles)
+	if desc != "" {
+		fmt.Printf("Description file: %s\n", desc)
+	}
+	return nil
 }
