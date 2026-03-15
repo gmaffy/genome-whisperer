@@ -106,8 +106,8 @@ func RunSnpEff(vcfs []string, db string, bsaseq bool) (error, []string, []string
 	fmt.Printf("DATABASE FOUND: %s\n", db)
 
 	// ------------------------------------------------ Run SnpEff -------------------------------------------------- //
-	tsvFiles := []string{}
-	vcfFiles := []string{}
+	var tsvFiles []string
+	var vcfFiles []string
 	for _, vcf := range vcfs {
 		var snpEffVcf string
 		var snpEffTsv string
@@ -305,10 +305,11 @@ func splitEffColumns(effFile string) error {
 	return writer.Flush()
 }
 
-func AddDescriptions(tsvFiles []string, desc string) error {
+func AddDescriptions(tsvFiles []string, desc string) (error, []string) {
+	// ================================== Reading description file ===================================================//
 	descFile, err := os.Open(desc)
 	if err != nil {
-		return fmt.Errorf("failed to open description file %s: %w", desc, err)
+		return fmt.Errorf("failed to open description file %s: %w", desc, err), []string{}
 	}
 	defer descFile.Close()
 
@@ -318,24 +319,28 @@ func AddDescriptions(tsvFiles []string, desc string) error {
 		line := scanner.Text()
 		fields := strings.Split(line, "\t")
 		if len(fields) != 2 {
-			return fmt.Errorf("description file %s has invalid format. Expected 2 columns, got %d", desc, len(fields))
+			return fmt.Errorf("description file %s has invalid format. Expected 2 columns, got %d", desc, len(fields)), []string{}
 		}
 		gene, description := fields[0], fields[1]
 		geneDesc[gene] = description
 	}
+
+	//================================ Adding descriptions to tsv files =============================================//
+
 	fmt.Printf("Adding descriptions to tsv files: %s\n", tsvFiles)
+	var descTsvFiles []string
 	for _, tsvFile := range tsvFiles {
 		fmt.Printf("Adding descriptions to tsv file: %s\n", tsvFile)
 		snpEffTsv, err := os.Open(tsvFile)
 		if err != nil {
-			return fmt.Errorf("failed to open input file %s: %w", tsvFile, err)
+			return fmt.Errorf("failed to open input file %s: %w", tsvFile, err), []string{}
 		}
 		defer snpEffTsv.Close()
 
 		outputFileName := strings.Replace(strings.Replace(tsvFile, ".txt", "_DESC.tsv", 1), ".tsv", "_DESC.tsv", 1)
 		outputFile, err := os.Create(outputFileName)
 		if err != nil {
-			return fmt.Errorf("failed to create output file %s: %w", outputFileName, err)
+			return fmt.Errorf("failed to create output file %s: %w", outputFileName, err), []string{}
 		}
 		defer outputFile.Close()
 
@@ -354,43 +359,58 @@ func AddDescriptions(tsvFiles []string, desc string) error {
 				}
 				if transcriptIdx == -1 {
 					fmt.Printf("Transcript ID column not found in %s\n", tsvFile)
-					return fmt.Errorf("Transcript ID column not found in %s", tsvFile)
+					return fmt.Errorf("Transcript ID column not found in %s", tsvFile), []string{}
 				}
 				fields = append(fields, "DESCRIPTION")
 				_, err2 := writer.WriteString(strings.Join(fields, "\t") + "\n")
 				if err2 != nil {
-					return err2
+					return err2, []string{}
 				}
 			}
 			transcriptID := fields[transcriptIdx]
-			if _, ok := geneDesc[transcriptID]; !ok {
-				
+			if description, ok := geneDesc[transcriptID]; ok {
+				fields = append(fields, description)
+			} else {
+				fields = append(fields, "")
 			}
-			fields = append(fields, geneDesc[transcriptID])
+
 			_, err2 := writer.WriteString(strings.Join(fields, "\t") + "\n")
 			if err2 != nil {
-				return err2
+				return err2, []string{}
 			}
 		}
 
+		err = writer.Flush()
+		if err != nil {
+			return err, []string{}
+		}
+		descTsvFiles = append(descTsvFiles, outputFileName)
+	}
+	return nil, descTsvFiles
+}
+
+func AddPrg(vcfs []string, prg string) error {
+	fmt.Printf("Adding program to vcfs %s\n", vcfs)
+	for _, vcf := range vcfs {
+		fmt.Printf("Adding program to vcf: %s\n", vcf)
+		prgCmdStr := fmt.Sprintf(`bcftools annotate -h "##PRG=%s" %s > %s`, prg, vcf, vcf)
+		fmt.Println(prgCmdStr)
+		err := utils.RunBashCmdVerbose(prgCmdStr)
 	}
 }
 
-func RunAnnotation(vcfs []string, db string, bsaseq bool, desc string, prg string) error {
+func CreateSuperVcf(vcfs []string, db string, bsaseq bool, desc string, prg string) error {
 	fmt.Printf("Running snpEff for vcfs %s\n", vcfs)
-	err, tsvFiles, vcfFiles := RunSnpEff(vcfs, db, bsaseq)
+	err, snpEffTsvFiles, snpEffvcfFiles := RunSnpEff(vcfs, db, bsaseq)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("SnpEff done for vcfs %s complete: tsvFiles: %s, annotated vcf files: %s \n", vcfs, tsvFiles, vcfFiles)
-	if desc != "" {
-		fmt.Printf("Description file: %s\n", desc)
-		file, err := os.Open(desc)
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
+	fmt.Printf("SnpEff done for vcfs %s complete: tsvFiles: %s, annotated vcf files: %s \n", vcfs, snpEffTsvFiles, snpEffvcfFiles)
 
+	err, annotatedTsvFiles = AddDescriptions(snpEffTsvFiles, desc)
+	if err != nil {
+		return err
 	}
+
 	return nil
 }
