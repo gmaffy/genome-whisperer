@@ -148,7 +148,7 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	fmt.Printf("Building database ...")
 
 	cmdStr4 := fmt.Sprintf(`snpEff build -gtf22 -v %s`, db)
-	fmt.Printf(cmdStr4)
+	fmt.Print(cmdStr4)
 	err4 := utils.RunBashCmdVerbose(cmdStr4)
 	if err4 != nil {
 		return err4

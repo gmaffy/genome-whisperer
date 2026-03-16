@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"regexp"
 
 	"github.com/gmaffy/genome-whisperer/utils"
@@ -143,11 +144,11 @@ func RunSnpEff(vcfs []string, db string, bsaseq bool) (error, []string, []string
 			return terr, []string{}, []string{}
 		}
 
-		sErr := splitEffColumns(snpEffTsv)
+		sErr, splitSnpEffTsv := splitEffColumns(snpEffTsv)
 		if sErr != nil {
 			return sErr, []string{}, []string{}
 		}
-		tsvFiles = append(tsvFiles, snpEffTsv)
+		tsvFiles = append(tsvFiles, splitSnpEffTsv)
 		vcfFiles = append(vcfFiles, snpEffVcf)
 
 	}
@@ -200,17 +201,17 @@ func parseEffColumn(effColValue string) SnpEffEffect {
 	return eff
 }
 
-func splitEffColumns(effFile string) error {
+func splitEffColumns(effFile string) (error, string) {
 	fmt.Printf("Splitting EFF column in file: %s \n\n ", effFile)
 	inputFile, err := os.Open(effFile)
 	if err != nil {
-		return fmt.Errorf("failed to open input file %s: %w", effFile, err)
+		return fmt.Errorf("failed to open input file %s: %w", effFile, err), ""
 	}
 	defer inputFile.Close()
 	scanner := bufio.NewScanner(inputFile)
 
 	if !scanner.Scan() {
-		return fmt.Errorf("input file %s is empty or has no header", effFile)
+		return fmt.Errorf("input file %s is empty or has no header", effFile), ""
 	}
 	headerLine := scanner.Text()
 	originalHeaders := strings.Split(headerLine, "\t")
@@ -226,7 +227,7 @@ func splitEffColumns(effFile string) error {
 	}
 
 	if effColIndex == -1 {
-		return fmt.Errorf("EFF column not found in header: %s", headerLine)
+		return fmt.Errorf("EFF column not found in header: %s", headerLine), ""
 	}
 
 	snpEffNewHeaders := []string{
@@ -238,22 +239,22 @@ func splitEffColumns(effFile string) error {
 
 	newHeader := strings.Join(otherHeaders, "\t") + "\t" + strings.Join(snpEffNewHeaders, "\t")
 
-	outputFileName := strings.Replace(effFile, ".txt", "_EFF.tsv", 1)
-	if !strings.HasSuffix(effFile, ".txt") {
-		outputFileName = effFile + "_EFF.txt"
+	outputFileName := strings.Replace(effFile, ".tsv", "_EFF.tsv", 1)
+	if !strings.HasSuffix(effFile, ".tsv") {
+		outputFileName = effFile + "_EFF.tsv"
 	}
 
 	fmt.Printf("Writing to file: %s ...\n", outputFileName)
 	outputFile, err := os.Create(outputFileName)
 	if err != nil {
-		return fmt.Errorf("failed to create output file %s: %w", outputFileName, err)
+		return fmt.Errorf("failed to create output file %s: %w", outputFileName, err), ""
 	}
 	defer outputFile.Close()
 
 	writer := bufio.NewWriter(outputFile)
 	_, err = writer.WriteString(newHeader + "\n")
 	if err != nil {
-		return fmt.Errorf("failed to write header to output file: %w", err)
+		return fmt.Errorf("failed to write header to output file: %w", err), ""
 	}
 
 	lineNum := 1
@@ -294,18 +295,22 @@ func splitEffColumns(effFile string) error {
 
 		_, err = writer.WriteString(strings.Join(outputFields, "\t") + "\n")
 		if err != nil {
-			return fmt.Errorf("failed to write line %d to output file: %w", lineNum, err)
+			return fmt.Errorf("failed to write line %d to output file: %w", lineNum, err), ""
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading input file: %w", err)
+		return fmt.Errorf("error reading input file: %w", err), ""
 	}
 
-	return writer.Flush()
+	err = writer.Flush()
+	if err != nil {
+		return err, ""
+	}
+	return nil, outputFileName
 }
 
-func AddDescriptions(tsvFiles []string, desc string) (error, []string) {
+func AddDescriptions(variants []string, desc string, bsaseq bool) (error, []string) {
 	// ================================== Reading description file ===================================================//
 	descFile, err := os.Open(desc)
 	if err != nil {
@@ -327,17 +332,59 @@ func AddDescriptions(tsvFiles []string, desc string) (error, []string) {
 
 	//================================ Adding descriptions to tsv files =============================================//
 
-	fmt.Printf("Adding descriptions to tsv files: %s\n", tsvFiles)
+	fmt.Printf("Adding descriptions to variant files: %s\n", variants)
 	var descTsvFiles []string
-	for _, tsvFile := range tsvFiles {
-		fmt.Printf("Adding descriptions to tsv file: %s\n", tsvFile)
-		snpEffTsv, err := os.Open(tsvFile)
-		if err != nil {
-			return fmt.Errorf("failed to open input file %s: %w", tsvFile, err), []string{}
-		}
-		defer snpEffTsv.Close()
+	for _, variantFile := range variants {
+		fmt.Printf("Adding descriptions to variant file: %s\n", variantFile)
+		var snpEffTsv io.Reader
+		var outputFileName string
+		if strings.HasSuffix(variantFile, ".tsv") || strings.HasSuffix(variantFile, ".txt") {
+			var snpEffTsvFile *os.File
+			snpEffTsvFile, err = os.Open(variantFile)
+			if err != nil {
+				return fmt.Errorf("failed to open input file %s: %w", variantFile, err), []string{}
+			}
+			defer snpEffTsvFile.Close()
+			snpEffTsv = snpEffTsvFile
+			outputFileName = strings.Replace(strings.Replace(variantFile, ".txt", "_DESC.tsv", 1), ".tsv", "_DESC.tsv", 1)
 
-		outputFileName := strings.Replace(strings.Replace(tsvFile, ".txt", "_DESC.tsv", 1), ".tsv", "_DESC.tsv", 1)
+		} else if strings.HasSuffix(variantFile, ".vcf") || strings.HasSuffix(variantFile, "vcf.gz") {
+			fmt.Println("Converting vcf to table")
+			var vtCmdStr string
+			var variantTsvFile string
+			if strings.HasSuffix(variantFile, ".vcf") {
+				variantTsvFile = strings.TrimSuffix(variantFile, ".vcf") + ".tsv"
+			} else {
+				variantTsvFile = strings.TrimSuffix(variantFile, ".vcf.gz") + ".tsv"
+			}
+			if bsaseq {
+				vtCmdStr = fmt.Sprintf(`gatk VariantsToTable -V %s -F CHROM -F POS -F REF -F ALT -F QUAL -F TYPE -GF GT -GF AD -GF DP -GF GQ -F EFF -O %s`, variantFile, variantTsvFile)
+			} else {
+				vtCmdStr = fmt.Sprintf(`gatk VariantsToTable -V %s -F CHROM -F POS -F REF -F ALT -F QUAL -F TYPE -GF GT -F EFF -O %s`, variantFile, variantTsvFile)
+			}
+			fmt.Println(vtCmdStr)
+			terr := utils.RunBashCmdVerbose(vtCmdStr)
+			if terr != nil {
+				return terr, []string{}
+			}
+
+			sErr, splitSnpEffTsv := splitEffColumns(variantTsvFile)
+			if sErr != nil {
+				return sErr, []string{}
+			}
+			var snpEffTsvFile *os.File
+			snpEffTsvFile, err = os.Open(splitSnpEffTsv)
+			if err != nil {
+				return fmt.Errorf("failed to open input file %s: %w", splitSnpEffTsv, err), []string{}
+			}
+			defer snpEffTsvFile.Close()
+			snpEffTsv = snpEffTsvFile
+			outputFileName = strings.Replace(strings.Replace(splitSnpEffTsv, ".txt", "_DESC.tsv", 1), ".tsv", "_DESC.tsv", 1)
+
+		} else {
+			return fmt.Errorf("variant file %s has invalid format. Expected .vcf or .tsv", variantFile), []string{}
+		}
+
 		outputFile, err := os.Create(outputFileName)
 		if err != nil {
 			return fmt.Errorf("failed to create output file %s: %w", outputFileName, err), []string{}
@@ -346,26 +393,36 @@ func AddDescriptions(tsvFiles []string, desc string) (error, []string) {
 
 		writer := bufio.NewWriter(outputFile)
 
-		scanner = bufio.NewScanner(snpEffTsv)
-		for scanner.Scan() {
-			line := scanner.Text()
+		innerScanner := bufio.NewScanner(snpEffTsv)
+
+		if !innerScanner.Scan() {
+			return fmt.Errorf("input file %s is empty or has no header", variantFile), []string{}
+		}
+		headerLine := innerScanner.Text()
+		originalHeaders := strings.Split(headerLine, "\t")
+
+		transcriptIdx := -1
+		for i, h := range originalHeaders {
+			if h == "SNPEFF_TRANSCRIPT_ID" {
+				transcriptIdx = i
+			}
+		}
+
+		if transcriptIdx == -1 {
+			return fmt.Errorf("SNPEFF_TRANSCRIPT_ID column not found in header: %s", headerLine), []string{}
+		}
+
+		newHeader := strings.Join(originalHeaders, "\t") + "\tDESCRIPTION"
+		for innerScanner.Scan() {
+			line := innerScanner.Text()
 			fields := strings.Split(line, "\t")
-			transcriptIdx := -1
 			if fields[0] == "CHROM" {
-				for i, v := range fields {
-					if v == "SNPEFF_TRANSCRIPT_ID" {
-						transcriptIdx = i
-					}
-				}
-				if transcriptIdx == -1 {
-					fmt.Printf("Transcript ID column not found in %s\n", tsvFile)
-					return fmt.Errorf("Transcript ID column not found in %s", tsvFile), []string{}
-				}
-				fields = append(fields, "DESCRIPTION")
-				_, err2 := writer.WriteString(strings.Join(fields, "\t") + "\n")
+
+				_, err2 := writer.WriteString(newHeader + "\n")
 				if err2 != nil {
 					return err2, []string{}
 				}
+				continue
 			}
 			transcriptID := fields[transcriptIdx]
 			if description, ok := geneDesc[transcriptID]; ok {
@@ -380,37 +437,36 @@ func AddDescriptions(tsvFiles []string, desc string) (error, []string) {
 			}
 		}
 
-		err = writer.Flush()
-		if err != nil {
-			return err, []string{}
+		err2 := writer.Flush()
+		if err2 != nil {
+			return err2, []string{}
 		}
 		descTsvFiles = append(descTsvFiles, outputFileName)
 	}
 	return nil, descTsvFiles
 }
 
-func AddPrg(vcfs []string, prg string) error {
-	fmt.Printf("Adding program to vcfs %s\n", vcfs)
-	for _, vcf := range vcfs {
-		fmt.Printf("Adding program to vcf: %s\n", vcf)
-		prgCmdStr := fmt.Sprintf(`bcftools annotate -h "##PRG=%s" %s > %s`, prg, vcf, vcf)
-		fmt.Println(prgCmdStr)
-		err := utils.RunBashCmdVerbose(prgCmdStr)
-	}
-}
+//func AddPrg(vcfs []string, prg string) error {
+//	fmt.Printf("Adding program to vcfs %s\n", vcfs)
+//	for _, vcf := range vcfs {
+//		fmt.Printf("Adding program to vcf: %s\n", vcf)
+//		prgCmdStr := fmt.Sprintf(`bcftools annotate -h "##PRG=%s" %s > %s`, prg, vcf, vcf)
+//		fmt.Println(prgCmdStr)
+//	}
+//}
 
-func CreateSuperVcf(vcfs []string, db string, bsaseq bool, desc string, prg string) error {
+func CreateSuperVcf(vcfs []string, db string, bsaseq bool, desc string, prg string) (error, []string) {
 	fmt.Printf("Running snpEff for vcfs %s\n", vcfs)
 	err, snpEffTsvFiles, snpEffvcfFiles := RunSnpEff(vcfs, db, bsaseq)
 	if err != nil {
-		return err
+		return err, []string{}
 	}
 	fmt.Printf("SnpEff done for vcfs %s complete: tsvFiles: %s, annotated vcf files: %s \n", vcfs, snpEffTsvFiles, snpEffvcfFiles)
 
-	err, annotatedTsvFiles = AddDescriptions(snpEffTsvFiles, desc)
+	err, descTsvFiles := AddDescriptions(snpEffTsvFiles, desc, bsaseq)
 	if err != nil {
-		return err
+		return err, []string{}
 	}
 
-	return nil
+	return nil, descTsvFiles
 }

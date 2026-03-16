@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
+Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 */
 package cmd
 
@@ -9,18 +9,16 @@ import (
 	"os"
 
 	"github.com/gmaffy/genome-whisperer/annotation"
-
 	"github.com/spf13/cobra"
 )
 
-// VariantAnnotationCmd represents the VariantAnnotation command
-var VariantAnnotationCmd = &cobra.Command{
-	Use:   "VariantAnnotation",
-	Short: "Annotation of variants using snpEff",
-	Long:  `Annotation of variants using snpEff`,
+// RunSnpEffCmd represents the RunSnpEff command
+var RunSnpEffCmd = &cobra.Command{
+	Use:   "RunSnpEff",
+	Short: "annotation of variants using snpEff",
+	Long:  `Annotation of variants using snpEff. Outputs a vcf file and tsv file with annotations.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("VariantAnnotation called")
-		fmt.Println("variantAnnotation called")
+		fmt.Println("RunSnpEff called")
 		vcfs, vErr := cmd.Flags().GetStringSlice("variant")
 		if vErr != nil {
 			fmt.Println("Error getting variant flag")
@@ -63,9 +61,17 @@ var VariantAnnotationCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(VariantAnnotationCmd)
+	rootCmd.AddCommand(RunSnpEffCmd)
 
-	VariantAnnotationCmd.Flags().StringSliceP("variant", "V", []string{}, "Variant file ...")
-	VariantAnnotationCmd.Flags().StringP("database", "d", "", "database name")
-	VariantAnnotationCmd.Flags().Bool("bsaseq", false, "output bsaseq columns")
+	// Here you will define your flags and configuration settings.
+
+	// Cobra supports Persistent Flags which will work for this command
+	// and all subcommands, e.g.:
+	// RunSnpEffCmd.PersistentFlags().String("foo", "", "A help for foo")
+
+	// Cobra supports local flags which will only run when this command
+	// is called directly, e.g.:
+	RunSnpEffCmd.Flags().StringSliceP("variant", "V", []string{}, "Variant files (can supply multiple files)")
+	RunSnpEffCmd.Flags().StringP("database", "d", "", "Species name")
+	RunSnpEffCmd.Flags().Bool("bsaseq", false, "output bsaseq columns")
 }
