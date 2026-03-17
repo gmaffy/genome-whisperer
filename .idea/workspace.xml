@@ -8,8 +8,10 @@
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/annotation/annotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/annotation.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/annotation/createSnpEffDb.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/createSnpEffDb.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/VariantAnnotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantAnnotation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/AddGeneDescriptions.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/AddGeneDescriptions.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/genome-whisperer" beforeDir="false" afterPath="$PROJECT_DIR$/genome-whisperer" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
