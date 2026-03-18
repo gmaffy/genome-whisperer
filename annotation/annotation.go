@@ -834,7 +834,7 @@ func inputDetection(variantFile string, bsaseq bool) (error, string, string) {
 	if strings.HasSuffix(variantFile, ".tsv") || strings.HasSuffix(variantFile, ".txt") {
 		fmt.Printf("Processing tsv file: %s\n\n", variantFile)
 		snpEffTsv = variantFile
-		outputFileName = strings.TrimSuffix(strings.TrimSuffix(variantFile, ".tsv"), ".txt") + "_PRG.tsv"
+		outputFileName = strings.TrimSuffix(strings.TrimSuffix(variantFile, ".tsv"), ".txt") + "_SUPER_VCF.tsv"
 
 	} else if strings.HasSuffix(variantFile, ".vcf") || strings.HasSuffix(variantFile, ".vcf.gz") {
 		fmt.Printf("Processing vcf file: %s\n\n", variantFile)
@@ -864,12 +864,11 @@ func inputDetection(variantFile string, bsaseq bool) (error, string, string) {
 
 		sErr, splitFile := splitEffColumns(variantTsvFile)
 		if sErr != nil {
-			return sErr,"", ""
+			return sErr, "", ""
 		}
 
-
 		snpEffTsv = splitFile
-		outputFileName = strings.TrimSuffix(splitFile, ".tsv") + "_PRG.tsv"
+		outputFileName = strings.TrimSuffix(splitFile, ".tsv") + "_SUPER_VCF.tsv"
 
 	} else {
 		return fmt.Errorf("invalid variant file format: %s", variantFile), "", ""
@@ -1005,13 +1004,18 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 
 	for _, variantFile := range variants {
 
-		var snpEffTsv io.Reader
-		var outputFileName string
-
 		// -------------------------------------------- Input detection ------------------------------------------- //
 
-		snpEffTsvFile, outputFileName, err := inputDetection(variantFile, bsaseq)
-		snpEffTsv = open(snpEffTsvFile)
+		err, snpEffTsvFile, outputFileName := inputDetection(variantFile, bsaseq)
+		if err != nil {
+			return err, []string{}
+		}
+		snpEffTsv, err := os.Open(snpEffTsvFile)
+		if err != nil {
+			return fmt.Errorf("failed to open %s: %w", snpEffTsvFile, err), nil
+		}
+		defer snpEffTsv.Close()
+
 		// ----------------------------------------- Check variant file header ------------------------------------ //
 
 		innerScanner := bufio.NewScanner(snpEffTsv)
@@ -1065,34 +1069,57 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 
 		// ----------------------------- Check overlap and decide lookup column ------------------------------------ //
 
-		geneOverlap := 0
+		prgGeneOverlap := 0
+		descGeneOverlap := 0
 		for g := range genesInVariants {
 			if _, ok := prgMap[g]; ok {
-				geneOverlap++
+				prgGeneOverlap++
+			}
+
+			if _, ok := geneDesc[g]; ok {
+				descGeneOverlap++
 			}
 		}
 
-		transOverlap := 0
+		prgTransOverlap := 0
+		descTransOverlap := 0
 		for t := range transInVariants {
 			if _, ok := prgMap[t]; ok {
-				transOverlap++
+				prgTransOverlap++
+			}
+
+			if _, ok := geneDesc[t]; ok {
+				descTransOverlap++
 			}
 		}
 
-		var useIdx int
+		var prgIdx int
 		switch {
-		case geneOverlap > 0:
+		case prgGeneOverlap > 0:
 			fmt.Println("PRG file uses GENE NAMES ... using SNPEFF_GENE_NAME ...")
-			useIdx = geneIdx
-		case transOverlap > 0:
+			prgIdx = geneIdx
+		case prgTransOverlap > 0:
 			fmt.Println("PRG file uses TRANSCRIPT IDs ... using SNPEFF_TRANSCRIPT_ID ...")
-			useIdx = transIdx
+			prgIdx = transIdx
 		default:
 			fmt.Println("YOUR PRG FILE GENES ARE IN A DIFFERENT FORMAT TO THE FORMAT OF YOUR VCF GENES ...")
 			fmt.Println("Re format your PRG FILE gene names to match those in GATK VCF file ...")
 			return fmt.Errorf("no overlap between variant gene/transcript IDs and PRG QseqID"), nil
 		}
 
+		var descIdx int
+		switch {
+		case descGeneOverlap > 0:
+			fmt.Println("Description file uses GENE NAMES ... using SNPEFF_GENE_NAME ...")
+			descIdx = geneIdx
+		case prgTransOverlap > 0:
+			fmt.Println("Description file uses TRANSCRIPT IDs ... using SNPEFF_TRANSCRIPT_ID ...")
+			descIdx = transIdx
+		default:
+			fmt.Println("YOUR Description FILE GENES ARE IN A DIFFERENT FORMAT TO THE FORMAT OF YOUR VCF GENES ...")
+			fmt.Println("Re format your Description FILE gene names to match those in GATK VCF file ...")
+			return fmt.Errorf("no overlap between variant gene/transcript IDs and PRG QseqID"), nil
+		}
 		// ----------------------------------------------- Write output ------------------------------------------- //
 
 		out, err := os.Create(outputFileName)
@@ -1103,7 +1130,7 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 
 		writer := bufio.NewWriter(out)
 
-		writer.WriteString(headerLine + "\tPercIdent\tQLEN/MATCH_LEN\tEval\n")
+		writer.WriteString(headerLine + "\tPercIdent\tQLEN/MATCH_LEN\tEval\tDescription\n")
 
 		fmt.Printf("\nWriting output to %s\n\n", outputFileName)
 
@@ -1112,16 +1139,24 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 			percIdent := "0"
 			qlenMatchLen := "0"
 			eval := "0"
+			description := "NA"
 
-			if useIdx >= 0 && useIdx < len(fields) {
-				if entry, ok := prgMap[fields[useIdx]]; ok {
+			if prgIdx >= 0 && prgIdx < len(fields) {
+				if entry, ok := prgMap[fields[prgIdx]]; ok {
 					percIdent = entry.percIdent
 					qlenMatchLen = entry.qlenMatchLen
 					eval = entry.eval
 				}
 			}
 
-			fields = append(fields, percIdent, qlenMatchLen, eval)
+			if descIdx >= 0 && descIdx < len(fields) {
+				if d, ok := geneDesc[fields[descIdx]]; ok {
+					description = d
+				}
+
+			}
+
+			fields = append(fields, percIdent, qlenMatchLen, eval, description)
 			writer.WriteString(strings.Join(fields, "\t") + "\n")
 			writeBar.Add(1)
 		}
@@ -1135,8 +1170,4 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 	}
 
 	return nil, prgTsvFiles
-
-
-
-	return nil, descTsvFiles
 }

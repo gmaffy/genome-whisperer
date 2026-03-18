@@ -19,27 +19,37 @@ var VariantAnnotationCmd = &cobra.Command{
 	Short: "Annotation of variants using snpEff",
 	Long:  `Annotation of variants using snpEff`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("VariantAnnotation called")
 		fmt.Println("variantAnnotation called")
 		vcfs, vErr := cmd.Flags().GetStringSlice("variant")
 		if vErr != nil {
 			fmt.Println("Error getting variant flag")
 		}
+
 		db, dErr := cmd.Flags().GetString("database")
 		if dErr != nil {
 			fmt.Println("Error getting database flag")
 		}
+
 		bsaseq, bErr := cmd.Flags().GetBool("bsaseq")
 		if bErr != nil {
 			fmt.Println("Error getting bsaseq flag")
 		}
-		fmt.Println(bsaseq)
-		fmt.Println(vcfs)
-		fmt.Println(db)
+
+		desc, dErr := cmd.Flags().GetString("description")
+		if dErr != nil {
+			fmt.Println("Error getting description flag")
+		}
+
+		prg, pErr := cmd.Flags().GetString("prg")
+		if pErr != nil {
+			fmt.Println("Error getting prg flag")
+		}
+
 		if db == "" {
 			fmt.Println("Please provide database name with flag --database ")
 			return
 		}
+
 		if len(vcfs) == 0 {
 			fmt.Println("Please provide at least one vcf file")
 			return
@@ -53,12 +63,12 @@ var VariantAnnotationCmd = &cobra.Command{
 			}
 		}
 
-		err, snpEffTsvFiles, snpEffVcfFiles := annotation.RunSnpEff(vcfs, db, bsaseq)
+		err, snpEffTsvFiles := annotation.CreateSuperVcf(vcfs, db, bsaseq, desc, prg)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		fmt.Printf("snpEff vcfs created: %s\n---------------------\nTsv files created: %s\n------------------\n", snpEffVcfFiles, snpEffTsvFiles)
+		fmt.Printf("SUPER VCFS created: %s\n---------------------\n\n", snpEffTsvFiles)
 	},
 }
 
@@ -68,4 +78,6 @@ func init() {
 	VariantAnnotationCmd.Flags().StringSliceP("variant", "V", []string{}, "Variant file ...")
 	VariantAnnotationCmd.Flags().StringP("database", "d", "", "database name")
 	VariantAnnotationCmd.Flags().Bool("bsaseq", false, "output bsaseq columns")
+	VariantAnnotationCmd.Flags().StringP("gene-description-file", "g", "", "Gene description file")
+	VariantAnnotationCmd.Flags().StringP("prg", "p", "", "PRG blast file")
 }
