@@ -35,7 +35,7 @@ var VariantAnnotationCmd = &cobra.Command{
 			fmt.Println("Error getting bsaseq flag")
 		}
 
-		desc, dErr := cmd.Flags().GetString("description")
+		desc, dErr := cmd.Flags().GetString("gene-description-tsv")
 		if dErr != nil {
 			fmt.Println("Error getting description flag")
 		}
@@ -78,6 +78,6 @@ func init() {
 	VariantAnnotationCmd.Flags().StringSliceP("variant", "V", []string{}, "Variant file ...")
 	VariantAnnotationCmd.Flags().StringP("database", "d", "", "database name")
 	VariantAnnotationCmd.Flags().Bool("bsaseq", false, "output bsaseq columns")
-	VariantAnnotationCmd.Flags().StringP("gene-description-file", "g", "", "Gene description file")
+	VariantAnnotationCmd.Flags().StringP("gene-description-tsv", "g", "", "Gene description file")
 	VariantAnnotationCmd.Flags().StringP("prg", "p", "", "PRG blast file")
 }

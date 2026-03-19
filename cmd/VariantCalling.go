@@ -12,6 +12,7 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ var VariantCallingCmd = &cobra.Command{
         - Can use glenexus or GATK to merge gvcfs`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		fmt.Println("VariantCalling called")
+		color.Green("VariantCalling called")
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
 			log.Fatalf("Error getting config flag: %v", cErr)
@@ -38,6 +39,11 @@ var VariantCallingCmd = &cobra.Command{
 		refFile, refErr := cmd.Flags().GetString("reference")
 		if refErr != nil {
 			log.Fatalf("Error getting reference flag: %v", refErr)
+		}
+
+		refVer, refVerErr := cmd.Flags().GetString("ref-version")
+		if refVerErr != nil {
+			log.Fatalf("Error getting reference version flag: %v", refVerErr)
 		}
 
 		speciesName, sErr := cmd.Flags().GetString("species")
@@ -80,6 +86,16 @@ var VariantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting model type flag: %v", mtErr)
 		}
 
+		dataDir, dErr := cmd.Flags().GetString("data-dir")
+		if dErr != nil {
+			log.Fatalf("Error getting data-dir flag: %v", dErr)
+		}
+
+		verbose, verboseErr := cmd.Flags().GetBool("verbose")
+		if verboseErr != nil {
+			verbose = false
+		}
+
 		if speciesName == "" {
 			fmt.Println("Please provide species name with flag --species ")
 			return
@@ -116,7 +132,12 @@ var VariantCallingCmd = &cobra.Command{
 				fmt.Println("Use glnexus as merger if deepvariant is your chosen variant caller. ... ")
 				return
 			}
+		default:
+			fmt.Println("merger must be either glnexus or gatk")
+			return
 		}
+
+		//-------------------------------------------- Run variant calling ------------------------------------------ //
 
 		if configFile != "" {
 			fmt.Printf("Running with config file to %s\n", configFile)
@@ -127,14 +148,18 @@ var VariantCallingCmd = &cobra.Command{
 
 			}
 
-			verbose, verboseErr := cmd.Flags().GetBool("verbose")
-			if verboseErr != nil {
-				verbose = false
-			}
-
 			variants.VariantCallingConfig(configFile, speciesName, threads, verbosity, caller, merger, dvVer, modelType, verbose, nomerging)
 
+		} else if dataDir != "" {
+			fmt.Printf("Running Variant Calling using Plennegy data directory structure: %s\n", color.BlueString(dataDir))
+			_, err := os.Stat(dataDir)
+			if err != nil {
+				fmt.Printf("Data directory %s does not exist", dataDir)
+				return
+			}
+			variants.VariantCallingDir(dataDir, speciesName, refVer, refFile, caller, merger, dvVer, modelType, verbose, nomerging, verbosity)
 		} else {
+
 			fmt.Printf("Running without config flag\n")
 			bams, bamsErr := cmd.Flags().GetStringSlice("bam")
 			if bamsErr != nil {
@@ -205,13 +230,15 @@ func init() {
 	VariantCallingCmd.Flags().StringP("out", "o", "", "Recalibrated bam file")
 	VariantCallingCmd.Flags().StringP("species", "s", "", "Species name")
 	VariantCallingCmd.Flags().IntP("threads", "t", 4, "Number of threads per sample")
-	VariantCallingCmd.Flags().String("verbosity", "ERROR", "Verbosity level for GATK")
+	VariantCallingCmd.Flags().String("verbosity", "WARNING", "Verbosity level for GATK")
 	VariantCallingCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
 	VariantCallingCmd.Flags().StringP("config", "c", "", "Config file")
 	VariantCallingCmd.Flags().StringP("reference", "r", "", "Reference file")
+	VariantCallingCmd.Flags().String("ref-version", "", "Reference genome version")
 	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or DeepVariant")
 	VariantCallingCmd.Flags().StringP("merger", "m", "gatk", "GVCF merger to use. Options: gatk or glnexus")
 	VariantCallingCmd.Flags().Bool("no-merging", false, "do not merge gvcfs.")
 	VariantCallingCmd.Flags().String("deepvariant-version", "1.9.0", "DeepVariant version")
 	VariantCallingCmd.Flags().String("model-type", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
+	VariantCallingCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
 }

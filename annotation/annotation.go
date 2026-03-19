@@ -879,7 +879,15 @@ func inputDetection(variantFile string, bsaseq bool) (error, string, string) {
 
 func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgBlastFile string) (error, []string) {
 	fmt.Println("Variants: ", variants)
-	fmt.Println("Gene Description File: ", desc)
+
+	// =============================================== Run SnpEff =================================================== //
+	fmt.Println("Running SnpEff ...")
+	err, snpEffTsvFiles, _ := RunSnpEff(variants, db, bsaseq)
+
+	if err != nil {
+		fmt.Printf("SnpEff failed with error: %s\n...", err)
+		return err, []string{}
+	}
 
 	// ========================================== Read description file ============================================= //
 	fmt.Printf("Reading description file: %s ...............................\n", desc)
@@ -1000,16 +1008,20 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 
 	fmt.Printf("Loaded %d PRG entries\n-------------------------------------------------\n\n", len(prgMap))
 
+	//============================================== Adding Desc and PRGs =========================================== //
+
 	var prgTsvFiles []string
 
-	for _, variantFile := range variants {
+	for _, snpEffTsvFile := range snpEffTsvFiles {
 
 		// -------------------------------------------- Input detection ------------------------------------------- //
 
-		err, snpEffTsvFile, outputFileName := inputDetection(variantFile, bsaseq)
-		if err != nil {
-			return err, []string{}
-		}
+		//err, snpEffTsvFile, outputFileName := inputDetection(variantFile, bsaseq)
+		//if err != nil {
+		//	return err, []string{}
+		//}
+
+		outputFileName := strings.TrimSuffix(strings.TrimSuffix(snpEffTsvFile, ".tsv"), ".txt") + "_SUPER_VCF.tsv"
 		snpEffTsv, err := os.Open(snpEffTsvFile)
 		if err != nil {
 			return fmt.Errorf("failed to open %s: %w", snpEffTsvFile, err), nil
@@ -1022,7 +1034,7 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 		innerScanner.Buffer(buf, 10*1024*1024)
 
 		if !innerScanner.Scan() {
-			return fmt.Errorf("file %s is empty", variantFile), nil
+			return fmt.Errorf("file %s is empty", snpEffTsvFile), nil
 		}
 
 		headerLine := innerScanner.Text()
@@ -1041,7 +1053,7 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 		}
 
 		if geneIdx == -1 && transIdx == -1 {
-			return fmt.Errorf("neither SNPEFF_GENE_NAME nor SNPEFF_TRANSCRIPT_ID found in %s", variantFile), nil
+			return fmt.Errorf("neither SNPEFF_GENE_NAME nor SNPEFF_TRANSCRIPT_ID found in %s", snpEffTsvFile), nil
 		}
 
 		// ----------------------------- Read all rows and collect gene/transcript sets ---------------------------- //
