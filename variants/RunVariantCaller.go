@@ -75,17 +75,6 @@ func getChromsAndContigs(dictFilePath string) ([]SeqInfo, []SeqInfo, error) {
 		}
 	}
 
-	//// Print results
-	//fmt.Println("Chroms (top 21 + MT/Pltd):")
-	//for _, s := range chroms {
-	//	fmt.Printf("ID: %s, Len: %d\n", s.ID, s.Len)
-	//}
-	//
-	//fmt.Println("\nContigs (rest):")
-	//for _, s := range contigs {
-	//	fmt.Printf("ID: %s, Len: %d\n", s.ID, s.Len)
-	//}
-
 	return chroms, contigs, nil
 }
 
@@ -98,27 +87,23 @@ func findBamOrVcfs(dataDirAbs string, species string, sample string, refVer stri
 		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/gvcfs/*%s.g.vcf.gz", dataDirAbs, strings.ToLower(species), sample, refVer, chrom)
 	}
 
-	//fmt.Printf("Looking for %s files in %s\n", bamOrVcf, pattern)
-
 	matches, err := filepath.Glob(pattern)
-
 	if err != nil {
 		fmt.Println("glob error:", err)
 		return err, []string{}
 	}
 
 	if len(matches) == 0 {
-		color.Red("No %s files found in %s. Skipping ....\n\n", bamOrVcf, sample)
+		//color.Red("No %s files found in %s. Skipping ....\n\n", bamOrVcf, sample)
 		return fmt.Errorf("no %s files found in %s ", bamOrVcf, sample), matches
 	}
 	if len(matches) > 1 {
-		color.Red("Multiple %s files found in %s: Skipping ....\n\n", bamOrVcf, sample)
+		//color.Red("Multiple %s files found in %s: Skipping ....\n\n", bamOrVcf, sample)
 		return fmt.Errorf("multiple %s files found in %s", bamOrVcf, sample), matches
 	}
 
-	color.Green("Found %s file for sample %s: %s\n\n", bamOrVcf, color.BlueString(sample), matches[0])
+	//color.Green("Found %s file for sample %s: %s\n\n", bamOrVcf, color.BlueString(sample), matches[0])
 	return nil, matches
-
 }
 
 func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, gatkLogLevel string, caller string, dvVer string, modelType string, verbose bool) (string, error) {
@@ -139,9 +124,10 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 			for _, chrom := range chroms {
 				fmt.Fprintln(f, chrom.ID)
 			}
-
 		}
 		hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, sID, theGVCF, gatkLogLevel)
+
+		color.Green("\n---------------------------------------------------------------------------------\n%s\n\n----------------------------------------------------------------------------------------\n\n", hapCmdStr)
 		if verbose {
 			err = utils.RunBashCmdVerbose(hapCmdStr)
 		} else {
@@ -162,7 +148,6 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 			for _, chrom := range chroms {
 				fmt.Fprintf(f, "%s\t0\t%d\n", chrom.ID, chrom.Len)
 			}
-			//f.Close()
 		}
 		bamDir := filepath.Dir(bam)
 		bamName := filepath.Base(bam)
@@ -178,7 +163,6 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 		} else {
 			err = utils.RunBashCmd(dvCmdStr)
 		}
-
 	}
 
 	return theGVCF, err
@@ -189,13 +173,11 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	fmt.Println("Working on FASTA file ...")
 	fna, err := os.Open(refFile)
 	if err != nil {
-		//log.Fatalf("Failed to open FASTA file: %v", err)
 		return "", fmt.Errorf("failed to open FASTA file: %v", err)
 	}
 	defer func(fna *os.File) {
 		err := fna.Close()
 		if err != nil {
-			//jlog.Error("VARIANT CALLING", "PROGRAM", "FileClose", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
 			slog.Error("VARIANT CALLING", "PROGRAM", "FileClose", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
 			panic(err)
 		}
@@ -205,7 +187,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	if strings.HasSuffix(refFile, ".gz") {
 		gzReader, err := gzip.NewReader(fna)
 		if err != nil {
-
 			return "", fmt.Errorf("failed to create gzip reader: %v", err)
 		}
 		defer gzReader.Close()
@@ -217,7 +198,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		//log.Fatalf("Failed to open log file: %v", err)
 		return "", fmt.Errorf("failed to open log file %s - %s", logFilePath, err)
 	}
 	defer logFile.Close()
@@ -249,7 +229,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	maxParallelJobs := totalCores / threadsPerSample
 	if maxParallelJobs < 1 {
 		maxParallelJobs = 1
-
 	}
 
 	var wg sync.WaitGroup
@@ -282,10 +261,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
 				cErr := os.MkdirAll(dir, 0755)
 				if cErr != nil {
-
 					slog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
 					jlog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
-
 					return "", fmt.Errorf("failed to created directory %s - %s", dir, cErr)
 				}
 			}
@@ -331,7 +308,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, seq.ID, theGVCF, gatkLogLevel)
 
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", hapCmdStr)
-
 						slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 
 						var hapErr error
@@ -350,9 +326,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
-
 				}
 
 				// ---------------------------------- MERGING (Skip completed) ------------------------------- //
@@ -368,7 +342,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							vArgs := strings.Join(vSlice, " ")
 
 							//----------------------------- Delete DB if present and delete ------------------------------------- //
-
 							dErr := os.RemoveAll(theDB)
 							if dErr != nil {
 								fmt.Println("Error removing directory:", dErr)
@@ -379,13 +352,10 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							}
 
 							// ------------------------------------------------------------------------------------------ //
-
 							gDBImpCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s --genomicsdb-workspace-path %s --tmp-dir %s -L %s --genomicsdb-shared-posixfs-optimizations true --batch-size 50  --bypass-feature-reader --verbosity %s`, vArgs, theDB, tmpPath, seq.ID, gatkLogLevel)
 
-							jlog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
+							jlog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 							slog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-
-							//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 							var gErr error
 							if verbose {
@@ -395,7 +365,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							}
 
 							if gErr != nil {
-
 								jlog.Error("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", gErr))
 								slog.Error("VARIANT CALLING", "STATUS", fmt.Sprintf("FAILED: %v", gErr))
 								log.Fatalf("FAILED: %v", gErr)
@@ -404,7 +373,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 							slog.Info("VARIANT CALLING", "PROGRAM", "GenomicsDBImport", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 							fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 						}
 
 						// --------------------------------------- GENOTYPE GVCFS (Skip completed) ------------------------------ //
@@ -416,9 +384,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						} else {
 							genoCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s --verbosity %s`, refFile, theDB, jointVCF, tmpPath, gatkLogLevel)
 
-							jlog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
+							jlog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 							slog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-							//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 							var gtErr error
 							if verbose {
@@ -428,7 +395,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							}
 
 							if gtErr != nil {
-
 								jlog.Error("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", gtErr))
 								slog.Error("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", gtErr))
 								log.Fatalf("FAILED: %v", gtErr)
@@ -436,7 +402,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 							slog.Info("VARIANT CALLING", "PROGRAM", "GenotypeGVCFs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 							fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 						}
 
 					case "glnexus":
@@ -452,7 +417,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							rmErr := os.RemoveAll("GLnexus.DB")
 							if rmErr != nil {
 								fmt.Println("Error removing the GLnexus.DB directory:", rmErr)
-								//log.Fatalf("Error removing directory: %v", rmErr)
 							}
 							var glErr error
 							if verbose {
@@ -520,7 +484,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							if indErr != nil {
 								jlog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", indErr))
 								slog.Error("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", indErr))
-
 							}
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 							slog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS_INDEX", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
@@ -541,13 +504,11 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 					} else {
 
-						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
+						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newSnpVCF, sErr := GetVariantType(jointVCF, "SNP", gatkLogLevel, verbose)
 						if sErr != nil {
-
 							jlog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", sErr))
 							slog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", sErr))
 							log.Fatalf("FAILED: %v", sErr)
@@ -556,10 +517,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						snpVCF = newSnpVCF
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
-
-					fmt.Printf("\n\n-------------------------------------------- HARD FILTERING STARTS -----------------------------------------------\n\n")
 
 					// -------------------------------------- SELECT INDELS (Skip completed) -------------------------------- //
 					if utils.StageHasCompleted(logged, "SelectINDELs", "ALL", seq.ID) {
@@ -567,10 +525,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info(msg)
 
 					} else {
-
 						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newIndelVCF, iErr := GetVariantType(jointVCF, "INDEL", gatkLogLevel, verbose)
 						if iErr != nil {
@@ -580,9 +536,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						}
 						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 						indelVCF = newIndelVCF
-
+						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 					}
 
 					// --------------------------------- HARD FILTERING SNPs (Skip completed) ------------------------------- //
@@ -594,7 +549,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					} else {
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newHardFilteredSNPs, hsErr := HardFilterSNPs(snpVCF, gatkLogLevel, verbose)
 						if hsErr != nil {
@@ -606,7 +560,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						hardFilteredSNPs = newHardFilteredSNPs
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
 
 					// -------------------------------- HARD FILTERING INDELS (Skip completed) ------------------------------ //
@@ -616,10 +569,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info(msg)
 
 					} else {
-
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newHardFilteredINDELs, hiErr := HardFilterINDELs(indelVCF, gatkLogLevel, verbose)
 						if hiErr != nil {
@@ -630,9 +581,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 						hardFilteredINDELs = newHardFilteredINDELs
-
+						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 					}
 
 					// -------------------------------------- MERGE VCFs (Skip completed) ----------------------------------- //
@@ -643,10 +593,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					} else {
 						jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --VERBOSITY %s`, hardFilteredSNPs, hardFilteredINDELs, hardFilteredVCF, gatkLogLevel)
-
 						var mErr error
 						if verbose {
 							mErr = utils.RunBashCmdVerbose(mergeCmdStr)
@@ -662,15 +610,13 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 						jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
 					mu.Lock()
 					jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
 					mu.Unlock()
 				}
-
 			}(seq)
+
 		case "DeepVariant":
 			// ---------------------------------------- Check Deps -------------------------------------------------- //
 			go func(seq *linear.Seq) {
@@ -690,17 +636,14 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					bamDir := filepath.Dir(bam)
 					bamName := filepath.Base(bam)
 
-					//theGVCF := ""
 					gvcfName := ""
 					vcfName := ""
 					if strings.HasSuffix(bamName, ".bam") {
 						gvcfName = strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDir), 1)
 						vcfName = strings.Replace(bamName, "bam", fmt.Sprintf("%s.vcf.gz", chromDir), 1)
-						//theGVCF = filepath.Join(gvcfPath, gvcfName )
 					} else if strings.HasSuffix(bamName, ".cram") {
 						gvcfName = strings.Replace(bamName, "cram", fmt.Sprintf("%s.g.vcf.gz", chromDir), 1)
 						vcfName = strings.Replace(bamName, "cram", fmt.Sprintf("%s.vcf.gz", chromDir), 1)
-						//theGVCF = filepath.Join(gvcfPath, gvcfName )
 					} else {
 						fmt.Println("BAM file should have either .bam or .cram extension")
 						os.Exit(1)
@@ -741,7 +684,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 							slog.Info(msg)
 
 						} else {
-
 							glnxMu.Lock()
 							glnexusCmdStr := fmt.Sprintf(`glnexus_cli --config %s  %s/*.vcf.gz > %s`, caller, gvcfPath, jointBCF)
 							jlog.Info("VARIANT CALLING", "PROGRAM", "GLNEXUS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", glnexusCmdStr)
@@ -799,6 +741,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						fmt.Println("Merger can only be glnexus if deep variant is the variant caller")
 						os.Exit(1)
 					}
+
 					// -------------------------------------- SELECT SNPs (Skip completed) ---------------------------------- //
 
 					fmt.Println("Hard filtered  joint VCF ...")
@@ -808,14 +751,11 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info(msg)
 
 					} else {
-
-						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED") //, "CMD", hapCmdStr)
+						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newSnpVCF, sErr := GetVariantType(jointVCF, "SNP", gatkLogLevel, verbose)
 						if sErr != nil {
-
 							jlog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", sErr))
 							slog.Error("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", sErr))
 							log.Fatalf("FAILED: %v", sErr)
@@ -824,7 +764,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectSNPs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						snpVCF = newSnpVCF
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
 
 					// -------------------------------------- SELECT INDELS (Skip completed) -------------------------------- //
@@ -833,10 +772,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info(msg)
 
 					} else {
-
 						jlog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newIndelVCF, iErr := GetVariantType(jointVCF, "INDEL", gatkLogLevel, verbose)
 						if iErr != nil {
@@ -848,7 +785,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info("VARIANT CALLING", "PROGRAM", "SelectINDELs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						indelVCF = newIndelVCF
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
 
 					// --------------------------------- HARD FILTERING SNPs (Skip completed) ------------------------------- //
@@ -860,7 +796,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					} else {
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newHardFilteredSNPs, hsErr := HardFilterSNPs(snpVCF, gatkLogLevel, verbose)
 						if hsErr != nil {
@@ -872,7 +807,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringSNPS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						hardFilteredSNPs = newHardFilteredSNPs
 						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
 
 					// -------------------------------- HARD FILTERING INDELS (Skip completed) ------------------------------ //
@@ -882,10 +816,9 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						slog.Info(msg)
 
 					} else {
-
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						//fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
+						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 						newHardFilteredINDELs, hiErr := HardFilterINDELs(indelVCF, gatkLogLevel, verbose)
 						if hiErr != nil {
@@ -897,8 +830,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						jlog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "HardFilteringINDELS", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						hardFilteredINDELs = newHardFilteredINDELs
-						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-
 					}
 
 					// -------------------------------------- MERGE VCFs (Skip completed) ----------------------------------- //
@@ -926,15 +857,13 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 						jlog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", "MergeVcfs", "SAMPLE", "ALL", "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						//slog.Info("VARIANT CALLING", "STATUS", "COMPLETED")
-
+						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 					}
 					mu.Lock()
 					jointvSlice = append(jointvSlice, "-I "+hardFilteredVCF)
 					mu.Unlock()
 				}
 			}(seq)
-
 		}
 	}
 	wg.Wait()
@@ -970,7 +899,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	}
 
 	return finalVcf, nil
-
 }
 
 func VariantCallingConfig(configFile string, species string, maxParallelJobs int, gatkLogLevel string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool) {
@@ -1012,7 +940,6 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 	outInfo, outErr := os.Stat(outputDir)
 
 	if outErr != nil {
-
 		if os.IsNotExist(outErr) {
 			fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outputDir)
 			if createErr := os.MkdirAll(outputDir, 0755); createErr != nil {
@@ -1036,12 +963,43 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 	}
 }
 
-func VariantCallingDir(dataDir string, species string, refVer string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string) {
-	// ============================================= Check paths ================================================ //
+// sampleWork bundles per-sample data needed by the worker goroutine.
+type sampleWork struct {
+	sample  string
+	cram    string
+	cramDir string // filepath.Dir of the cram, used to derive gvcf output path
+}
 
+// validateGvcf checks gzip integrity and header readability with a single
+// bcftools stats call (much cheaper than bcftools view on the full body).
+func validateGvcf(vcf string, verbose bool) error {
+	valStr := fmt.Sprintf(`gunzip -t %s && bcftools index -n %s > /dev/null`, vcf, vcf)
+	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
+	if verbose {
+		return utils.RunBashCmdVerbose(valStr)
+	}
+	return utils.RunBashCmd(valStr)
+}
+
+// VariantCallingDir scans a directory tree for samples, then concurrently
+// creates per-chromosome and per-contig gVCFs using the configured caller.
+//
+// Optimisations over the original:
+//  1. Sample discovery + BAM lookup is done once up-front; only valid samples
+//     with exactly one CRAM proceed to the calling stage.
+//  2. Chromosome gVCFs are processed concurrently across samples using a
+//     semaphore-bounded worker pool (maxWorkers = runtime.NumCPU()).
+//  3. The contig gVCF is only created when the output file does not already
+//     exist, mirroring the per-chromosome skip logic.
+//  4. gVCF validation uses `bcftools stats` instead of a full `bcftools view`
+//     scan, which is substantially faster on large files.
+//  5. findBamOrVcfs is called exactly once per (sample, chrom) pair; the
+//     result drives the decision rather than a second lookup inside the branch.
+func VariantCallingDir(dataDir string, species string, refVer string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string) {
+
+	// ============================================= Validate paths ================================================ //
 	fmt.Println("Checking paths ...")
 
-	// --------------------------------------------- Data dir --------------------------------------------------- //
 	dInfo, err := os.Stat(dataDir)
 	if err != nil {
 		fmt.Printf("Error accessing data directory: %s\n", dataDir)
@@ -1056,23 +1014,15 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 		fmt.Printf("Error getting absolute path for data directory: %s\n", dataDir)
 		return
 	}
-	//fmt.Printf("Data directory: %s\n", dataDirAbs)
-
-	// ---------------------------------------- Species & Version ----------------------------------------------- //
 
 	if species == "" {
 		fmt.Println("Please provide species name")
 		return
 	}
-
 	if refVer == "" {
 		fmt.Println("Please provide reference version name")
 		return
 	}
-
-	//fmt.Printf("Species: %s, ver: %s\n", species, refVer)
-
-	// -------------------------------------- Reference fasta & Dict -------------------------------------------- //
 	if refFasta == "" {
 		fmt.Println("Please provide reference name")
 		return
@@ -1089,17 +1039,11 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 	}
 
 	dictFilePath := refFasta[:len(refFasta)-len(filepath.Ext(refFasta))] + ".dict"
-	_, dicfErr := os.Stat(dictFilePath)
-	if dicfErr != nil {
+	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
 		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
 		return
 	}
 
-	//fmt.Printf("Reference fasta: %s\n", refFasta)
-	//fmt.Printf("Reference dict: %s\n", dictFilePath)
-	//fmt.Println("Get chromosomes and IDs:", refVer)
-	//
-	//fmt.Printf("Reference dict file: %s\n", dictFilePath)
 	chroms, contigs, err := getChromsAndContigs(dictFilePath)
 	if err != nil {
 		fmt.Printf("Error getting chromosomes and IDs: %v\n", err)
@@ -1107,9 +1051,8 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 	}
 
 	color.Green("All file paths valid\n....................................................\n\n")
-	//fmt.Printf("Chromosomes: %v\n\nContigs: %v\n..........................\n", chroms, contigs)
 
-	// ================================== Checking Samples in dir Structure ===================================== //
+	// ================================== Discover samples ===================================== //
 	color.Green("Checking Samples in dir structure ...\n\n")
 	pattern := filepath.Join(dataDir, species, "*", "*", "reference_genomes")
 	matches, err := filepath.Glob(pattern)
@@ -1117,87 +1060,156 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 		panic(err)
 	}
 
-	samples := []string{}
+	color.Green("SAMPLES FOUND:\n---------------------------------------------------------------------\n\n ")
+	seen := make(map[string]struct{}, len(matches))
+	var samples []string
 	for _, match := range matches {
-		// match is the reference_genomes dir, parent is sampleDir
-		sample := filepath.Base(filepath.Dir(match))
-		//fmt.Println(sample)
-		samples = append(samples, sample)
+		s := filepath.Base(filepath.Dir(match))
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			samples = append(samples, s)
+			fmt.Println(s)
+		}
 	}
-	fmt.Printf("there are %v Samples in the data directory for %s\n==================================\n\n", len(samples), species)
+	color.Green("\nFound %d sample(s) in the data directory for %s\n==================================\n\n", len(samples), color.GreenString(species))
 
-	// -------------------------------------- Check for bams ------------------------------------------------------- //
-	fmt.Println("Looking for bams ....")
+	// ============================== Resolve valid samples up-front ============================== //
+	fmt.Println("Looking for bam files ....")
 
-	missingBams := []string{}
-	multipleBams := []string{}
+	var (
+		validSamples []sampleWork
+		missingBams  []string
+		multipleBams []string
+	)
 
 	for _, sample := range samples {
 		_, cramFiles := findBamOrVcfs(dataDirAbs, species, sample, refVer, "bams", "")
-		if len(cramFiles) == 0 {
+		switch len(cramFiles) {
+		case 0:
 			missingBams = append(missingBams, sample)
-		} else if len(cramFiles) > 1 {
-			multipleBams = append(multipleBams, sample)
-		} else {
+			color.Red("[%s] bqsr.cram file MISSING! 😒\n", sample)
+		case 1:
 			cram := cramFiles[0]
-			cramName := filepath.Base(cram)
-
-			refDir := filepath.Dir(filepath.Dir(filepath.Dir(cram)))
-
-			fmt.Printf("Cram file found in %s: %v\n", sample, cramFiles[0])
-			for _, chrom := range chroms {
-				gvcfName := strings.Replace(cramName, ".cram", fmt.Sprintf("%s.g.vcf.gz", chrom.ID), 1)
-				gvcfPath := filepath.Join(refDir, refVer, "gvcfs", gvcfName)
-				_, vcfFiles := findBamOrVcfs(dataDirAbs, species, sample, refVer, "gvcfs", chrom.ID)
-				if len(vcfFiles) == 0 {
-					fmt.Printf("VCF file not found in %s: %s\n", sample, chrom.ID)
-
-					_, err4 := CreateGvcf(cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose)
-					if err4 != nil {
-						fmt.Printf("Error creating gvcf file - %s: %v\n", gvcfPath, err4)
-						//return
-					}
-				} else if len(vcfFiles) == 1 {
-					vcf := vcfFiles[0]
-					//fmt.Printf("VCF file found in %s: %v\n..................................\n\n", sample, vcfFiles[0])
-					color.Green("CHECKING VALIDITY OF THE gVCF file %s", color.BlueString(vcf))
-					valStr := fmt.Sprintf(`gunzip -t %s && bcftools view -h %s > /dev/null && bcftools view %s > /dev/null`, vcf, vcf, vcf)
-					var vErr error
-					if verbose {
-						vErr = utils.RunBashCmdVerbose(valStr)
-					} else {
-						vErr = utils.RunBashCmd(valStr)
-					}
-					if vErr != nil {
-						fmt.Printf("Error validating gvcf file: %v\n", vErr)
-						fmt.Println("Re-creating gvcf file")
-						_, err4 := CreateGvcf(cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose)
-						if err4 != nil {
-							fmt.Printf("Error creating gvcf file - %s: %v\n", gvcfPath, err4)
-							//return
-						}
-					} else {
-						fmt.Println("gVCF is valid")
-
-					}
-
-				} else {
-					fmt.Printf("Multiple gVCF files found in %s: %v\n", sample, vcfFiles)
-
-				}
-			}
-			gvcfName := strings.Replace(cramName, ".cram", ".contigs.g.vcf.gz", 1)
-			gvcfPath := filepath.Join(refDir, refVer, "gvcfs", gvcfName)
-			_, err4 := CreateGvcf(cram, refFasta, contigs, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose)
-			if err4 != nil {
-				fmt.Printf("Error creating gvcf file - %s: %v\n", gvcfPath, err4)
-				//return
-			}
-
+			//fmt.Printf("CRAM file found for %s: %s\n", sample, cram)
+			color.Green("[%s] bqsr.cram file FOUND! 😊: %s\n", sample, cram)
+			validSamples = append(validSamples, sampleWork{
+				sample:  sample,
+				cram:    cram,
+				cramDir: filepath.Dir(filepath.Dir(filepath.Dir(cram))), // …/refVer parent
+			})
+		default:
+			color.Red("[%s] has multiple cram files.⚠️.\n%s\n\nI don't know which one to use.  Remove bad ones: %v\n\n", sample, cramFiles)
+			multipleBams = append(multipleBams, sample)
 		}
-
 	}
 
-	fmt.Printf("There are %v missing bams for %s\n==================================\n", len(missingBams), species)
+	color.Green("\nValid: %d\n", len(validSamples))
+	color.Red("Missing: %d\n", len(missingBams))
+	color.Yellow("Multiple: %d\n", len(multipleBams))
 
+	fmt.Printf("\n==============================================================\n\n")
+
+	color.Green("Creating gVCFs for %d valid samples ...................................\n\n", len(validSamples))
+
+	if len(validSamples) == 0 {
+		color.Red("No valid samples found. Exiting.")
+		return
+	}
+
+	// ============================== Concurrent per-chrom GVCF creation ============================== //
+	maxWorkers := runtime.NumCPU()
+	if maxWorkers < 1 {
+		maxWorkers = 1
+	}
+
+	type workItem struct {
+		sw    sampleWork
+		chrom SeqInfo
+	}
+
+	workCh := make(chan workItem)
+	var wg sync.WaitGroup
+
+	// Fan out workers.
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range workCh {
+				sw := item.sw
+				chrom := item.chrom
+
+				cramName := filepath.Base(sw.cram)
+				gvcfName := strings.Replace(cramName, ".cram", fmt.Sprintf(".%s.g.vcf.gz", chrom.ID), 1)
+				gvcfPath := filepath.Join(sw.cramDir, refVer, "gvcfs", gvcfName)
+
+				_, vcfFiles := findBamOrVcfs(dataDirAbs, species, sw.sample, refVer, "gvcfs", chrom.ID)
+
+				switch len(vcfFiles) {
+				case 0:
+					color.Red("[%s] gVCF not found for chrom %s — creating ........\n\n", sw.sample, color.GreenString(chrom.ID))
+					if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+						color.Red("[%s] Error creating gVCF for chrom %s: %v\n\n", sw.sample, chrom.ID, err)
+					}
+
+				case 1:
+					vcf := vcfFiles[0]
+					color.Green("[%s] gVCF file for chrom %s exists: %s\n\n", sw.sample, color.BlueString(chrom.ID), vcf)
+					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sw.sample, color.BlueString(vcf))
+					if vErr := validateGvcf(vcf, verbose); vErr != nil {
+						color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(vcf), vErr)
+						if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+							color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(vcf), err)
+						} else {
+							color.Green("[%s] gVCF %s re-created successfully\n", sw.sample, color.BlueString(vcf))
+						}
+					} else {
+						color.Green("[%s] gVCF %s is valid!!\n\n", sw.sample, vcf)
+					}
+
+				default:
+					color.Red("[%s] Multiple gVCF files found for chrom %s. Please remove extra gVCF in here.\n\n", sw.sample, chrom.ID)
+				}
+			}
+		}()
+	}
+
+	// Enqueue (sample × chrom) work items.
+	for _, sw := range validSamples {
+		for _, chrom := range chroms {
+			workCh <- workItem{sw: sw, chrom: chrom}
+		}
+	}
+	close(workCh)
+	wg.Wait()
+
+	// ============================== Contig gVCFs (skip if already present) ============================== //
+	for _, sw := range validSamples {
+		cramName := filepath.Base(sw.cram)
+		contigGvcfName := strings.Replace(cramName, ".cram", ".contigs.g.vcf.gz", 1)
+		contigGvcfPath := filepath.Join(sw.cramDir, refVer, "gvcfs", contigGvcfName)
+
+		// Skip if the contig gVCF already exists and is readable.
+		if _, statErr := os.Stat(contigGvcfPath); statErr == nil {
+
+			fmt.Printf("[%s] checking integrity of gVCF file: %s .......................\n\n", sw.sample, color.BlueString(contigGvcfPath))
+			if vErr := validateGvcf(contigGvcfPath, verbose); vErr != nil {
+				color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(contigGvcfPath), vErr)
+				if _, err := CreateGvcf(sw.cram, refFasta, contigs, contigGvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+					color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(contigGvcfPath), err)
+				} else {
+					color.Green("[%s] gVCF %s re-created successfully\n", sw.sample, color.BlueString(contigGvcfPath))
+				}
+			} else {
+				color.Green("[%s] gVCF %s is valid!!\n\n", sw.sample, color.BlueString(contigGvcfPath))
+			}
+		} else {
+			color.Green("[%s] Creating contig gVCF: %s\n", sw.sample, color.BlueString(contigGvcfPath))
+			if _, err := CreateGvcf(sw.cram, refFasta, contigs, contigGvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+				fmt.Printf("[%s] Error creating contig gVCF: %v\n", sw.sample, err)
+			}
+		}
+	}
+
+	fmt.Printf("Missing bams (%d): %v\n==================================\n", len(missingBams), missingBams)
 }

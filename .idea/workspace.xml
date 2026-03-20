@@ -6,6 +6,10 @@
   <component name="ChangeListManager">
     <list default="true" id="2ed741eb-c74a-40b0-aecf-7a60442acf3a" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCallerOpt2.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go.unoptimised" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCallerOptimised.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCallerOptimised.go.1" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -13,7 +17,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="104" />
+    <option name="cachedIndexableFilesCount" value="109" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
