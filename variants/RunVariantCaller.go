@@ -981,7 +981,6 @@ func validateGvcf(vcf string, verbose bool) error {
 	return utils.RunBashCmd(valStr)
 }
 
-
 func VariantCallingDir(dataDir string, species string, refVer string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string) {
 
 	// ============================================= Validate paths ================================================ //
@@ -1104,6 +1103,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 	}
 
 	// ============================== Concurrent per-chrom GVCF creation ============================== //
+	var failedSamples []string
 	maxWorkers := runtime.NumCPU()
 	if maxWorkers < 1 {
 		maxWorkers = 1
@@ -1137,6 +1137,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 					color.Red("[%s] gVCF not found for chrom %s — creating ........\n\n", sw.sample, color.GreenString(chrom.ID))
 					if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 						color.Red("[%s] Error creating gVCF for chrom %s: %v\n\n", sw.sample, chrom.ID, err)
+						failedSamples = append(failedSamples, []string{sw.sample, chrom.ID}...)
 					}
 
 				case 1:
@@ -1147,6 +1148,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 						color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(vcf), vErr)
 						if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 							color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(vcf), err)
+							failedSamples = append(failedSamples, []string{sw.sample, chrom.ID}...)
 						} else {
 							color.Green("[%s] gVCF %s re-created successfully\n", sw.sample, color.BlueString(vcf))
 						}
@@ -1201,8 +1203,9 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 	fmt.Printf("Missing bams (%d): %v\n==================================\n", len(missingBams), missingBams)
 
 	if !noMerging {
-		if len(missingBams) == 0 {
-			fmt.Println("")
+		if len(missingBams) == 0 && len(failedSamples) == 0 {
+			fmt.Println("no missing bam files and no failed samples. Calling MergeVcfs")
+
 		}
 	}
 }
