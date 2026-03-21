@@ -981,20 +981,7 @@ func validateGvcf(vcf string, verbose bool) error {
 	return utils.RunBashCmd(valStr)
 }
 
-// VariantCallingDir scans a directory tree for samples, then concurrently
-// creates per-chromosome and per-contig gVCFs using the configured caller.
-//
-// Optimisations over the original:
-//  1. Sample discovery + BAM lookup is done once up-front; only valid samples
-//     with exactly one CRAM proceed to the calling stage.
-//  2. Chromosome gVCFs are processed concurrently across samples using a
-//     semaphore-bounded worker pool (maxWorkers = runtime.NumCPU()).
-//  3. The contig gVCF is only created when the output file does not already
-//     exist, mirroring the per-chromosome skip logic.
-//  4. gVCF validation uses `bcftools stats` instead of a full `bcftools view`
-//     scan, which is substantially faster on large files.
-//  5. findBamOrVcfs is called exactly once per (sample, chrom) pair; the
-//     result drives the decision rather than a second lookup inside the branch.
+
 func VariantCallingDir(dataDir string, species string, refVer string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string) {
 
 	// ============================================= Validate paths ================================================ //
@@ -1212,4 +1199,10 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 	}
 
 	fmt.Printf("Missing bams (%d): %v\n==================================\n", len(missingBams), missingBams)
+
+	if !noMerging {
+		if len(missingBams) == 0 {
+			fmt.Println("")
+		}
+	}
 }
