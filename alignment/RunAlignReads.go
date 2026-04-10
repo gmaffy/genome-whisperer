@@ -867,7 +867,7 @@ func validateFastqGz(fastq string, verbose bool, quick bool) error {
 	return utils.RunBashCmd(valStr)
 }
 
-func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool) {
+func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, threads int) {
 	// ============================================= Validate paths ================================================ //
 	fmt.Println("Checking paths ...")
 
@@ -982,6 +982,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		sample string
 		fwd    string
 		rev    string
+		bamDir string
 	}
 
 	var missingCleanReads []string
@@ -1038,7 +1039,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 								if skipVer {
 									color.Yellow("Skip fastq verification for %s\n", sample)
-									validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0]})
+									validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0], bamDir: verDir})
 									color.Green("[%s] PE reads found", sample)
 								} else {
 									color.Blue("Validating fwd PE read: %s\n", fwdReads[0])
@@ -1050,7 +1051,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 										missingCleanReads = append(missingCleanReads, sample)
 									} else {
 										color.Green("Valid PE reads found")
-										validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0]})
+										validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0], bamDir: verDir})
 									}
 
 								}
@@ -1071,6 +1072,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 	}
 
+	var failedAlignments []string
 	color.Green("\nValid: %d\n", len(validCleanReads))
 	if len(validCleanReads) > 0 {
 		for _, readPair := range validCleanReads {
@@ -1081,6 +1083,156 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			default:
 
 				color.Green("Aligning reads for %s to reference genome %s. with bwa-mem2\n", readPair.sample, refFasta)
+				sortedBam := filepath.Join(readPair.bamDir, readPair.sample+".sorted.bam")
+				readGroup := fmt.Sprintf("@RG\\tID:%s.1\\tSM:%s\\tLB:%s\\tPL:BGISEQ", readPair.sample, readPair.sample, fmt.Sprintf("%s_1", readPair.sample))
+				cmdStr := fmt.Sprintf(`bwa-mem2 mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, refFasta, readPair.fwd, readPair.rev, sortedBam)
+				fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
+
+				var memErr error
+				if verbose {
+					memErr = utils.RunBashCmdVerbose(cmdStr)
+				} else {
+					memErr = utils.RunBashCmd(cmdStr)
+				}
+				if memErr != nil {
+					failedAlignments = append(failedAlignments, readPair.sample)
+				} else {
+					color.Green("Aligned reads for %s to reference genome %s. with bwa-mem2\n", readPair.sample, refFasta)
+					rgmdBam := filepath.Join(readPair.bamDir, readPair.sample+".rgmd.bam")
+					rgmdMetrics := filepath.Join(readPair.bamDir, readPair.sample+".rgmd.metrics.txt")
+					mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`, refFasta, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+					fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
+
+					var mdupErr error
+					if verbose {
+						mdupErr = utils.RunBashCmdVerbose(mDupCmdStr)
+					} else {
+						mdupErr = utils.RunBashCmd(mDupCmdStr)
+					}
+					if mdupErr != nil {
+						failedAlignments = append(failedAlignments, readPair.sample)
+
+					} else {
+						indexCmdStr := fmt.Sprintf(`samtools index %s`, rgmdBam)
+						fmt.Printf("%s\n-----------------------------------------------\n\n", indexCmdStr)
+
+						var indErr error
+						if verbose {
+							indErr = utils.RunBashCmdVerbose(indexCmdStr)
+						} else {
+							indErr = utils.RunBashCmd(indexCmdStr)
+						}
+						if indErr != nil {
+							failedAlignments = append(failedAlignments, readPair.sample)
+						} else {
+							if bqsr {
+								fmt.Println("Running BQSR")
+								//fmt.Println("Check if mark duplicates was successful")
+								//_, mdErr := os.Stat(rgmdBam)
+								//_, mdiErr := os.Stat(rgmdIndex)
+								//
+								//if mdErr != nil || mdiErr != nil {
+								//	fmt.Println("Mark duplicates failed")
+								//	return "", fmt.Errorf("mark duplicates failed\n\n")
+								//}
+								//fmt.Println("Mark duplicates successful")
+
+								if len(knownSites) == 0 && bootstrap == true {
+									fmt.Println("Running with bootstrap method")
+									fmt.Println("Create Known variants ..............")
+									if utils.StageHasCompleted(logged, "BOOTSTRAP_CKV", sampleName, "ALL") {
+										msg := fmt.Sprintf("BOOTSTRAP already completed for bam file: %s. Reusing known-sites.\n\n------------------------------------------------------------------------\n\n", sampleName)
+										slog.Info(msg)
+										// Derive expected known-sites paths from the BAM name
+										baseName := ""
+										if strings.HasSuffix(rgmdBam, ".bam") {
+											baseName = strings.TrimSuffix(rgmdBam, ".bam")
+										} else {
+											baseName = strings.TrimSuffix(rgmdBam, ".cram")
+										}
+										snpVCF := baseName + ".raw.SNP.hard_filtered.vcf.gz"
+										indelVCF := baseName + ".raw.INDEL.hard_filtered.vcf.gz"
+										// Use existing known-sites if present
+										if _, err := os.Stat(snpVCF); err == nil {
+											knownSites = append(knownSites, snpVCF)
+										}
+										if _, err := os.Stat(indelVCF); err == nil {
+											knownSites = append(knownSites, indelVCF)
+										}
+										if len(knownSites) == 0 {
+											// Fallback to recomputing if files are missing
+											jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "RETRYING_CREATE_KNOWN_VARIANTS")
+											newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel, verbose)
+											if ksErr != nil {
+												jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+												slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+												return "", fmt.Errorf("create known variants failed\n\n")
+											}
+											knownSites = newKnownSites
+										}
+									} else {
+										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+										newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel, verbose)
+										if ksErr != nil {
+											jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+											slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
+											return "", fmt.Errorf("create known variants failed\n\n")
+										}
+										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+										knownSites = newKnownSites
+										fmt.Printf("Known variants created at %v\n...................................................\n", knownSites)
+
+									}
+
+									if utils.StageHasCompleted(logged, "BOOTSTRAP_BQSR", sampleName, "ALL") {
+										msg := fmt.Sprintf("BOOTSTRAP_BQSR already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
+										slog.Info(msg)
+									} else {
+										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+										bqsrBam, recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath, verbose)
+										if recErr != nil {
+											jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
+											slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
+											return "", fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
+										}
+										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
+										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+									}
+
+								} else if len(knownSites) > 0 && bootstrap == false {
+									if utils.StageHasCompleted(logged, "DBSNP_BQSR", sampleName, "ALL") {
+										msg := fmt.Sprintf("DBSNP_BQSR already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
+										slog.Info(msg)
+									} else {
+										jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+										slog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
+										bqsrBam, recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath, verbose)
+										if recErr != nil {
+											jlog.Error("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
+											slog.Error("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
+											return "", fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
+										}
+										jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
+										jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+										slog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
+										finalBam = bqsrBam
+
+									}
+
+								} else {
+									finalBam = rgmdBam
+								}
+
+							}
+							return finalBam, nil
+						}
+					}
+				}
+
 			}
 
 		}
