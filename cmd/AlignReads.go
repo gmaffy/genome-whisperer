@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/alignment"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/spf13/cobra"
@@ -109,6 +110,31 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting output format flag: %v", ofErr)
 		}
 
+		dataDir, dErr := cmd.Flags().GetString("data-dir")
+		if dErr != nil {
+			log.Fatalf("Error getting data-dir flag: %v", dErr)
+		}
+
+		speciesName, sErr := cmd.Flags().GetString("species")
+		if sErr != nil {
+			log.Fatalf("Error getting species flag: %v", sErr)
+		}
+
+		refVer, refVerErr := cmd.Flags().GetString("ref-version")
+		if refVerErr != nil {
+			log.Fatalf("Error getting reference version flag: %v", refVerErr)
+		}
+
+		quick, qErr := cmd.Flags().GetBool("quick")
+		if qErr != nil {
+			verbose = false
+		}
+
+		skipVerification, sErr := cmd.Flags().GetBool("skip-verification")
+		if sErr != nil {
+			log.Fatalf("Error getting skip-verification flag: %v", sErr)
+		}
+
 		//--------------------------------------------------- Check dependencies ------------------------------------//
 		deps := []string{"samtools", "gatk"}
 
@@ -147,6 +173,14 @@ var AlignReadsCmd = &cobra.Command{
 			} else {
 				fmt.Printf("%v BAMs generated", len(bams))
 			}
+		} else if dataDir != "" {
+			fmt.Printf("Running Variant Calling using Plennegy data directory structure: %s\n", color.BlueString(dataDir))
+			_, err := os.Stat(dataDir)
+			if err != nil {
+				fmt.Printf("Data directory %s does not exist", dataDir)
+				return
+			}
+			alignment.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, verbose, gatkLogLevel, aligner, quick, skipVerification)
 		} else {
 			//fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
@@ -263,5 +297,10 @@ func init() {
 	AlignReadsCmd.Flags().String("preset", "HIFI", "pbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
 	AlignReadsCmd.Flags().String("gatk-log-level", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
 	AlignReadsCmd.Flags().StringP("output-fmt", "O", "bam", "bam or cram")
+	AlignReadsCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
+	AlignReadsCmd.Flags().StringP("species", "S", "", "Species name")
+	AlignReadsCmd.Flags().String("ref-version", "", "Reference genome version")
+	AlignReadsCmd.Flags().Bool("quick", false, "Quick verification")
+	AlignReadsCmd.Flags().Bool("skip-verification", false, "Skip verification")
 
 }

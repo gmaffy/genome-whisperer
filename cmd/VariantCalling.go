@@ -96,6 +96,11 @@ var VariantCallingCmd = &cobra.Command{
 			verbose = false
 		}
 
+		quick, qErr := cmd.Flags().GetBool("quick")
+		if qErr != nil {
+			verbose = false
+		}
+
 		if speciesName == "" {
 			fmt.Println("Please provide species name with flag --species ")
 			return
@@ -157,7 +162,7 @@ var VariantCallingCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			variants.VariantCallingDir(dataDir, speciesName, refVer, refFile, caller, merger, dvVer, modelType, verbose, nomerging, verbosity)
+			variants.VariantCallingDir(dataDir, speciesName, refVer, refFile, caller, merger, dvVer, modelType, verbose, nomerging, verbosity, quick)
 		} else {
 
 			fmt.Printf("Running without config flag\n")
@@ -241,4 +246,5 @@ func init() {
 	VariantCallingCmd.Flags().String("deepvariant-version", "1.9.0", "DeepVariant version")
 	VariantCallingCmd.Flags().String("model-type", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
 	VariantCallingCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
+	VariantCallingCmd.Flags().Bool("quick", false, "Quick verification")
 }

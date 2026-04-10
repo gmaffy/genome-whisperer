@@ -10,7 +10,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/gmaffy/genome-whisperer/variants"
 )
 
 func RunAlignReads(referencePath string, forwardPath string, reversePath string, sePath string, sampleName string, libName string, outputDir string, threads int, aligner string, knownSites []string, bqsr bool, bootstrap bool, logFilePath string, preset string, gatkLogLevel string, verbose bool, outputFmt string) (string, error) {
@@ -786,4 +788,301 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	}
 	return bams, nil
 
+}
+
+type sampleWork struct {
+	sample  string
+	cram    string
+	cramDir string // filepath.Dir of the cram, used to derive gvcf output path
+}
+
+func isFwd(filename string) bool {
+	return strings.HasSuffix(filename, "1.fastq.gz") ||
+		strings.HasSuffix(filename, "1.fq.gz") ||
+		strings.HasSuffix(filename, "1.fastq") ||
+		strings.HasSuffix(filename, "1.fq") ||
+		strings.HasPrefix(filename, "Forward") ||
+		strings.Contains(filename, "_R1_") ||
+		strings.Contains(filename, "_1_") ||
+		strings.Contains(filename, "1.fq")
+}
+
+func isRev(filename string) bool {
+	return strings.HasSuffix(filename, "2.fastq.gz") ||
+		strings.HasSuffix(filename, "2.fq.gz") ||
+		strings.HasSuffix(filename, "2.fastq") ||
+		strings.HasSuffix(filename, "2.fq") ||
+		strings.HasPrefix(filename, "Reverse") ||
+		strings.Contains(filename, "_R2_") ||
+		strings.Contains(filename, "_2_") ||
+		strings.Contains(filename, "_2.fq")
+}
+
+func GetReadsPE(cleanReadsDir string) ([]string, []string, error) {
+	var fwdReads, revReads []string
+
+	entries, err := os.ReadDir(cleanReadsDir)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		fullPath := filepath.Join(cleanReadsDir, name)
+
+		if isFwd(name) {
+			fwdReads = append(fwdReads, fullPath)
+		} else if isRev(name) {
+			revReads = append(revReads, fullPath)
+		}
+	}
+
+	return fwdReads, revReads, nil
+}
+
+func validateFastqGz(fastq string, verbose bool, quick bool) error {
+	if quick {
+		// Just check the gzip magic bytes and EOF integrity
+		valStr := fmt.Sprintf("gzip -t %s", fastq)
+		fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
+		if verbose {
+			return utils.RunBashCmdVerbose(valStr)
+		}
+		return utils.RunBashCmd(valStr)
+	}
+
+	// Full validation: gzip integrity + FASTQ format check (4-line records, quality scores)
+	valStr := fmt.Sprintf(
+		`bash -c 'gzip -cd %s | awk "NR%%4==1 && !/^@/ { print \"Bad header at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } NR%%4==3 && !/^\+/ { print \"Bad separator at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } END { if(NR%%4!=0) { print \"Truncated: \", NR, \"lines\" > \"/dev/stderr\"; exit 1 } }" '`,
+		fastq,
+	)
+	fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
+	if verbose {
+		return utils.RunBashCmdVerbose(valStr)
+	}
+	return utils.RunBashCmd(valStr)
+}
+
+func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool) {
+	// ============================================= Validate paths ================================================ //
+	fmt.Println("Checking paths ...")
+
+	dInfo, err := os.Stat(dataDir)
+	if err != nil {
+		fmt.Printf("Error accessing data directory: %s\n", dataDir)
+		return
+	}
+	if !dInfo.IsDir() {
+		fmt.Printf("Data directory %s is not a directory\n", dataDir)
+		return
+	}
+	dataDirAbs, err := filepath.Abs(dataDir)
+	if err != nil {
+		fmt.Printf("Error getting absolute path for data directory: %s\n", dataDir)
+		return
+	}
+
+	if species == "" {
+		fmt.Println("Please provide species name")
+		return
+	}
+	if refVer == "" {
+		fmt.Println("Please provide reference version name")
+		return
+	}
+	if refFasta == "" {
+		fmt.Println("Please provide reference name")
+		return
+	}
+
+	fastaInfo, err := os.Stat(refFasta)
+	if err != nil {
+		fmt.Printf("Error accessing reference fasta file: %s\n", refFasta)
+		return
+	}
+	if !fastaInfo.Mode().IsRegular() {
+		fmt.Printf("Reference fasta file: %s is not a regular file\n", refFasta)
+		return
+	}
+
+	dictFilePath := refFasta[:len(refFasta)-len(filepath.Ext(refFasta))] + ".dict"
+	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
+		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
+		return
+	}
+
+	color.Green("All file paths valid\n....................................................\n\n")
+	fmt.Println("data dir abs:", dataDirAbs)
+	// ================================== Discover samples ===================================== //
+	color.Green("Checking Samples in dir structure ...\n\n")
+	pattern := filepath.Join(dataDir, species, "*", "*", "clean_reads")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		panic(err)
+	}
+
+	color.Green("SAMPLES FOUND:\n---------------------------------------------------------------------\n\n ")
+	seen := make(map[string]struct{}, len(matches))
+	var samples []string
+	for _, match := range matches {
+		s := filepath.Base(filepath.Dir(match))
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			samples = append(samples, match)
+			fmt.Println(s)
+		}
+	}
+	color.Green("\nFound %d sample(s) in the data directory for %s\n==================================\n\n", len(samples), color.GreenString(species))
+
+	// ======================================= Resolve valid samples up-front ======================================= //
+	fmt.Println("Looking for bam files ....")
+
+	var (
+		validSamples []sampleWork
+		missingBams  []string
+		multipleBams []string
+	)
+
+	for _, sample := range samples {
+		_, cramFiles := variants.FindBamOrVcfs(dataDirAbs, species, sample, refVer, "bams", "")
+		switch len(cramFiles) {
+		case 0:
+			missingBams = append(missingBams, sample)
+			color.Red("[%s] bqsr.cram file MISSING! 😒\n", sample)
+		case 1:
+			cram := cramFiles[0]
+			//fmt.Printf("CRAM file found for %s: %s\n", sample, cram)
+			color.Green("[%s] bqsr.cram file FOUND! 😊: %s\n", sample, cram)
+			err := variants.ValidateBam(cram, refFasta, verbose, quick)
+			if err != nil {
+				color.Red("[%s] bqsr.cram file is not valid: %v\n", sample, err)
+				missingBams = append(missingBams, sample)
+			} else {
+
+				validSamples = append(validSamples, sampleWork{sample: sample, cram: cram, cramDir: filepath.Dir(filepath.Dir(filepath.Dir(cram)))})
+			}
+
+		default:
+			color.Red("[%s] has multiple cram files.⚠️.\n%s\n\nI don't know which one to use.  Remove bad ones: %v\n\n", sample, cramFiles)
+			multipleBams = append(multipleBams, sample)
+		}
+	}
+
+	color.Green("\nValid: %d\n", len(validSamples))
+	color.Red("Missing: %d\n", len(missingBams))
+	color.Yellow("Multiple: %d\n", len(multipleBams))
+
+	fmt.Printf("\n==============================================================\n\n")
+
+	type samplePair struct {
+		sample string
+		fwd    string
+		rev    string
+	}
+
+	var missingCleanReads []string
+	var multipleCleanReads []string
+	var validCleanReads []samplePair
+
+	if len(missingBams) > 0 {
+		color.Green("Aligning reads for %d samples:\n---------------------------------------------------------------------\n\n ", len(missingBams))
+		for _, cleanReadsDir := range missingBams {
+			sample := filepath.Base(filepath.Dir(cleanReadsDir))
+			fmt.Println(sample)
+			if strings.HasSuffix(sample, "LR") {
+				fmt.Println("This is LR sample. Using pbmm2")
+			} else {
+				fmt.Println("This is not LR sample. Using bwa-mem2")
+				fmt.Println("Check if reference_genomes dir is present in the data directory")
+				refDir := filepath.Join(filepath.Dir(cleanReadsDir), "reference_genomes")
+				fmt.Println("refDir:", refDir)
+				_, err := os.Stat(refDir)
+				if err != nil {
+					err := os.MkdirAll(refDir, 0755)
+					if err != nil {
+						color.Red("Error creating reference_genomes dir in the data directory: %v\n", err)
+						missingCleanReads = append(missingCleanReads, sample)
+					}
+				} else {
+					fmt.Println("Check if reference_genomes species bams dir is present in the data directory")
+					verDir := filepath.Join(refDir, refVer, "bams")
+					_, err := os.Stat(verDir)
+					if err != nil {
+						err := os.MkdirAll(verDir, 0755)
+						if err != nil {
+							color.Red("Error creating reference_genomes bams dir in the data directory: %v\n", err)
+							missingCleanReads = append(missingCleanReads, sample)
+						}
+					} else {
+						fmt.Println("Check for PE reads ..")
+
+						fwdReads, revReads, err := GetReadsPE(cleanReadsDir)
+						fmt.Println("fwd reads:", fwdReads)
+						fmt.Println("rev reads:", revReads)
+
+						if err != nil {
+							Msg := fmt.Sprintf("Error getting reads from %s: %v", cleanReadsDir, err)
+							color.Red(Msg)
+							missingCleanReads = append(missingCleanReads, sample)
+
+						} else {
+							if len(fwdReads) == 0 && len(revReads) == 0 {
+								Msg := fmt.Sprintf("No reads found in %s", cleanReadsDir)
+								color.Red(Msg)
+								missingCleanReads = append(missingCleanReads, sample)
+							} else if len(fwdReads) == 1 && len(revReads) == 1 {
+
+								if skipVer {
+									color.Yellow("Skip fastq verification for %s\n", sample)
+									validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0]})
+									color.Green("[%s] PE reads found", sample)
+								} else {
+									color.Blue("Validating fwd PE read: %s\n", fwdReads[0])
+									fwdErr := validateFastqGz(fwdReads[0], verbose, quick)
+									revErr := validateFastqGz(revReads[0], verbose, quick)
+
+									if fwdErr != nil || revErr != nil {
+										color.Red("Error validating fwd PE read: %v\n", err)
+										missingCleanReads = append(missingCleanReads, sample)
+									} else {
+										color.Green("Valid PE reads found")
+										validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0]})
+									}
+
+								}
+							} else {
+								multipleCleanReads = append(multipleCleanReads, cleanReadsDir)
+								Msg := fmt.Sprintf("Multiple PE reads found in %s. Can not align", cleanReadsDir)
+								color.Yellow(Msg)
+								missingCleanReads = append(missingCleanReads, sample)
+
+							}
+						}
+
+					}
+
+				}
+			}
+		}
+
+	}
+
+	color.Green("\nValid: %d\n", len(validCleanReads))
+	if len(validCleanReads) > 0 {
+		for _, readPair := range validCleanReads {
+			switch aligner {
+			case "bwa-mem":
+				color.Green("Aligning reads for %s to reference genome %s with bwa-mem\n", readPair.sample, refFasta)
+
+			default:
+
+				color.Green("Aligning reads for %s to reference genome %s. with bwa-mem2\n", readPair.sample, refFasta)
+			}
+
+		}
+	}
 }
