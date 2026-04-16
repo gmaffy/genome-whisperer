@@ -796,6 +796,17 @@ type sampleWork struct {
 	cramDir string // filepath.Dir of the cram, used to derive gvcf output path
 }
 
+// resumeStage records where in the pipeline a sample should resume.
+type resumeStage int
+
+const (
+	resumeFromAlign      resumeStage = iota // no intermediate files found – start from scratch
+	resumeFromMarkDupAndBQSR               // sorted.bam exists – run MarkDuplicates → BQSR → convert
+	resumeFromBQSR                         // rgmd.cram exists – run BQSR directly
+	resumeFromCramRgmdThenBQSR             // rgmd.bam exists – convert to cram, then BQSR
+	resumeFromBamToCram                    // bqsr.bam exists – convert BAM→CRAM only
+)
+
 func isFwd(filename string) bool {
 	return strings.HasSuffix(filename, "1.fastq.gz") ||
 		strings.HasSuffix(filename, "1.fq.gz") ||
@@ -867,7 +878,112 @@ func validateFastqGz(fastq string, verbose bool, quick bool) error {
 	return utils.RunBashCmd(valStr)
 }
 
-func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, threads int) {
+// GenomeRef holds a discovered reference genome on disk.
+type GenomeRef struct {
+	RefVer    string // e.g. "GRCh38"
+	FastaPath string // path to .fa / .fasta / .fna
+	DictPath  string // path to .dict
+}
+
+// GetValidGenomesFromDisk scans genomesDir for species → reference assemblies.
+// Expected layout: <genomesDir>/<species>/<refVer>/assembly/  containing a fasta + dict file.
+// Returns map[SPECIES_UPPER] → []GenomeRef.
+func GetValidGenomesFromDisk(genomesDir string) (map[string][]GenomeRef, error) {
+	result := make(map[string][]GenomeRef)
+
+	species, err := os.ReadDir(genomesDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading genomes dir %s: %w", genomesDir, err)
+	}
+
+	for _, sp := range species {
+		if !sp.IsDir() {
+			continue
+		}
+		spKey := strings.ToUpper(sp.Name())
+		spDir := filepath.Join(genomesDir, sp.Name())
+
+		refs, err := os.ReadDir(spDir)
+		if err != nil {
+			continue
+		}
+
+		for _, ref := range refs {
+			if !ref.IsDir() {
+				continue
+			}
+			assemblyDir := filepath.Join(spDir, ref.Name(), "assembly")
+			info, err := os.Stat(assemblyDir)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
+			entries, err := os.ReadDir(assemblyDir)
+			if err != nil {
+				continue
+			}
+
+			var fastaPath, dictPath string
+			for _, f := range entries {
+				if f.IsDir() {
+					continue
+				}
+				name := f.Name()
+				switch {
+				case strings.HasSuffix(name, ".fa") ||
+					strings.HasSuffix(name, ".fasta") ||
+					strings.HasSuffix(name, ".fna"):
+					fastaPath = filepath.Join(assemblyDir, name)
+				case strings.HasSuffix(name, ".dict"):
+					dictPath = filepath.Join(assemblyDir, name)
+				}
+			}
+
+			if fastaPath != "" && dictPath != "" {
+				result[spKey] = append(result[spKey], GenomeRef{
+					RefVer:    strings.ToUpper(ref.Name()),
+					FastaPath: fastaPath,
+					DictPath:  dictPath,
+				})
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// resolveRefFasta returns refFasta as-is when provided, otherwise auto-discovers
+// it from genomesDir using species and refVer. Returns the fasta path or an error.
+func resolveRefFasta(refFasta, genomesDir, species, refVer string) (string, error) {
+	if refFasta != "" {
+		if _, err := os.Stat(refFasta); err != nil {
+			return "", fmt.Errorf("provided refFasta %q not accessible: %w", refFasta, err)
+		}
+		return refFasta, nil
+	}
+	if genomesDir == "" {
+		return "", fmt.Errorf("either refFasta or genomesDir must be provided")
+	}
+	genomes, err := GetValidGenomesFromDisk(genomesDir)
+	if err != nil {
+		return "", fmt.Errorf("auto-discovering genomes: %w", err)
+	}
+	spKey := strings.ToUpper(species)
+	refs, ok := genomes[spKey]
+	if !ok {
+		return "", fmt.Errorf("no genomes found for species %q in %s", species, genomesDir)
+	}
+	verKey := strings.ToUpper(refVer)
+	for _, r := range refs {
+		if r.RefVer == verKey {
+			color.Green("Auto-resolved reference: %s\n", r.FastaPath)
+			return r.FastaPath, nil
+		}
+	}
+	return "", fmt.Errorf("species %q found but no assembly matching refVer %q in %s", species, refVer, genomesDir)
+}
+
+func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, genomesDir string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, bqsr bool, bootstrap bool, knownSites []string, threads int) {
 	// ============================================= Validate paths ================================================ //
 	fmt.Println("Checking paths ...")
 
@@ -894,29 +1010,55 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		fmt.Println("Please provide reference version name")
 		return
 	}
-	if refFasta == "" {
-		fmt.Println("Please provide reference name")
+
+	// ---- Resolve reference fasta (explicit path or auto-discover) ---- //
+	resolvedFasta, resolveErr := resolveRefFasta(refFasta, genomesDir, species, refVer)
+	if resolveErr != nil {
+		color.Red("Could not resolve reference fasta: %v\n", resolveErr)
 		return
 	}
 
-	fastaInfo, err := os.Stat(refFasta)
+	fastaInfo, err := os.Stat(resolvedFasta)
 	if err != nil {
-		fmt.Printf("Error accessing reference fasta file: %s\n", refFasta)
+		fmt.Printf("Error accessing reference fasta file: %s\n", resolvedFasta)
 		return
 	}
 	if !fastaInfo.Mode().IsRegular() {
-		fmt.Printf("Reference fasta file: %s is not a regular file\n", refFasta)
+		fmt.Printf("Reference fasta file: %s is not a regular file\n", resolvedFasta)
 		return
 	}
 
-	dictFilePath := refFasta[:len(refFasta)-len(filepath.Ext(refFasta))] + ".dict"
+	dictFilePath := resolvedFasta[:len(resolvedFasta)-len(filepath.Ext(resolvedFasta))] + ".dict"
 	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
 		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
 		return
 	}
 
+	// ---- Validate BQSR parameters up-front ---- //
+	if bqsr {
+		if aligner == "pbmm2" {
+			color.Red("BQSR is not supported for pbmm2. Use bwa-mem2 or disable BQSR.\n")
+			return
+		}
+		if len(knownSites) == 0 && !bootstrap {
+			color.Red("BQSR requested: either provide known-sites or enable bootstrap.\n")
+			return
+		}
+		if len(knownSites) > 0 && bootstrap {
+			color.Red("Choose either known-sites OR bootstrap, not both.\n")
+			return
+		}
+		for _, ks := range knownSites {
+			if _, err := os.Stat(ks); err != nil {
+				color.Red("Known-sites file not found: %s\n", ks)
+				return
+			}
+		}
+	}
+
 	color.Green("All file paths valid\n....................................................\n\n")
 	fmt.Println("data dir abs:", dataDirAbs)
+
 	// ================================== Discover samples ===================================== //
 	color.Green("Checking Samples in dir structure ...\n\n")
 	pattern := filepath.Join(dataDir, species, "*", "*", "clean_reads")
@@ -939,7 +1081,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	color.Green("\nFound %d sample(s) in the data directory for %s\n==================================\n\n", len(samples), color.GreenString(species))
 
 	// ======================================= Resolve valid samples up-front ======================================= //
-	fmt.Println("Looking for bam files ....")
+	fmt.Println("Looking for existing bam/cram files ....")
 
 	var (
 		validSamples []sampleWork
@@ -948,41 +1090,93 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	)
 
 	for _, sample := range samples {
-		_, cramFiles := variants.FindBamOrVcfs(dataDirAbs, species, sample, refVer, "bams", "")
-		switch len(cramFiles) {
-		case 0:
-			missingBams = append(missingBams, sample)
-			color.Red("[%s] bqsr.cram file MISSING! 😒\n", sample)
-		case 1:
-			cram := cramFiles[0]
-			//fmt.Printf("CRAM file found for %s: %s\n", sample, cram)
-			color.Green("[%s] bqsr.cram file FOUND! 😊: %s\n", sample, cram)
-			err := variants.ValidateBam(cram, refFasta, verbose, quick)
-			if err != nil {
-				color.Red("[%s] bqsr.cram file is not valid: %v\n", sample, err)
+		sampleName := filepath.Base(filepath.Dir(sample))
+		sampleBaseDir := filepath.Dir(sample)
+		verDir := filepath.Join(sampleBaseDir, "reference_genomes", refVer, "bams")
+
+		// Helper: check if a file exists in verDir.
+		fileExists := func(name string) (string, bool) {
+			p := filepath.Join(verDir, name)
+			if _, err := os.Stat(p); err == nil {
+				return p, true
+			}
+			return "", false
+		}
+
+		bqsrCram := sampleName + ".bqsr.cram"
+		bqsrBam := sampleName + ".bqsr.bam"
+		rgmdCram := sampleName + ".rgmd.cram"
+		rgmdBamFile := sampleName + ".rgmd.bam"
+		sortedBamFile := sampleName + ".sorted.bam"
+
+		// ---- Stage 1: bqsr.cram already present ---- //
+		if cramPath, ok := fileExists(bqsrCram); ok {
+			color.Green("[%s] bqsr.cram FOUND 😊: %s\n", sampleName, cramPath)
+			if err := variants.ValidateBam(cramPath, resolvedFasta, verbose, quick); err != nil {
+				color.Red("[%s] bqsr.cram not valid: %v — will re-process\n", sampleName, err)
 				missingBams = append(missingBams, sample)
 			} else {
-
-				validSamples = append(validSamples, sampleWork{sample: sample, cram: cram, cramDir: filepath.Dir(filepath.Dir(filepath.Dir(cram)))})
+				validSamples = append(validSamples, sampleWork{
+					sample:  sample,
+					cram:    cramPath,
+					cramDir: filepath.Dir(filepath.Dir(filepath.Dir(cramPath))),
+				})
 			}
-
-		default:
-			color.Red("[%s] has multiple cram files.⚠️.\n%s\n\nI don't know which one to use.  Remove bad ones: %v\n\n", sample, cramFiles)
-			multipleBams = append(multipleBams, sample)
+			continue
 		}
+
+		// ---- Stage 2: bqsr.bam present → convert BAM→CRAM only ---- //
+		if bamPath, ok := fileExists(bqsrBam); ok {
+			color.Yellow("[%s] bqsr.bam found – will convert BAM→CRAM only.\n", sampleName)
+			missingBams = append(missingBams, sample)
+			// Store intermediate path; the goroutine will pick it up via samplePair.
+			// We encode this by appending a special marker; handled below in the work list.
+			_ = bamPath // used when building samplePair further down
+			continue
+		}
+
+		// ---- Stage 3: rgmd.cram present → run BQSR on it ---- //
+		if cramPath, ok := fileExists(rgmdCram); ok {
+			color.Yellow("[%s] rgmd.cram found – will run BQSR.\n", sampleName)
+			missingBams = append(missingBams, sample)
+			_ = cramPath
+			continue
+		}
+
+		// ---- Stage 4: rgmd.bam present → convert to CRAM, then BQSR ---- //
+		if bamPath, ok := fileExists(rgmdBamFile); ok {
+			color.Yellow("[%s] rgmd.bam found – will convert to CRAM then run BQSR.\n", sampleName)
+			missingBams = append(missingBams, sample)
+			_ = bamPath
+			continue
+		}
+
+		// ---- Stage 5: sorted.bam present → run MarkDuplicates + BQSR + convert ---- //
+		if bamPath, ok := fileExists(sortedBamFile); ok {
+			color.Yellow("[%s] sorted.bam found – will run MarkDuplicates → BQSR → convert.\n", sampleName)
+			missingBams = append(missingBams, sample)
+			_ = bamPath
+			continue
+		}
+
+		// ---- No intermediate files found – needs full alignment ---- //
+		color.Red("[%s] No bqsr.cram or intermediate files found 😒 – needs full alignment.\n", sampleName)
+		missingBams = append(missingBams, sample)
 	}
 
-	color.Green("\nValid: %d\n", len(validSamples))
-	color.Red("Missing: %d\n", len(missingBams))
-	color.Yellow("Multiple: %d\n", len(multipleBams))
-
+	color.Green("\nAlready aligned (valid): %d\n", len(validSamples))
+	color.Red("Need alignment (missing): %d\n", len(missingBams))
+	color.Yellow("Skipped (multiple crам files): %d\n", len(multipleBams))
 	fmt.Printf("\n==============================================================\n\n")
 
+	// ======================================= Build work list for missing samples ================================== //
 	type samplePair struct {
-		sample string
-		fwd    string
-		rev    string
-		bamDir string
+		sample          string
+		fwd             string
+		rev             string
+		bamDir          string
+		resume          resumeStage // where to start in the pipeline
+		intermediateBam string      // pre-existing BAM/CRAM to resume from (if any)
 	}
 
 	var missingCleanReads []string
@@ -990,251 +1184,410 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	var validCleanReads []samplePair
 
 	if len(missingBams) > 0 {
-		color.Green("Aligning reads for %d samples:\n---------------------------------------------------------------------\n\n ", len(missingBams))
+		color.Green("Preparing to align %d sample(s):\n---------------------------------------------------------------------\n\n", len(missingBams))
 		for _, cleanReadsDir := range missingBams {
 			sample := filepath.Base(filepath.Dir(cleanReadsDir))
 			fmt.Println(sample)
+
 			if strings.HasSuffix(sample, "LR") {
-				fmt.Println("This is LR sample. Using pbmm2")
-			} else {
-				fmt.Println("This is not LR sample. Using bwa-mem2")
-				fmt.Println("Check if reference_genomes dir is present in the data directory")
-				refDir := filepath.Join(filepath.Dir(cleanReadsDir), "reference_genomes")
-				fmt.Println("refDir:", refDir)
-				_, err := os.Stat(refDir)
-				if err != nil {
-					err := os.MkdirAll(refDir, 0755)
-					if err != nil {
-						color.Red("Error creating reference_genomes dir in the data directory: %v\n", err)
-						missingCleanReads = append(missingCleanReads, sample)
-					}
-				} else {
-					fmt.Println("Check if reference_genomes species bams dir is present in the data directory")
-					verDir := filepath.Join(refDir, refVer, "bams")
-					_, err := os.Stat(verDir)
-					if err != nil {
-						err := os.MkdirAll(verDir, 0755)
-						if err != nil {
-							color.Red("Error creating reference_genomes bams dir in the data directory: %v\n", err)
-							missingCleanReads = append(missingCleanReads, sample)
-						}
-					} else {
-						fmt.Println("Check for PE reads ..")
-
-						fwdReads, revReads, err := GetReadsPE(cleanReadsDir)
-						fmt.Println("fwd reads:", fwdReads)
-						fmt.Println("rev reads:", revReads)
-
-						if err != nil {
-							Msg := fmt.Sprintf("Error getting reads from %s: %v", cleanReadsDir, err)
-							color.Red(Msg)
-							missingCleanReads = append(missingCleanReads, sample)
-
-						} else {
-							if len(fwdReads) == 0 && len(revReads) == 0 {
-								Msg := fmt.Sprintf("No reads found in %s", cleanReadsDir)
-								color.Red(Msg)
-								missingCleanReads = append(missingCleanReads, sample)
-							} else if len(fwdReads) == 1 && len(revReads) == 1 {
-
-								if skipVer {
-									color.Yellow("Skip fastq verification for %s\n", sample)
-									validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0], bamDir: verDir})
-									color.Green("[%s] PE reads found", sample)
-								} else {
-									color.Blue("Validating fwd PE read: %s\n", fwdReads[0])
-									fwdErr := validateFastqGz(fwdReads[0], verbose, quick)
-									revErr := validateFastqGz(revReads[0], verbose, quick)
-
-									if fwdErr != nil || revErr != nil {
-										color.Red("Error validating fwd PE read: %v\n", err)
-										missingCleanReads = append(missingCleanReads, sample)
-									} else {
-										color.Green("Valid PE reads found")
-										validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0], bamDir: verDir})
-									}
-
-								}
-							} else {
-								multipleCleanReads = append(multipleCleanReads, cleanReadsDir)
-								Msg := fmt.Sprintf("Multiple PE reads found in %s. Can not align", cleanReadsDir)
-								color.Yellow(Msg)
-								missingCleanReads = append(missingCleanReads, sample)
-
-							}
-						}
-
-					}
-
-				}
+				// Long-read samples: pbmm2 path — not handled in this function yet
+				color.Yellow("[%s] LR sample detected (pbmm2). Skipping in dir-mode for now.\n", sample)
+				missingCleanReads = append(missingCleanReads, sample)
+				continue
 			}
-		}
 
-	}
+			// Ensure output bams dir exists: <sampleDir>/reference_genomes/<refVer>/bams/
+			sampleBaseDir := filepath.Dir(cleanReadsDir)
+			verDir := filepath.Join(sampleBaseDir, "reference_genomes", refVer, "bams")
+			if mkErr := os.MkdirAll(verDir, 0755); mkErr != nil {
+				color.Red("[%s] Error creating bams dir %s: %v\n", sample, verDir, mkErr)
+				missingCleanReads = append(missingCleanReads, sample)
+				continue
+			}
 
-	var failedAlignments []string
-	color.Green("\nValid: %d\n", len(validCleanReads))
-	if len(validCleanReads) > 0 {
-		for _, readPair := range validCleanReads {
-			switch aligner {
-			case "bwa-mem":
-				color.Green("Aligning reads for %s to reference genome %s with bwa-mem\n", readPair.sample, refFasta)
+			// ---- Determine resume stage by re-checking intermediate files ---- //
+			fileInVerDir := func(name string) (string, bool) {
+				p := filepath.Join(verDir, name)
+				if _, err := os.Stat(p); err == nil {
+					return p, true
+				}
+				return "", false
+			}
+
+			bqsrBamPath, hasBqsrBam := fileInVerDir(sample + ".bqsr.bam")
+			rgmdCramPath, hasRgmdCram := fileInVerDir(sample + ".rgmd.cram")
+			rgmdBamPath, hasRgmdBam := fileInVerDir(sample + ".rgmd.bam")
+			sortedBamPath, hasSortedBam := fileInVerDir(sample + ".sorted.bam")
+
+			switch {
+			case hasBqsrBam:
+				color.Yellow("[%s] Resuming: converting bqsr.bam → bqsr.cram\n", sample)
+				validCleanReads = append(validCleanReads, samplePair{
+					sample:          sample,
+					bamDir:          verDir,
+					resume:          resumeFromBamToCram,
+					intermediateBam: bqsrBamPath,
+				})
+
+			case hasRgmdCram:
+				color.Yellow("[%s] Resuming: running BQSR on rgmd.cram\n", sample)
+				validCleanReads = append(validCleanReads, samplePair{
+					sample:          sample,
+					bamDir:          verDir,
+					resume:          resumeFromBQSR,
+					intermediateBam: rgmdCramPath,
+				})
+
+			case hasRgmdBam:
+				color.Yellow("[%s] Resuming: converting rgmd.bam → cram, then BQSR\n", sample)
+				validCleanReads = append(validCleanReads, samplePair{
+					sample:          sample,
+					bamDir:          verDir,
+					resume:          resumeFromCramRgmdThenBQSR,
+					intermediateBam: rgmdBamPath,
+				})
+
+			case hasSortedBam:
+				color.Yellow("[%s] Resuming: sorted.bam found – MarkDuplicates → BQSR → convert\n", sample)
+				validCleanReads = append(validCleanReads, samplePair{
+					sample:          sample,
+					bamDir:          verDir,
+					resume:          resumeFromMarkDupAndBQSR,
+					intermediateBam: sortedBamPath,
+				})
 
 			default:
-
-				color.Green("Aligning reads for %s to reference genome %s. with bwa-mem2\n", readPair.sample, refFasta)
-				sortedBam := filepath.Join(readPair.bamDir, readPair.sample+".sorted.bam")
-				readGroup := fmt.Sprintf("@RG\\tID:%s.1\\tSM:%s\\tLB:%s\\tPL:BGISEQ", readPair.sample, readPair.sample, fmt.Sprintf("%s_1", readPair.sample))
-				cmdStr := fmt.Sprintf(`bwa-mem2 mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, refFasta, readPair.fwd, readPair.rev, sortedBam)
-				fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
-
-				var memErr error
-				if verbose {
-					memErr = utils.RunBashCmdVerbose(cmdStr)
-				} else {
-					memErr = utils.RunBashCmd(cmdStr)
-				}
-				if memErr != nil {
-					failedAlignments = append(failedAlignments, readPair.sample)
-				} else {
-					color.Green("Aligned reads for %s to reference genome %s. with bwa-mem2\n", readPair.sample, refFasta)
-					rgmdBam := filepath.Join(readPair.bamDir, readPair.sample+".rgmd.bam")
-					rgmdMetrics := filepath.Join(readPair.bamDir, readPair.sample+".rgmd.metrics.txt")
-					mDupCmdStr := fmt.Sprintf(`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`, refFasta, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
-					fmt.Printf("%s\n-----------------------------------------------\n\n", mDupCmdStr)
-
-					var mdupErr error
-					if verbose {
-						mdupErr = utils.RunBashCmdVerbose(mDupCmdStr)
-					} else {
-						mdupErr = utils.RunBashCmd(mDupCmdStr)
-					}
-					if mdupErr != nil {
-						failedAlignments = append(failedAlignments, readPair.sample)
-
-					} else {
-						indexCmdStr := fmt.Sprintf(`samtools index %s`, rgmdBam)
-						fmt.Printf("%s\n-----------------------------------------------\n\n", indexCmdStr)
-
-						var indErr error
-						if verbose {
-							indErr = utils.RunBashCmdVerbose(indexCmdStr)
-						} else {
-							indErr = utils.RunBashCmd(indexCmdStr)
-						}
-						if indErr != nil {
-							failedAlignments = append(failedAlignments, readPair.sample)
-						} else {
-							if bqsr {
-								fmt.Println("Running BQSR")
-								//fmt.Println("Check if mark duplicates was successful")
-								//_, mdErr := os.Stat(rgmdBam)
-								//_, mdiErr := os.Stat(rgmdIndex)
-								//
-								//if mdErr != nil || mdiErr != nil {
-								//	fmt.Println("Mark duplicates failed")
-								//	return "", fmt.Errorf("mark duplicates failed\n\n")
-								//}
-								//fmt.Println("Mark duplicates successful")
-
-								if len(knownSites) == 0 && bootstrap == true {
-									fmt.Println("Running with bootstrap method")
-									fmt.Println("Create Known variants ..............")
-									if utils.StageHasCompleted(logged, "BOOTSTRAP_CKV", sampleName, "ALL") {
-										msg := fmt.Sprintf("BOOTSTRAP already completed for bam file: %s. Reusing known-sites.\n\n------------------------------------------------------------------------\n\n", sampleName)
-										slog.Info(msg)
-										// Derive expected known-sites paths from the BAM name
-										baseName := ""
-										if strings.HasSuffix(rgmdBam, ".bam") {
-											baseName = strings.TrimSuffix(rgmdBam, ".bam")
-										} else {
-											baseName = strings.TrimSuffix(rgmdBam, ".cram")
-										}
-										snpVCF := baseName + ".raw.SNP.hard_filtered.vcf.gz"
-										indelVCF := baseName + ".raw.INDEL.hard_filtered.vcf.gz"
-										// Use existing known-sites if present
-										if _, err := os.Stat(snpVCF); err == nil {
-											knownSites = append(knownSites, snpVCF)
-										}
-										if _, err := os.Stat(indelVCF); err == nil {
-											knownSites = append(knownSites, indelVCF)
-										}
-										if len(knownSites) == 0 {
-											// Fallback to recomputing if files are missing
-											jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "RETRYING_CREATE_KNOWN_VARIANTS")
-											newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel, verbose)
-											if ksErr != nil {
-												jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
-												slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
-												return "", fmt.Errorf("create known variants failed\n\n")
-											}
-											knownSites = newKnownSites
-										}
-									} else {
-										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-										newKnownSites, ksErr := CreateKnownVariants(referencePath, rgmdBam, logFilePath, gatkLogLevel, verbose)
-										if ksErr != nil {
-											jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
-											slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", ksErr))
-											return "", fmt.Errorf("create known variants failed\n\n")
-										}
-										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-										knownSites = newKnownSites
-										fmt.Printf("Known variants created at %v\n...................................................\n", knownSites)
-
-									}
-
-									if utils.StageHasCompleted(logged, "BOOTSTRAP_BQSR", sampleName, "ALL") {
-										msg := fmt.Sprintf("BOOTSTRAP_BQSR already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
-										slog.Info(msg)
-									} else {
-										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-										bqsrBam, recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath, verbose)
-										if recErr != nil {
-											jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
-											slog.Error("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
-											return "", fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
-										}
-										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
-										jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-										slog.Info("BQSR", "PROGRAM", "BOOTSTRAP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-									}
-
-								} else if len(knownSites) > 0 && bootstrap == false {
-									if utils.StageHasCompleted(logged, "DBSNP_BQSR", sampleName, "ALL") {
-										msg := fmt.Sprintf("DBSNP_BQSR already completed for bam file: %s. Skipping\n\n------------------------------------------------------------------------\n\n", sampleName)
-										slog.Info(msg)
-									} else {
-										jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-										slog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-										bqsrBam, recErr := Recalibrate(referencePath, rgmdBam, knownSites, logFilePath, verbose)
-										if recErr != nil {
-											jlog.Error("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
-											slog.Error("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", recErr))
-											return "", fmt.Errorf("BQSR failed - %s ................................\n\n", recErr)
-										}
-										jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
-										jlog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-										slog.Info("BQSR", "PROGRAM", "DBSNP_BQSR", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "COMPLETED")
-										finalBam = bqsrBam
-
-									}
-
-								} else {
-									finalBam = rgmdBam
-								}
-
-							}
-							return finalBam, nil
-						}
-					}
+				// No intermediate files – need reads for full alignment
+				fwdReads, revReads, readsErr := GetReadsPE(cleanReadsDir)
+				fmt.Printf("[%s] fwd: %v  rev: %v\n", sample, fwdReads, revReads)
+				if readsErr != nil {
+					color.Red("[%s] Error reading clean_reads dir: %v\n", sample, readsErr)
+					missingCleanReads = append(missingCleanReads, sample)
+					continue
 				}
 
+				switch {
+				case len(fwdReads) == 0 && len(revReads) == 0:
+					color.Red("[%s] No PE reads found in %s\n", sample, cleanReadsDir)
+					missingCleanReads = append(missingCleanReads, sample)
+				case len(fwdReads) == 1 && len(revReads) == 1:
+					if skipVer {
+						color.Yellow("[%s] Skipping fastq verification.\n", sample)
+						validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0], bamDir: verDir, resume: resumeFromAlign})
+					} else {
+						color.Blue("[%s] Validating fastq files...\n", sample)
+						fwdErr := validateFastqGz(fwdReads[0], verbose, quick)
+						revErr := validateFastqGz(revReads[0], verbose, quick)
+						if fwdErr != nil || revErr != nil {
+							color.Red("[%s] Fastq validation failed (fwd=%v rev=%v)\n", sample, fwdErr, revErr)
+							missingCleanReads = append(missingCleanReads, sample)
+						} else {
+							color.Green("[%s] PE reads valid.\n", sample)
+							validCleanReads = append(validCleanReads, samplePair{sample: sample, fwd: fwdReads[0], rev: revReads[0], bamDir: verDir, resume: resumeFromAlign})
+						}
+					}
+				default:
+					color.Yellow("[%s] Multiple PE reads found — cannot determine which to use.\n", sample)
+					multipleCleanReads = append(multipleCleanReads, cleanReadsDir)
+					missingCleanReads = append(missingCleanReads, sample)
+				}
 			}
-
 		}
 	}
+
+	color.Green("\nReady to align: %d\n", len(validCleanReads))
+	color.Red("Missing/invalid reads: %d\n", len(missingCleanReads))
+	color.Yellow("Skipped (multiple read files): %d\n", len(multipleCleanReads))
+	fmt.Printf("\n==============================================================\n\n")
+
+	if len(validCleanReads) == 0 {
+		color.Yellow("No samples to align. Exiting.\n")
+		return
+	}
+
+	// ======================================= Parallel alignment ================================================== //
+	totalCores := runtime.NumCPU()
+	maxParallelJobs := totalCores / threads
+	if maxParallelJobs < 1 {
+		maxParallelJobs = 1
+		threads = totalCores
+	}
+	color.Green("Aligning %d sample(s) — up to %d jobs in parallel, %d threads each.\n\n",
+		len(validCleanReads), maxParallelJobs, threads)
+
+	var (
+		mu               sync.Mutex
+		failedAlignments []string
+		wg               sync.WaitGroup
+		sem              = make(chan struct{}, maxParallelJobs)
+	)
+
+	for _, rp := range validCleanReads {
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(readPair samplePair) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			sampleName := readPair.sample
+
+			addFailure := func(reason string) {
+				color.Red("[%s] FAILED: %s\n", sampleName, reason)
+				mu.Lock()
+				failedAlignments = append(failedAlignments, sampleName)
+				mu.Unlock()
+			}
+
+			// ---- Paths ---- //
+			sortedBam := filepath.Join(readPair.bamDir, sampleName+".sorted.bam")
+			rgmdBam := filepath.Join(readPair.bamDir, sampleName+".rgmd.bam")
+			rgmdCram := filepath.Join(readPair.bamDir, sampleName+".rgmd.cram")
+			rgmdMetrics := filepath.Join(readPair.bamDir, sampleName+".rgmd.metrics.txt")
+			bqsrCram := filepath.Join(readPair.bamDir, sampleName+".bqsr.cram")
+
+			// bamToCram converts src BAM/CRAM to dst CRAM using samtools.
+			bamToCram := func(src, dst string) error {
+				cmd := fmt.Sprintf(`samtools view -C -T %s -o %s %s && samtools index %s`, resolvedFasta, dst, src, dst)
+				color.Green("[%s] Converting to CRAM: %s\n", sampleName, cmd)
+				if verbose {
+					return utils.RunBashCmdVerbose(cmd)
+				}
+				return utils.RunBashCmd(cmd)
+			}
+
+			// runBQSR runs bootstrap/known-sites recalibration on inputBam and returns the output path.
+			runBQSR := func(inputBam string) (string, error) {
+				sampleKnownSites := make([]string, len(knownSites))
+				copy(sampleKnownSites, knownSites)
+
+				if len(sampleKnownSites) == 0 && bootstrap {
+					color.Green("[%s] Creating known variants (bootstrap)...\n", sampleName)
+					newKS, ksErr := CreateKnownVariants(resolvedFasta, inputBam, "", gatkLogLevel, verbose)
+					if ksErr != nil {
+						return "", fmt.Errorf("CreateKnownVariants: %v", ksErr)
+					}
+					sampleKnownSites = newKS
+					color.Green("[%s] Known variants created: %v\n", sampleName, sampleKnownSites)
+				}
+
+				color.Green("[%s] Running Recalibrate...\n", sampleName)
+				out, recErr := Recalibrate(resolvedFasta, inputBam, sampleKnownSites, "", verbose)
+				if recErr != nil {
+					return "", fmt.Errorf("Recalibrate: %v", recErr)
+				}
+				return out, nil
+			}
+
+			switch readPair.resume {
+
+			// ------------------------------------------------------------------ //
+			// resumeFromBamToCram: bqsr.bam exists → convert to bqsr.cram only   //
+			// ------------------------------------------------------------------ //
+			case resumeFromBamToCram:
+				color.Green("[%s] Converting bqsr.bam → bqsr.cram...\n", sampleName)
+				if err := bamToCram(readPair.intermediateBam, bqsrCram); err != nil {
+					addFailure(fmt.Sprintf("bqsr BAM→CRAM conversion: %v", err))
+					return
+				}
+				color.Green("[%s] Done. Final CRAM: %s\n", sampleName, bqsrCram)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromBQSR: rgmd.cram exists → run BQSR directly              //
+			// ------------------------------------------------------------------ //
+			case resumeFromBQSR:
+				if !bqsr {
+					color.Green("[%s] BQSR disabled — nothing to do (rgmd.cram already present).\n", sampleName)
+					return
+				}
+				bqsrOut, err := runBQSR(readPair.intermediateBam)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Output: %s\n", sampleName, bqsrOut)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromCramRgmdThenBQSR: rgmd.bam → cram it, then BQSR         //
+			// ------------------------------------------------------------------ //
+			case resumeFromCramRgmdThenBQSR:
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram...\n", sampleName)
+				if err := bamToCram(readPair.intermediateBam, rgmdCram); err != nil {
+					addFailure(fmt.Sprintf("rgmd BAM→CRAM conversion: %v", err))
+					return
+				}
+				color.Green("[%s] rgmd.cram ready: %s\n", sampleName, rgmdCram)
+
+				if !bqsr {
+					color.Green("[%s] BQSR disabled — pipeline complete.\n", sampleName)
+					return
+				}
+				bqsrOut, err := runBQSR(rgmdCram)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Output: %s\n", sampleName, bqsrOut)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromMarkDupAndBQSR: sorted.bam → MarkDuplicates → BQSR → CRAM //
+			// ------------------------------------------------------------------ //
+			case resumeFromMarkDupAndBQSR:
+				color.Green("[%s] Marking duplicates on sorted.bam...\n", sampleName)
+				mDupCmd := fmt.Sprintf(
+					`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`,
+					resolvedFasta, readPair.intermediateBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+				fmt.Printf("[%s] %s\n", sampleName, mDupCmd)
+				var mdupErr error
+				if verbose {
+					mdupErr = utils.RunBashCmdVerbose(mDupCmd)
+				} else {
+					mdupErr = utils.RunBashCmd(mDupCmd)
+				}
+				if mdupErr != nil {
+					addFailure(fmt.Sprintf("MarkDuplicates: %v", mdupErr))
+					return
+				}
+				color.Green("[%s] MarkDuplicates complete.\n", sampleName)
+
+				color.Green("[%s] Indexing rgmd.bam...\n", sampleName)
+				indexCmd := fmt.Sprintf(`samtools index %s`, rgmdBam)
+				var indErr error
+				if verbose {
+					indErr = utils.RunBashCmdVerbose(indexCmd)
+				} else {
+					indErr = utils.RunBashCmd(indexCmd)
+				}
+				if indErr != nil {
+					addFailure(fmt.Sprintf("BAM index: %v", indErr))
+					return
+				}
+
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram...\n", sampleName)
+				if err := bamToCram(rgmdBam, rgmdCram); err != nil {
+					addFailure(fmt.Sprintf("rgmd BAM→CRAM: %v", err))
+					return
+				}
+
+				if !bqsr {
+					color.Green("[%s] BQSR disabled — pipeline complete. Final CRAM: %s\n", sampleName, rgmdCram)
+					return
+				}
+				bqsrOut, err := runBQSR(rgmdCram)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Output: %s\n", sampleName, bqsrOut)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromAlign (default): full alignment from clean reads          //
+			// ------------------------------------------------------------------ //
+			default:
+				// ----------------------------------------- BWA-MEM2 / BWA-MEM ----------------------------------------- //
+				alignCmd := fmt.Sprintf(
+					`bwa-mem2 mem -t %v -M -Y -R '@RG\tID:%s.1\tSM:%s\tLB:%s_1\tPL:BGISEQ' %s %s %s | samtools sort -o %s`,
+					threads, sampleName, sampleName, sampleName, resolvedFasta, readPair.fwd, readPair.rev, sortedBam)
+				if aligner == "bwa-mem" {
+					alignCmd = fmt.Sprintf(
+						`bwa mem -t %v -M -Y -R '@RG\tID:%s.1\tSM:%s\tLB:%s_1\tPL:BGISEQ' %s %s %s | samtools sort -o %s`,
+						threads, sampleName, sampleName, sampleName, resolvedFasta, readPair.fwd, readPair.rev, sortedBam)
+				}
+
+				color.Green("[%s] Aligning with %s...\n", sampleName, aligner)
+				fmt.Printf("[%s] %s\n", sampleName, alignCmd)
+				var memErr error
+				if verbose {
+					memErr = utils.RunBashCmdVerbose(alignCmd)
+				} else {
+					memErr = utils.RunBashCmd(alignCmd)
+				}
+				if memErr != nil {
+					addFailure(fmt.Sprintf("alignment: %v", memErr))
+					return
+				}
+				color.Green("[%s] Alignment completed.\n", sampleName)
+
+				// ----------------------------------------- Mark Duplicates -------------------------------------------- //
+				color.Green("[%s] Marking duplicates...\n", sampleName)
+				mDupCmd := fmt.Sprintf(
+					`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`,
+					resolvedFasta, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+				fmt.Printf("[%s] %s\n", sampleName, mDupCmd)
+				var mdupErr error
+				if verbose {
+					mdupErr = utils.RunBashCmdVerbose(mDupCmd)
+				} else {
+					mdupErr = utils.RunBashCmd(mDupCmd)
+				}
+				if mdupErr != nil {
+					addFailure(fmt.Sprintf("MarkDuplicates: %v", mdupErr))
+					return
+				}
+				color.Green("[%s] MarkDuplicates completed.\n", sampleName)
+
+				// ----------------------------------------- BAM Index -------------------------------------------------- //
+				color.Green("[%s] Indexing BAM...\n", sampleName)
+				indexCmd := fmt.Sprintf(`samtools index %s`, rgmdBam)
+				fmt.Printf("[%s] %s\n", sampleName, indexCmd)
+				var indErr error
+				if verbose {
+					indErr = utils.RunBashCmdVerbose(indexCmd)
+				} else {
+					indErr = utils.RunBashCmd(indexCmd)
+				}
+				if indErr != nil {
+					addFailure(fmt.Sprintf("BAM index: %v", indErr))
+					return
+				}
+				color.Green("[%s] BAM index completed.\n", sampleName)
+
+				// ----------------------------------------- Convert to CRAM -------------------------------------------- //
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram...\n", sampleName)
+				if err := bamToCram(rgmdBam, rgmdCram); err != nil {
+					addFailure(fmt.Sprintf("rgmd BAM→CRAM: %v", err))
+					return
+				}
+
+				// ============================================= BQSR ==================================================== //
+				if !bqsr {
+					color.Green("[%s] Pipeline complete (no BQSR). Final CRAM: %s\n", sampleName, rgmdCram)
+					return
+				}
+
+				color.Green("[%s] Starting BQSR...\n", sampleName)
+				bqsrOut, err := runBQSR(rgmdCram)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Final: %s\n", sampleName, bqsrOut)
+			}
+
+		}(rp)
+	}
+
+	wg.Wait()
+
+	// ======================================= Final summary ======================================================= //
+	fmt.Printf("\n==============================================================\n")
+	color.Green("Already aligned (skipped): %d\n", len(validSamples))
+	color.Green("Successfully processed:    %d\n", len(validCleanReads)-len(failedAlignments))
+	if len(failedAlignments) > 0 {
+		color.Red("Failed:                    %d\n", len(failedAlignments))
+		for _, s := range failedAlignments {
+			color.Red("  - %s\n", s)
+		}
+	}
+	if len(missingCleanReads) > 0 {
+		color.Yellow("Skipped (no valid reads):  %d\n", len(missingCleanReads))
+		for _, s := range missingCleanReads {
+			color.Yellow("  - %s\n", s)
+		}
+	}
+	fmt.Printf("==============================================================\n\n")
 }

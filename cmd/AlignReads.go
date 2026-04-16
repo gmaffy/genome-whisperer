@@ -135,6 +135,11 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting skip-verification flag: %v", sErr)
 		}
 
+		genomesDir, gErr := cmd.Flags().GetString("genomes-dir")
+		if gErr != nil {
+			log.Fatalf("Error getting genomes-dir flag: %v", gErr)
+		}
+
 		//--------------------------------------------------- Check dependencies ------------------------------------//
 		deps := []string{"samtools", "gatk"}
 
@@ -180,7 +185,7 @@ var AlignReadsCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			alignment.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, verbose, gatkLogLevel, aligner, quick, skipVerification)
+			alignment.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, genomesDir, verbose, gatkLogLevel, aligner, quick, skipVerification, bqsr, bootstrap, knownSites, threads)
 		} else {
 			//fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)
@@ -302,5 +307,6 @@ func init() {
 	AlignReadsCmd.Flags().String("ref-version", "", "Reference genome version")
 	AlignReadsCmd.Flags().Bool("quick", false, "Quick verification")
 	AlignReadsCmd.Flags().Bool("skip-verification", false, "Skip verification")
+	AlignReadsCmd.Flags().StringP("genomes-dir", "g", "", "Skip verification")
 
 }

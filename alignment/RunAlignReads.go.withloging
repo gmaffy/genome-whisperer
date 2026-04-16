@@ -1048,6 +1048,17 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	color.Green("All file paths valid\n....................................................\n\n")
 	fmt.Println("data dir abs:", dataDirAbs)
 
+	// ============================================= Log file ================================================ //
+	logFilePath := filepath.Join(dataDir, "alignment_dir.log")
+	logFile, logOpenErr := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if logOpenErr != nil {
+		log.Fatalf("Failed to open log file: %v", logOpenErr)
+	}
+	defer logFile.Close()
+	jsonHandler := slog.NewJSONHandler(logFile, nil)
+	jlog := slog.New(jsonHandler)
+	logged := utils.ParseLogFile(logFilePath)
+
 	// ================================== Discover samples ===================================== //
 	color.Green("Checking Samples in dir structure ...\n\n")
 	pattern := filepath.Join(dataDir, species, "*", "*", "clean_reads")
@@ -1079,8 +1090,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	)
 
 	for _, sample := range samples {
-		sampleName := filepath.Base(filepath.Dir(sample))
-		_, cramFiles := variants.FindBamOrVcfs(dataDirAbs, species, sampleName, refVer, "bams", "")
+		_, cramFiles := variants.FindBamOrVcfs(dataDirAbs, species, sample, refVer, "bams", "")
 		switch len(cramFiles) {
 		case 0:
 			missingBams = append(missingBams, sample)
@@ -1180,7 +1190,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	}
 
 	color.Green("\nReady to align: %d\n", len(validCleanReads))
-	color.Red("Missing/invalid reads: %d\n", len(missingCleanReads))
+	color.Red("Could not prepare (missing/invalid reads): %d\n", len(missingCleanReads))
 	color.Yellow("Skipped (multiple read files): %d\n", len(multipleCleanReads))
 	fmt.Printf("\n==============================================================\n\n")
 
@@ -1215,6 +1225,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			defer func() { <-sem }()
 
 			sampleName := readPair.sample
+			sampleLogPath := filepath.Join(readPair.bamDir, sampleName+".alignment.log")
 
 			addFailure := func(reason string) {
 				color.Red("[%s] FAILED: %s\n", sampleName, reason)
@@ -1223,68 +1234,112 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 				mu.Unlock()
 			}
 
+			// ---- Open per-sample log ---- //
+			sf, sfErr := os.OpenFile(sampleLogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+			if sfErr != nil {
+				addFailure(fmt.Sprintf("open log: %v", sfErr))
+				return
+			}
+			defer sf.Close()
+			sl := slog.New(slog.NewJSONHandler(sf, nil))
+			slogged := utils.ParseLogFile(sampleLogPath)
+
 			// ---- Paths ---- //
 			sortedBam := filepath.Join(readPair.bamDir, sampleName+".sorted.bam")
 			rgmdBam := filepath.Join(readPair.bamDir, sampleName+".rgmd.bam")
 			rgmdMetrics := filepath.Join(readPair.bamDir, sampleName+".rgmd.metrics.txt")
 
 			// ----------------------------------------- BWA-MEM2 / BWA-MEM ----------------------------------------- //
+			alignerLabel := "BWA_MEM2"
 			alignCmd := fmt.Sprintf(
 				`bwa-mem2 mem -t %v -M -Y -R '@RG\tID:%s.1\tSM:%s\tLB:%s_1\tPL:BGISEQ' %s %s %s | samtools sort -o %s`,
 				threads, sampleName, sampleName, sampleName, resolvedFasta, readPair.fwd, readPair.rev, sortedBam)
 			if aligner == "bwa-mem" {
+				alignerLabel = "BWA_MEM"
 				alignCmd = fmt.Sprintf(
 					`bwa mem -t %v -M -Y -R '@RG\tID:%s.1\tSM:%s\tLB:%s_1\tPL:BGISEQ' %s %s %s | samtools sort -o %s`,
 					threads, sampleName, sampleName, sampleName, resolvedFasta, readPair.fwd, readPair.rev, sortedBam)
 			}
 
-			color.Green("[%s] Aligning with %s...\n", sampleName, aligner)
-			fmt.Printf("[%s] %s\n", sampleName, alignCmd)
-			var memErr error
-			if verbose {
-				memErr = utils.RunBashCmdVerbose(alignCmd)
+			if utils.StageHasCompleted(slogged, alignerLabel, sampleName, "ALL") {
+				color.Yellow("[%s] %s already completed. Skipping.\n", sampleName, alignerLabel)
 			} else {
-				memErr = utils.RunBashCmd(alignCmd)
+				sl.Info("ALIGNMENT", "PROGRAM", alignerLabel, "SAMPLE", sampleName, "STATUS", "STARTED")
+				jlog.Info("ALIGNMENT", "PROGRAM", alignerLabel, "SAMPLE", sampleName, "STATUS", "STARTED")
+				fmt.Printf("[%s] %s\n", sampleName, alignCmd)
+
+				var memErr error
+				if verbose {
+					memErr = utils.RunBashCmdVerbose(alignCmd)
+				} else {
+					memErr = utils.RunBashCmd(alignCmd)
+				}
+				if memErr != nil {
+					sl.Error("ALIGNMENT", "PROGRAM", alignerLabel, "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", memErr))
+					jlog.Error("ALIGNMENT", "PROGRAM", alignerLabel, "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", memErr))
+					addFailure(fmt.Sprintf("%s: %v", alignerLabel, memErr))
+					return
+				}
+				sl.Info("ALIGNMENT", "PROGRAM", alignerLabel, "SAMPLE", sampleName, "STATUS", "COMPLETED")
+				jlog.Info("ALIGNMENT", "PROGRAM", alignerLabel, "SAMPLE", sampleName, "STATUS", "COMPLETED")
+				color.Green("[%s] %s completed.\n", sampleName, alignerLabel)
 			}
-			if memErr != nil {
-				addFailure(fmt.Sprintf("alignment: %v", memErr))
-				return
-			}
-			color.Green("[%s] Alignment completed.\n", sampleName)
 
 			// ----------------------------------------- Mark Duplicates -------------------------------------------- //
-			color.Green("[%s] Marking duplicates...\n", sampleName)
-			mDupCmd := fmt.Sprintf(
-				`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`,
-				resolvedFasta, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
-			fmt.Printf("[%s] %s\n", sampleName, mDupCmd)
-			var mdupErr error
-			if verbose {
-				mdupErr = utils.RunBashCmdVerbose(mDupCmd)
+			if utils.StageHasCompleted(slogged, "MARK_DUPLICATES", sampleName, "ALL") {
+				color.Yellow("[%s] MARK_DUPLICATES already completed. Skipping.\n", sampleName)
 			} else {
-				mdupErr = utils.RunBashCmd(mDupCmd)
+				sl.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "STATUS", "STARTED")
+				jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "STATUS", "STARTED")
+
+				mDupCmd := fmt.Sprintf(
+					`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`,
+					resolvedFasta, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+				fmt.Printf("[%s] %s\n", sampleName, mDupCmd)
+
+				var mdupErr error
+				if verbose {
+					mdupErr = utils.RunBashCmdVerbose(mDupCmd)
+				} else {
+					mdupErr = utils.RunBashCmd(mDupCmd)
+				}
+				if mdupErr != nil {
+					sl.Error("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", mdupErr))
+					jlog.Error("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", mdupErr))
+					addFailure(fmt.Sprintf("MARK_DUPLICATES: %v", mdupErr))
+					return
+				}
+				sl.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "STATUS", "COMPLETED")
+				jlog.Info("ALIGNMENT", "PROGRAM", "MARK_DUPLICATES", "SAMPLE", sampleName, "STATUS", "COMPLETED")
+				color.Green("[%s] MARK_DUPLICATES completed.\n", sampleName)
 			}
-			if mdupErr != nil {
-				addFailure(fmt.Sprintf("MarkDuplicates: %v", mdupErr))
-				return
-			}
-			color.Green("[%s] MarkDuplicates completed.\n", sampleName)
 
 			// ----------------------------------------- BAM Index -------------------------------------------------- //
-			color.Green("[%s] Indexing BAM...\n", sampleName)
-			indexCmd := fmt.Sprintf(`samtools index %s`, rgmdBam)
-			fmt.Printf("[%s] %s\n", sampleName, indexCmd)
-			var indErr error
-			if verbose {
-				indErr = utils.RunBashCmdVerbose(indexCmd)
+			if utils.StageHasCompleted(slogged, "BAM_INDEX", sampleName, "ALL") {
+				color.Yellow("[%s] BAM_INDEX already completed. Skipping.\n", sampleName)
 			} else {
-				indErr = utils.RunBashCmd(indexCmd)
+				sl.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "STATUS", "STARTED")
+				jlog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "STATUS", "STARTED")
+
+				indexCmd := fmt.Sprintf(`samtools index %s`, rgmdBam)
+				fmt.Printf("[%s] %s\n", sampleName, indexCmd)
+
+				var indErr error
+				if verbose {
+					indErr = utils.RunBashCmdVerbose(indexCmd)
+				} else {
+					indErr = utils.RunBashCmd(indexCmd)
+				}
+				if indErr != nil {
+					sl.Error("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", indErr))
+					jlog.Error("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", indErr))
+					addFailure(fmt.Sprintf("BAM_INDEX: %v", indErr))
+					return
+				}
+				sl.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "STATUS", "COMPLETED")
+				jlog.Info("ALIGNMENT", "PROGRAM", "BAM_INDEX", "SAMPLE", sampleName, "STATUS", "COMPLETED")
+				color.Green("[%s] BAM_INDEX completed.\n", sampleName)
 			}
-			if indErr != nil {
-				addFailure(fmt.Sprintf("BAM index: %v", indErr))
-				return
-			}
-			color.Green("[%s] BAM index completed.\n", sampleName)
 
 			// ============================================= BQSR ==================================================== //
 			if !bqsr {
@@ -1294,30 +1349,78 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 			color.Green("[%s] Starting BQSR...\n", sampleName)
 
-			// Per-sample copy so bootstrap appends don't race across goroutines
+			// Per-sample copy of knownSites so we can append bootstrap results without races
 			sampleKnownSites := make([]string, len(knownSites))
 			copy(sampleKnownSites, knownSites)
 
 			// ---- Bootstrap: create known variants from the rgmd BAM ---- //
 			if len(sampleKnownSites) == 0 && bootstrap {
-				color.Green("[%s] Creating known variants (bootstrap)...\n", sampleName)
-				newKS, ksErr := CreateKnownVariants(resolvedFasta, rgmdBam, "", gatkLogLevel, verbose)
-				if ksErr != nil {
-					addFailure(fmt.Sprintf("CreateKnownVariants: %v", ksErr))
-					return
+				if utils.StageHasCompleted(slogged, "BOOTSTRAP_CKV", sampleName, "ALL") {
+					color.Yellow("[%s] BOOTSTRAP_CKV already completed. Reusing known-sites.\n", sampleName)
+					// Derive expected VCF paths from rgmdBam stem
+					stem := strings.TrimSuffix(strings.TrimSuffix(rgmdBam, ".bam"), ".cram")
+					snpVCF := stem + ".raw.SNP.hard_filtered.vcf.gz"
+					indelVCF := stem + ".raw.INDEL.hard_filtered.vcf.gz"
+					for _, vcf := range []string{snpVCF, indelVCF} {
+						if _, statErr := os.Stat(vcf); statErr == nil {
+							sampleKnownSites = append(sampleKnownSites, vcf)
+						}
+					}
+					// If VCFs have disappeared, re-run
+					if len(sampleKnownSites) == 0 {
+						sl.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", "RETRYING_CREATE_KNOWN_VARIANTS")
+						jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", "RETRYING_CREATE_KNOWN_VARIANTS")
+						newKS, ksErr := CreateKnownVariants(resolvedFasta, rgmdBam, sampleLogPath, gatkLogLevel, verbose)
+						if ksErr != nil {
+							sl.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", ksErr))
+							jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", ksErr))
+							addFailure(fmt.Sprintf("BOOTSTRAP_CKV (retry): %v", ksErr))
+							return
+						}
+						sampleKnownSites = newKS
+					}
+				} else {
+					sl.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", "STARTED")
+					jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", "STARTED")
+					newKS, ksErr := CreateKnownVariants(resolvedFasta, rgmdBam, sampleLogPath, gatkLogLevel, verbose)
+					if ksErr != nil {
+						sl.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", ksErr))
+						jlog.Error("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", ksErr))
+						addFailure(fmt.Sprintf("BOOTSTRAP_CKV: %v", ksErr))
+						return
+					}
+					sl.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", "COMPLETED")
+					jlog.Info("BQSR", "PROGRAM", "BOOTSTRAP_CKV", "SAMPLE", sampleName, "STATUS", "COMPLETED")
+					sampleKnownSites = newKS
+					color.Green("[%s] Bootstrap known variants: %v\n", sampleName, sampleKnownSites)
 				}
-				sampleKnownSites = newKS
-				color.Green("[%s] Known variants created: %v\n", sampleName, sampleKnownSites)
 			}
 
 			// ---- Recalibrate ---- //
-			color.Green("[%s] Running Recalibrate...\n", sampleName)
-			bqsrBam, recErr := Recalibrate(resolvedFasta, rgmdBam, sampleKnownSites, "", verbose)
-			if recErr != nil {
-				addFailure(fmt.Sprintf("Recalibrate: %v", recErr))
+			bqsrStage := "DBSNP_BQSR"
+			if bootstrap {
+				bqsrStage = "BOOTSTRAP_BQSR"
+			}
+
+			if utils.StageHasCompleted(slogged, bqsrStage, sampleName, "ALL") {
+				color.Yellow("[%s] %s already completed. Skipping.\n", sampleName, bqsrStage)
 				return
 			}
-			color.Green("[%s] BQSR complete. Final BAM: %s\n", sampleName, bqsrBam)
+
+			sl.Info("BQSR", "PROGRAM", bqsrStage, "SAMPLE", sampleName, "STATUS", "STARTED")
+			jlog.Info("BQSR", "PROGRAM", bqsrStage, "SAMPLE", sampleName, "STATUS", "STARTED")
+
+			bqsrBam, recErr := Recalibrate(resolvedFasta, rgmdBam, sampleKnownSites, sampleLogPath, verbose)
+			if recErr != nil {
+				sl.Error("BQSR", "PROGRAM", bqsrStage, "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", recErr))
+				jlog.Error("BQSR", "PROGRAM", bqsrStage, "SAMPLE", sampleName, "STATUS", fmt.Sprintf("FAILED - %v", recErr))
+				addFailure(fmt.Sprintf("%s: %v", bqsrStage, recErr))
+				return
+			}
+
+			sl.Info("BQSR", "PROGRAM", bqsrStage, "SAMPLE", sampleName, "STATUS", fmt.Sprintf("COMPLETED - BQSR BAM: %s", bqsrBam))
+			jlog.Info("BQSR", "PROGRAM", bqsrStage, "SAMPLE", sampleName, "STATUS", "COMPLETED")
+			color.Green("[%s] %s completed. Final BAM: %s\n", sampleName, bqsrStage, bqsrBam)
 
 		}(rp)
 	}
