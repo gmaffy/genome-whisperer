@@ -1,11 +1,14 @@
 package alignment
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/variants"
 )
 
@@ -72,8 +75,59 @@ type ScanError struct {
 // Scanning is two-level parallel: one goroutine per sample, and within each
 // sample the three BAM/CRAM validations run concurrently.
 func ScanAlignmentStages(dataDir, species, refVer, genomesDir string, refFasta string, verbose, quick bool) ScanResult {
+
+	// ============================================= Validate paths ================================================ //
+	fmt.Println("Checking paths ...")
+
+	dInfo, err := os.Stat(dataDir)
+	if err != nil {
+		fmt.Printf("Error accessing data directory: %s\n", dataDir)
+		log.Fatal(err)
+	}
+	if !dInfo.IsDir() {
+		fmt.Printf("Data directory %s is not a directory\n", dataDir)
+		log.Fatal(err)
+	}
+	dataDirAbs, err := filepath.Abs(dataDir)
+	if err != nil {
+		fmt.Printf("Error getting absolute path for data directory: %s\n", dataDir)
+		log.Fatal(err)
+	}
+
+	if species == "" {
+		fmt.Println("Please provide species name")
+		log.Fatal(err)
+	}
+	if refVer == "" {
+		fmt.Println("Please provide reference version name")
+		log.Fatal(err)
+	}
+
+	// ---- Resolve reference fasta (explicit path or auto-discover) ---- //
+	resolvedFasta, resolveErr := resolveRefFasta(refFasta, genomesDir, species, refVer)
+	if resolveErr != nil {
+		color.Red("Could not resolve reference fasta: %v\n", resolveErr)
+		log.Fatal(resolveErr)
+	}
+
+	fastaInfo, err := os.Stat(resolvedFasta)
+	if err != nil {
+		fmt.Printf("Error accessing reference fasta file: %s\n", resolvedFasta)
+		log.Fatal(err)
+	}
+	if !fastaInfo.Mode().IsRegular() {
+		fmt.Printf("Reference fasta file: %s is not a regular file\n", resolvedFasta)
+		log.Fatal(err)
+	}
+
+	dictFilePath := resolvedFasta[:len(resolvedFasta)-len(filepath.Ext(resolvedFasta))] + ".dict"
+	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
+		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
+		log.Fatal(dicfErr)
+	}
+
 	// ---- 1. Discover sample bam-dirs with a single Glob call ---- //
-	pattern := filepath.Join(dataDir, species, "*", "*", "reference_genomes", refVer, "bams")
+	pattern := filepath.Join(dataDirAbs, species, "*", "*", "reference_genomes", refVer, "bams")
 	matches, _ := filepath.Glob(pattern)
 
 	type entry struct {
@@ -104,7 +158,8 @@ func ScanAlignmentStages(dataDir, species, refVer, genomesDir string, refFasta s
 		wg.Add(1)
 		go func(idx int, sample, bamDir string) {
 			defer wg.Done()
-			status, err := scanOneSample(sample, bamDir, refFasta, verbose, quick)
+			status, err := scanOneSample(sample, bamDir, resolvedFasta, verbose, quick)
+			color.Cyan("[%s] %s\n", sample, status.Sample, status.BqsrBam)
 			results[idx] = status
 			if err != nil {
 				errMu.Lock()
