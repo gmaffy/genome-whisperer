@@ -28,6 +28,15 @@ type SeqInfo struct {
 	Len int
 }
 
+func HapCaller(ref string, bam string, verbose bool, vcfType string, vcf string) error {
+	cmdStrHap := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -O %s`, ref, bam, vcf)
+	fmt.Println(cmdStrHap)
+	slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStrHap))
+
+	err = utils.RunBashCmdVerbose(cmdStrHap)
+	return err
+}
+
 func getChromsAndContigs(dictFilePath string) ([]SeqInfo, []SeqInfo, error) {
 	dictFile, err := os.Open(dictFilePath)
 	if err != nil {
@@ -970,7 +979,7 @@ type SampleWork struct {
 	cramDir string // filepath.Dir of the cram, used to derive gvcf output path
 }
 
-func validateGvcf(vcf string, verbose bool, quick bool) error {
+func ValidateGvcf(vcf string, verbose bool, quick bool) error {
 	if quick {
 		tbi := vcf + ".tbi"
 		if _, err := os.Stat(tbi); err != nil {
@@ -1171,7 +1180,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 					vcf := vcfFiles[0]
 					color.Green("[%s] gVCF file for chrom %s exists: %s\n\n", sw.sample, color.BlueString(chrom.ID), vcf)
 					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sw.sample, color.BlueString(vcf))
-					if vErr := validateGvcf(vcf, verbose, quick); vErr != nil {
+					if vErr := ValidateGvcf(vcf, verbose, quick); vErr != nil {
 						color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(vcf), vErr)
 						if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 							color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(vcf), err)
@@ -1213,7 +1222,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 			if _, statErr := os.Stat(contigGvcfPath); statErr == nil {
 
 				fmt.Printf("[%s] checking integrity of gVCF file: %s .......................\n\n", sw.sample, color.BlueString(contigGvcfPath))
-				if vErr := validateGvcf(contigGvcfPath, verbose, quick); vErr != nil {
+				if vErr := ValidateGvcf(contigGvcfPath, verbose, quick); vErr != nil {
 					color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(contigGvcfPath), vErr)
 					if _, err := CreateGvcf(sw.cram, refFasta, contigs, contigGvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 						color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(contigGvcfPath), err)
