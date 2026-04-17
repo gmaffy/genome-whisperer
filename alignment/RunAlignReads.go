@@ -800,11 +800,11 @@ type sampleWork struct {
 type resumeStage int
 
 const (
-	resumeFromAlign      resumeStage = iota // no intermediate files found – start from scratch
-	resumeFromMarkDupAndBQSR               // sorted.bam exists – run MarkDuplicates → BQSR → convert
-	resumeFromBQSR                         // rgmd.cram exists – run BQSR directly
-	resumeFromCramRgmdThenBQSR             // rgmd.bam exists – convert to cram, then BQSR
-	resumeFromBamToCram                    // bqsr.bam exists – convert BAM→CRAM only
+	resumeFromAlign            resumeStage = iota // no intermediate files found – start from scratch
+	resumeFromMarkDupAndBQSR                      // sorted.bam exists – run MarkDuplicates → BQSR → convert
+	resumeFromBQSR                                // rgmd.cram exists – run BQSR directly
+	resumeFromCramRgmdThenBQSR                    // rgmd.bam exists – convert to cram, then BQSR
+	resumeFromBamToCram                           // bqsr.bam exists – convert BAM→CRAM only
 )
 
 func isFwd(filename string) bool {
@@ -983,7 +983,7 @@ func resolveRefFasta(refFasta, genomesDir, species, refVer string) (string, erro
 	return "", fmt.Errorf("species %q found but no assembly matching refVer %q in %s", species, refVer, genomesDir)
 }
 
-func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, genomesDir string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, bqsr bool, bootstrap bool, knownSites []string, threads int) {
+func RunAlignReadsDir1(dataDir string, species string, refVer string, refFasta string, genomesDir string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, bqsr bool, bootstrap bool, knownSites []string, threads int) {
 	// ============================================= Validate paths ================================================ //
 	fmt.Println("Checking paths ...")
 
@@ -1293,6 +1293,481 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 				}
 			}
 		}
+	}
+
+	color.Green("\nReady to align: %d\n", len(validCleanReads))
+	color.Red("Missing/invalid reads: %d\n", len(missingCleanReads))
+	color.Yellow("Skipped (multiple read files): %d\n", len(multipleCleanReads))
+	fmt.Printf("\n==============================================================\n\n")
+
+	if len(validCleanReads) == 0 {
+		color.Yellow("No samples to align. Exiting.\n")
+		return
+	}
+
+	// ======================================= Parallel alignment ================================================== //
+	totalCores := runtime.NumCPU()
+	maxParallelJobs := totalCores / threads
+	if maxParallelJobs < 1 {
+		maxParallelJobs = 1
+		threads = totalCores
+	}
+	color.Green("Aligning %d sample(s) — up to %d jobs in parallel, %d threads each.\n\n",
+		len(validCleanReads), maxParallelJobs, threads)
+
+	var (
+		mu               sync.Mutex
+		failedAlignments []string
+		wg               sync.WaitGroup
+		sem              = make(chan struct{}, maxParallelJobs)
+	)
+
+	for _, rp := range validCleanReads {
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(readPair samplePair) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			sampleName := readPair.sample
+
+			addFailure := func(reason string) {
+				color.Red("[%s] FAILED: %s\n", sampleName, reason)
+				mu.Lock()
+				failedAlignments = append(failedAlignments, sampleName)
+				mu.Unlock()
+			}
+
+			// ---- Paths ---- //
+			sortedBam := filepath.Join(readPair.bamDir, sampleName+".sorted.bam")
+			rgmdBam := filepath.Join(readPair.bamDir, sampleName+".rgmd.bam")
+			rgmdCram := filepath.Join(readPair.bamDir, sampleName+".rgmd.cram")
+			rgmdMetrics := filepath.Join(readPair.bamDir, sampleName+".rgmd.metrics.txt")
+			bqsrCram := filepath.Join(readPair.bamDir, sampleName+".bqsr.cram")
+
+			// bamToCram converts src BAM/CRAM to dst CRAM using samtools.
+			bamToCram := func(src, dst string) error {
+				cmd := fmt.Sprintf(`samtools view -C -T %s -o %s %s && samtools index %s`, resolvedFasta, dst, src, dst)
+				color.Green("[%s] Converting to CRAM: %s\n", sampleName, cmd)
+				if verbose {
+					return utils.RunBashCmdVerbose(cmd)
+				}
+				return utils.RunBashCmd(cmd)
+			}
+
+			// runBQSR runs bootstrap/known-sites recalibration on inputBam and returns the output path.
+			runBQSR := func(inputBam string) (string, error) {
+				sampleKnownSites := make([]string, len(knownSites))
+				copy(sampleKnownSites, knownSites)
+
+				if len(sampleKnownSites) == 0 && bootstrap {
+					color.Green("[%s] Creating known variants (bootstrap)...\n", sampleName)
+					newKS, ksErr := CreateKnownVariants(resolvedFasta, inputBam, "", gatkLogLevel, verbose)
+					if ksErr != nil {
+						return "", fmt.Errorf("CreateKnownVariants: %v", ksErr)
+					}
+					sampleKnownSites = newKS
+					color.Green("[%s] Known variants created: %v\n", sampleName, sampleKnownSites)
+				}
+
+				color.Green("[%s] Running Recalibrate...\n", sampleName)
+				out, recErr := Recalibrate(resolvedFasta, inputBam, sampleKnownSites, "", verbose)
+				if recErr != nil {
+					return "", fmt.Errorf("Recalibrate: %v", recErr)
+				}
+				return out, nil
+			}
+
+			switch readPair.resume {
+
+			// ------------------------------------------------------------------ //
+			// resumeFromBamToCram: bqsr.bam exists → convert to bqsr.cram only   //
+			// ------------------------------------------------------------------ //
+			case resumeFromBamToCram:
+				color.Green("[%s] Converting bqsr.bam → bqsr.cram...\n", sampleName)
+				if err := bamToCram(readPair.intermediateBam, bqsrCram); err != nil {
+					addFailure(fmt.Sprintf("bqsr BAM→CRAM conversion: %v", err))
+					return
+				}
+				color.Green("[%s] Done. Final CRAM: %s\n", sampleName, bqsrCram)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromBQSR: rgmd.cram exists → run BQSR directly              //
+			// ------------------------------------------------------------------ //
+			case resumeFromBQSR:
+				if !bqsr {
+					color.Green("[%s] BQSR disabled — nothing to do (rgmd.cram already present).\n", sampleName)
+					return
+				}
+				bqsrOut, err := runBQSR(readPair.intermediateBam)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Output: %s\n", sampleName, bqsrOut)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromCramRgmdThenBQSR: rgmd.bam → cram it, then BQSR         //
+			// ------------------------------------------------------------------ //
+			case resumeFromCramRgmdThenBQSR:
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram...\n", sampleName)
+				if err := bamToCram(readPair.intermediateBam, rgmdCram); err != nil {
+					addFailure(fmt.Sprintf("rgmd BAM→CRAM conversion: %v", err))
+					return
+				}
+				color.Green("[%s] rgmd.cram ready: %s\n", sampleName, rgmdCram)
+
+				if !bqsr {
+					color.Green("[%s] BQSR disabled — pipeline complete.\n", sampleName)
+					return
+				}
+				bqsrOut, err := runBQSR(rgmdCram)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Output: %s\n", sampleName, bqsrOut)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromMarkDupAndBQSR: sorted.bam → MarkDuplicates → BQSR → CRAM //
+			// ------------------------------------------------------------------ //
+			case resumeFromMarkDupAndBQSR:
+				color.Green("[%s] Marking duplicates on sorted.bam...\n", sampleName)
+				mDupCmd := fmt.Sprintf(
+					`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`,
+					resolvedFasta, readPair.intermediateBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+				fmt.Printf("[%s] %s\n", sampleName, mDupCmd)
+				var mdupErr error
+				if verbose {
+					mdupErr = utils.RunBashCmdVerbose(mDupCmd)
+				} else {
+					mdupErr = utils.RunBashCmd(mDupCmd)
+				}
+				if mdupErr != nil {
+					addFailure(fmt.Sprintf("MarkDuplicates: %v", mdupErr))
+					return
+				}
+				color.Green("[%s] MarkDuplicates complete.\n", sampleName)
+
+				color.Green("[%s] Indexing rgmd.bam...\n", sampleName)
+				indexCmd := fmt.Sprintf(`samtools index %s`, rgmdBam)
+				var indErr error
+				if verbose {
+					indErr = utils.RunBashCmdVerbose(indexCmd)
+				} else {
+					indErr = utils.RunBashCmd(indexCmd)
+				}
+				if indErr != nil {
+					addFailure(fmt.Sprintf("BAM index: %v", indErr))
+					return
+				}
+
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram...\n", sampleName)
+				if err := bamToCram(rgmdBam, rgmdCram); err != nil {
+					addFailure(fmt.Sprintf("rgmd BAM→CRAM: %v", err))
+					return
+				}
+
+				if !bqsr {
+					color.Green("[%s] BQSR disabled — pipeline complete. Final CRAM: %s\n", sampleName, rgmdCram)
+					return
+				}
+				bqsrOut, err := runBQSR(rgmdCram)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Output: %s\n", sampleName, bqsrOut)
+				return
+
+			// ------------------------------------------------------------------ //
+			// resumeFromAlign (default): full alignment from clean reads          //
+			// ------------------------------------------------------------------ //
+			default:
+				// ----------------------------------------- BWA-MEM2 / BWA-MEM ----------------------------------------- //
+				alignCmd := fmt.Sprintf(
+					`bwa-mem2 mem -t %v -M -Y -R '@RG\tID:%s.1\tSM:%s\tLB:%s_1\tPL:BGISEQ' %s %s %s | samtools sort -o %s`,
+					threads, sampleName, sampleName, sampleName, resolvedFasta, readPair.fwd, readPair.rev, sortedBam)
+				if aligner == "bwa-mem" {
+					alignCmd = fmt.Sprintf(
+						`bwa mem -t %v -M -Y -R '@RG\tID:%s.1\tSM:%s\tLB:%s_1\tPL:BGISEQ' %s %s %s | samtools sort -o %s`,
+						threads, sampleName, sampleName, sampleName, resolvedFasta, readPair.fwd, readPair.rev, sortedBam)
+				}
+
+				color.Green("[%s] Aligning with %s...\n", sampleName, aligner)
+				fmt.Printf("[%s] %s\n", sampleName, alignCmd)
+				var memErr error
+				if verbose {
+					memErr = utils.RunBashCmdVerbose(alignCmd)
+				} else {
+					memErr = utils.RunBashCmd(alignCmd)
+				}
+				if memErr != nil {
+					addFailure(fmt.Sprintf("alignment: %v", memErr))
+					return
+				}
+				color.Green("[%s] Alignment completed.\n", sampleName)
+
+				// ----------------------------------------- Mark Duplicates -------------------------------------------- //
+				color.Green("[%s] Marking duplicates...\n", sampleName)
+				mDupCmd := fmt.Sprintf(
+					`gatk --java-options "-Xmx8G" MarkDuplicates -R %s -I %s -O %s -M %s --VERBOSITY %s`,
+					resolvedFasta, sortedBam, rgmdBam, rgmdMetrics, gatkLogLevel)
+				fmt.Printf("[%s] %s\n", sampleName, mDupCmd)
+				var mdupErr error
+				if verbose {
+					mdupErr = utils.RunBashCmdVerbose(mDupCmd)
+				} else {
+					mdupErr = utils.RunBashCmd(mDupCmd)
+				}
+				if mdupErr != nil {
+					addFailure(fmt.Sprintf("MarkDuplicates: %v", mdupErr))
+					return
+				}
+				color.Green("[%s] MarkDuplicates completed.\n", sampleName)
+
+				// ----------------------------------------- BAM Index -------------------------------------------------- //
+				color.Green("[%s] Indexing BAM...\n", sampleName)
+				indexCmd := fmt.Sprintf(`samtools index %s`, rgmdBam)
+				fmt.Printf("[%s] %s\n", sampleName, indexCmd)
+				var indErr error
+				if verbose {
+					indErr = utils.RunBashCmdVerbose(indexCmd)
+				} else {
+					indErr = utils.RunBashCmd(indexCmd)
+				}
+				if indErr != nil {
+					addFailure(fmt.Sprintf("BAM index: %v", indErr))
+					return
+				}
+				color.Green("[%s] BAM index completed.\n", sampleName)
+
+				// ----------------------------------------- Convert to CRAM -------------------------------------------- //
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram...\n", sampleName)
+				if err := bamToCram(rgmdBam, rgmdCram); err != nil {
+					addFailure(fmt.Sprintf("rgmd BAM→CRAM: %v", err))
+					return
+				}
+
+				// ============================================= BQSR ==================================================== //
+				if !bqsr {
+					color.Green("[%s] Pipeline complete (no BQSR). Final CRAM: %s\n", sampleName, rgmdCram)
+					return
+				}
+
+				color.Green("[%s] Starting BQSR...\n", sampleName)
+				bqsrOut, err := runBQSR(rgmdCram)
+				if err != nil {
+					addFailure(err.Error())
+					return
+				}
+				color.Green("[%s] BQSR complete. Final: %s\n", sampleName, bqsrOut)
+			}
+
+		}(rp)
+	}
+
+	wg.Wait()
+
+	// ======================================= Final summary ======================================================= //
+	fmt.Printf("\n==============================================================\n")
+	color.Green("Already aligned (skipped): %d\n", len(validSamples))
+	color.Green("Successfully processed:    %d\n", len(validCleanReads)-len(failedAlignments))
+	if len(failedAlignments) > 0 {
+		color.Red("Failed:                    %d\n", len(failedAlignments))
+		for _, s := range failedAlignments {
+			color.Red("  - %s\n", s)
+		}
+	}
+	if len(missingCleanReads) > 0 {
+		color.Yellow("Skipped (no valid reads):  %d\n", len(missingCleanReads))
+		for _, s := range missingCleanReads {
+			color.Yellow("  - %s\n", s)
+		}
+	}
+	fmt.Printf("==============================================================\n\n")
+}
+
+func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, genomesDir string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, bqsr bool, bootstrap bool, knownSites []string, threads int) {
+	// ============================================= Validate paths ================================================ //
+	fmt.Println("Checking paths ...")
+
+	dInfo, err := os.Stat(dataDir)
+	if err != nil {
+		fmt.Printf("Error accessing data directory: %s\n", dataDir)
+		return
+	}
+	if !dInfo.IsDir() {
+		fmt.Printf("Data directory %s is not a directory\n", dataDir)
+		return
+	}
+	dataDirAbs, err := filepath.Abs(dataDir)
+	if err != nil {
+		fmt.Printf("Error getting absolute path for data directory: %s\n", dataDir)
+		return
+	}
+
+	if species == "" {
+		fmt.Println("Please provide species name")
+		return
+	}
+	if refVer == "" {
+		fmt.Println("Please provide reference version name")
+		return
+	}
+
+	// ---- Resolve reference fasta (explicit path or auto-discover) ---- //
+	resolvedFasta, resolveErr := resolveRefFasta(refFasta, genomesDir, species, refVer)
+	if resolveErr != nil {
+		color.Red("Could not resolve reference fasta: %v\n", resolveErr)
+		return
+	}
+
+	fastaInfo, err := os.Stat(resolvedFasta)
+	if err != nil {
+		fmt.Printf("Error accessing reference fasta file: %s\n", resolvedFasta)
+		return
+	}
+	if !fastaInfo.Mode().IsRegular() {
+		fmt.Printf("Reference fasta file: %s is not a regular file\n", resolvedFasta)
+		return
+	}
+
+	dictFilePath := resolvedFasta[:len(resolvedFasta)-len(filepath.Ext(resolvedFasta))] + ".dict"
+	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
+		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
+		return
+	}
+
+	// ---- Validate BQSR parameters up-front ---- //
+	if bqsr {
+		if aligner == "pbmm2" {
+			color.Red("BQSR is not supported for pbmm2. Use bwa-mem2 or disable BQSR.\n")
+			return
+		}
+		if len(knownSites) == 0 && !bootstrap {
+			color.Red("BQSR requested: either provide known-sites or enable bootstrap.\n")
+			return
+		}
+		if len(knownSites) > 0 && bootstrap {
+			color.Red("Choose either known-sites OR bootstrap, not both.\n")
+			return
+		}
+		for _, ks := range knownSites {
+			if _, err := os.Stat(ks); err != nil {
+				color.Red("Known-sites file not found: %s\n", ks)
+				return
+			}
+		}
+	}
+
+	color.Green("All file paths valid\n....................................................\n\n")
+	fmt.Println("data dir abs:", dataDirAbs)
+
+	// ================================== Discover samples ===================================== //
+	color.Green("Checking Samples in dir structure ...\n\n")
+	pattern := filepath.Join(dataDir, species, "*", "*", "clean_reads")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		panic(err)
+	}
+
+	color.Green("SAMPLES FOUND:\n---------------------------------------------------------------------\n\n ")
+	seen := make(map[string]struct{}, len(matches))
+	var samples []string
+	for _, match := range matches {
+		s := filepath.Base(filepath.Dir(match))
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			samples = append(samples, match)
+			fmt.Println(s)
+		}
+	}
+	color.Green("\nFound %d sample(s) in the data directory for %s\n==================================\n\n", len(samples), color.GreenString(species))
+
+	// ============================================= Scan alignment files =========================================== //
+
+	bamsStatResults, _ := ScanAlignments(dataDir, species, refVer, genomesDir, resolvedFasta, verbose, quick)
+
+	for _, s := range bamsStatResults {
+		bqsrCramOK := isUsable(s.BqsrCram) && hasIndex(s.BqsrCram)
+		rgmdCramOK := isUsable(s.RgmdCram) && hasIndex(s.RgmdCram)
+
+		// --- If already perfect ---
+		if bqsrCramOK && rgmdCramOK &&
+			!s.SortedBam.Present &&
+			!s.RgmdBam.Present &&
+			!s.BqsrBam.Present &&
+			len(s.OtherFiles) == 0 {
+
+			color.Green("[%s] PASS ✅ - Skipping'\n", s.Sample)
+		} else if !rgmdCramOK {
+			if isUsable(s.RgmdBam) {
+				color.Green("[%s] Converting rgmd.bam → rgmd.cram\n", s.Sample)
+				bamToCramStr := fmt.Sprintf(`echo "samtools view -T %s -C -o %s %s"
+    samtools view -T %s -C -o %s %s
+    echo "samtools index %s"
+    samtools index %s
+`, resolvedFasta, strings.Replace(s.RgmdBam.Path, ".bam", ".cram", 1), s.RgmdBam.Path, resolvedFasta, strings.Replace(s.RgmdBam.Path, ".bam", ".cram", 1), s.RgmdBam.Path, strings.Replace(s.RgmdBam.Path, ".bam", ".cram", 1), strings.Replace(s.RgmdBam.Path, ".bam", ".cram", 1))
+				if verbose {
+					utils.RunBashCmdVerbose(bamToCramStr)
+				} else {
+					utils.RunBashCmd(bamToCramStr)
+				}
+			} else if isUsable(s.SortedBam) {
+				steps = append(steps, "Run markdup: sorted.bam → rgmd.bam")
+				steps = append(steps, "Convert rgmd.bam → rgmd.cram")
+			} else {
+				steps = append(steps, "Missing sorted.bam → must rerun alignment (bwa-mem)")
+			}
+		}
+
+		// --- Ensure rgmd.cram index ---
+		if isUsable(s.RgmdCram) && !hasIndex(s.RgmdCram) {
+			steps = append(steps, "Index rgmd.cram")
+		}
+
+		// --- Ensure bqsr.cram ---
+		if !bqsrCramOK {
+			if isUsable(s.RgmdCram) || isUsable(s.RgmdBam) {
+				steps = append(steps, "Run BQSR → bqsr.bam")
+				steps = append(steps, "Convert bqsr.bam → bqsr.cram")
+			} else {
+				steps = append(steps, "Cannot run BQSR: missing rgmd input")
+			}
+		}
+
+		// --- Ensure bqsr.cram index ---
+		if isUsable(s.BqsrCram) && !hasIndex(s.BqsrCram) {
+			steps = append(steps, "Index bqsr.cram")
+		}
+
+		// --- Cleanup phase ---
+		if bqsrCramOK && rgmdCramOK {
+			if s.SortedBam.Present {
+				steps = append(steps, "Delete sorted.bam")
+			}
+			if s.RgmdBam.Present {
+				steps = append(steps, "Delete rgmd.bam")
+			}
+			if s.BqsrBam.Present {
+				steps = append(steps, "Delete bqsr.bam")
+			}
+			if len(s.OtherFiles) > 0 {
+				steps = append(steps, "Remove unexpected extra files")
+			}
+		}
+
+		return Action{
+			Sample:  s.Sample,
+			Steps:   steps,
+			Perfect: false,
+		}
+
 	}
 
 	color.Green("\nReady to align: %d\n", len(validCleanReads))

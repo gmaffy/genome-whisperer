@@ -55,8 +55,29 @@ to quickly create a Cobra application.`,
 		if vErr != nil {
 			log.Fatalf("Error getting verbose flag: %v", vErr)
 		}
-		result := alignment.ScanAlignmentStages(dataDir, speciesName, refVer, genomesDir, referencePath, verbose, quick)
-		fmt.Println(result)
+		result, _ := alignment.ScanAlignments(dataDir, speciesName, refVer, genomesDir, referencePath, verbose, quick)
+
+		results := alignment.EvaluateAll(result)
+
+		for _, r := range results {
+			fmt.Printf("Sample: %s\n", r.Sample)
+			for _, step := range r.Steps {
+				fmt.Printf("  - %s\n", step)
+			}
+			fmt.Println()
+		}
+
+		//for _, bamState := range result {
+		//	if bamState.BqsrCram.Valid && bamState.RgmdCram.Valid && bamState.BqsrCram.IndexPresent && bamState.RgmdCram.IndexPresent {
+		//		if !bamState.SortedBam.Present || !bamState.RgmdBam.Present || !bamState.BqsrBam.Present || len(bamState.OtherFiles)  == 0 {
+		//			color.Green("[%s] PASS - CLEAN")
+		//		} else {
+		//			color.Cyan("[%s] PASS - DIRTY")
+		//		}
+		//	} else if bamState.BqsrCram.Valid && !bamState.BqsrCram.IndexPresent {
+		//		color.Yellow(["[%s] resume from indexing bqsr"])
+		//	}
+		//}
 	},
 }
 
