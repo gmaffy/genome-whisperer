@@ -56,10 +56,7 @@ to quickly create a Cobra application.`,
 			log.Fatalf("Error getting verbose flag: %v", vErr)
 		}
 		result := alignment.ScanAlignmentStages(dataDir, speciesName, refVer, genomesDir, referencePath, verbose, quick)
-		for _, s := range result.Samples {
-			fmt.Printf("%s bqsr present=%v valid=%v err=%v\n",
-				s.Sample, s.BqsrBam.Present, s.BqsrBam.Valid, s.BqsrBam.ValidateErr)
-		}
+		fmt.Println(result)
 	},
 }
 
