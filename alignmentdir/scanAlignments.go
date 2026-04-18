@@ -1,4 +1,4 @@
-package alignment
+package alignmentdir
 
 import (
 	"fmt"
@@ -10,6 +10,8 @@ import (
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/variants"
 )
+
+// ============================= 1. Scan all dirs to see the stage of each sample ==================================== //
 
 type FileInfo struct {
 	Path         string
@@ -42,8 +44,11 @@ type ScanError struct {
 	Err    error
 }
 
-func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string, verbose, quick bool) ([]SampleBamState, error) {
+// --------------------------- Function to give details of files in bam directory ----------------------------------- //
 
+func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string, verbose, quick bool) ([]SampleBamState, error) {
+	// Returns a list of sample structs. Each sample structs tell weather certain bams/crams are present or not
+	// Imported alignment files are listed in SampleBamState
 	color.Cyan("\n=================== STARTING ALIGNMENT SCAN ===================\n")
 	fmt.Println("Checking paths ...")
 
@@ -238,7 +243,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 
 				}
 			} else {
-				if !strings.HasSuffix(name, ".bai") && !strings.HasSuffix(name, ".crai") {
+				if !strings.HasSuffix(name, ".bai") && !strings.HasSuffix(name, ".crai") && !strings.HasSuffix(name, ".pdf") {
 					color.Blue("[%s] Random artifact found: %s\n", sampleName, bamPath)
 					sampleState.OtherFiles = append(sampleState.OtherFiles, FileInfo{Path: bamPath, Size: bamSize, Present: true})
 
@@ -253,9 +258,16 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 	return scanResult, nil
 }
 
+// ------------------------------- For each sample list steps needed to get perfect dir ----------------------------- //
+
+type Step struct {
+	Program string   // e.g. "samtools", "gatk", "bwa-mem"
+	Inputs  []string // arguments, input files, flags, etc.
+}
+
 type Action struct {
 	Sample  string
-	Steps   []string
+	Steps   []Step
 	Perfect bool
 }
 
@@ -267,8 +279,8 @@ func hasIndex(f FileInfo) bool {
 	return f.IndexPresent && f.IndexSize > 0
 }
 
-func evaluateSample(s SampleBamState) Action {
-	var steps []string
+func GetSampleActions(s SampleBamState) Action {
+	var steps []Step
 
 	// --- Check terminal goal ---
 	bqsrCramOK := isUsable(s.BqsrCram) && hasIndex(s.BqsrCram)
@@ -282,57 +294,131 @@ func evaluateSample(s SampleBamState) Action {
 		len(s.OtherFiles) == 0 {
 
 		return Action{
-			Sample:  s.Sample,
-			Steps:   []string{"Directory is already perfect"},
+			Sample: s.Sample,
+			Steps: []Step{
+				{
+					Program: "Skip",
+					Inputs:  []string{"✅PASS - All required cram files present"},
+				},
+			},
 			Perfect: true,
 		}
+
 	}
 
 	// --- Ensure rgmd.cram ---
 	if !rgmdCramOK {
 		if isUsable(s.RgmdBam) {
-			steps = append(steps, fmt.Sprintf("Convert rgmd.bam → rgmd.cram"))
+			steps = append(steps, Step{
+				Program: "bam_to_cram",
+				Inputs:  []string{s.RgmdBam.Path},
+			})
 		} else if isUsable(s.SortedBam) {
-			steps = append(steps, "Run markdup: sorted.bam → rgmd.bam")
-			steps = append(steps, "Convert rgmd.bam → rgmd.cram")
+			//steps = append(steps, "Run markdup: sorted.bam → rgmd.bam")
+
+			steps = append(steps, Step{
+				Program: "markdup",
+				Inputs:  []string{s.SortedBam.Path},
+			})
+
+			//steps = append(steps, "Convert rgmd.bam → rgmd.cram")
+			steps = append(steps, Step{
+				Program: "bam_to_cram",
+				Inputs:  []string{s.RgmdBam.Path},
+			})
 		} else {
-			steps = append(steps, "Missing sorted.bam → must rerun alignment (bwa-mem)")
+			//steps = append(steps, "Missing sorted.bam → must rerun alignment (bwa-mem)")
+			steps = append(steps, Step{
+				Program: "scratch",
+				Inputs:  []string{s.Sample},
+			})
 		}
 	}
 
 	// --- Ensure rgmd.cram index ---
 	if isUsable(s.RgmdCram) && !hasIndex(s.RgmdCram) {
-		steps = append(steps, "Index rgmd.cram")
+		//steps = append(steps, "Index rgmd.cram")
+		steps = append(steps, Step{
+			Program: "indexBam",
+			Inputs:  []string{s.RgmdBam.Path},
+		})
 	}
 
 	// --- Ensure bqsr.cram ---
 	if !bqsrCramOK {
-		if isUsable(s.RgmdCram) || isUsable(s.RgmdBam) {
-			steps = append(steps, "Run BQSR → bqsr.bam")
-			steps = append(steps, "Convert bqsr.bam → bqsr.cram")
+		if isUsable(s.BqsrBam) {
+			steps = append(steps, Step{
+				Program: "bam_to_cram",
+				Inputs:  []string{s.BqsrBam.Path},
+			})
+
+		} else if isUsable(s.RgmdBam) {
+			//steps = append(steps, "Run BQSR → bqsr.bam")
+			//steps = append(steps, "Convert bqsr.bam → bqsr.cram")
+			if !isUsable(s.RgmdCram) {
+				steps = append(steps, Step{
+					Program: "bam_to_cram",
+					Inputs:  []string{s.RgmdBam.Path},
+				})
+			}
+			steps = append(steps, Step{
+				Program: "bqsr",
+				Inputs:  []string{s.RgmdBam.Path},
+			})
+		} else if isUsable(s.RgmdCram) {
+			steps = append(steps, Step{
+				Program: "bqsr",
+				Inputs:  []string{s.RgmdBam.Path},
+			})
+			//steps = append(steps, "Cannot run BQSR: missing rgmd input")
 		} else {
-			steps = append(steps, "Cannot run BQSR: missing rgmd input")
+			steps = append(steps, Step{
+				Program: "scratch",
+				Inputs:  []string{s.Sample},
+			})
 		}
 	}
 
 	// --- Ensure bqsr.cram index ---
 	if isUsable(s.BqsrCram) && !hasIndex(s.BqsrCram) {
-		steps = append(steps, "Index bqsr.cram")
+		//steps = append(steps, "Index bqsr.cram")
+		steps = append(steps, Step{
+			Program: "indexBam",
+			Inputs:  []string{s.BqsrBam.Path},
+		})
 	}
 
 	// --- Cleanup phase ---
 	if bqsrCramOK && rgmdCramOK {
 		if s.SortedBam.Present {
-			steps = append(steps, "Delete sorted.bam")
+			//steps = append(steps, "Delete sorted.bam")
+			steps = append(steps, Step{
+				Program: "rm",
+				Inputs:  []string{s.SortedBam.Path},
+			})
 		}
 		if s.RgmdBam.Present {
-			steps = append(steps, "Delete rgmd.bam")
+			//steps = append(steps, "Delete rgmd.bam")
+			steps = append(steps, Step{
+				Program: "rm",
+				Inputs:  []string{s.RgmdBam.Path},
+			})
 		}
 		if s.BqsrBam.Present {
-			steps = append(steps, "Delete bqsr.bam")
+			//steps = append(steps, "Delete bqsr.bam")
+			steps = append(steps, Step{
+				Program: "rm",
+				Inputs:  []string{s.BqsrBam.Path},
+			})
 		}
 		if len(s.OtherFiles) > 0 {
-			steps = append(steps, "Remove unexpected extra files")
+			//steps = append(steps, "Remove unexpected extra files")
+			for _, file := range s.OtherFiles {
+				steps = append(steps, Step{
+					Program: "rm",
+					Inputs:  []string{file.Path},
+				})
+			}
 		}
 	}
 
@@ -343,10 +429,10 @@ func evaluateSample(s SampleBamState) Action {
 	}
 }
 
-func EvaluateAll(samples []SampleBamState) []Action {
-	results := make([]Action, 0, len(samples))
-	for _, s := range samples {
-		results = append(results, evaluateSample(s))
-	}
-	return results
-}
+//func EvaluateAll(samples []SampleBamState) []Action {
+//	results := make([]Action, 0, len(samples))
+//	for _, s := range samples {
+//		results = append(results, evaluateSample(s))
+//	}
+//	return results
+//}

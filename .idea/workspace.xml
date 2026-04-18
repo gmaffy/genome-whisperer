@@ -5,6 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2ed741eb-c74a-40b0-aecf-7a60442acf3a" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/alignment/legacy_code/old_code" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/alignment/utils.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/genome-whisperer.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/genome-whisperer.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
@@ -12,14 +14,14 @@
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/RunAlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/RunAlignReads.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/RunAlignReads.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go.og" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/RunAlignReads.go.og" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go.withloging" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/RunAlignReads.go.withloging" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go.og" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/legacy_code/RunAlignReads.go.og" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/RunAlignReads.go.withloging" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/legacy_code/RunAlignReads.go.withloging" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/alignment/alignmentStats.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/alignmentStats.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/baseRecal.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/baseRecal.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/scanAlignments.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/scanAlignments.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/dirAlign.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignmentdir/dirAlign.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/dirBQSR.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignmentdir/dirBQSR.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignment/scanAlignments.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignmentdir/scanAlignments.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/annotation/annotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/annotation.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/annotation/createSnpEffDb.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/createSnpEffDb.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq.log" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bsaseq/interactiveMode.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/interactiveMode.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bsaseq/oneBulk.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/oneBulk.go" afterDir="false" />
@@ -47,18 +49,11 @@
       <change beforePath="$PROJECT_DIR$/cmd/VariantCalling.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantCalling.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cmd/root.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/root.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.txt" beforeDir="false" afterPath="$PROJECT_DIR$/config.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fake.g.vcf.gz" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/fake.g.vcf.gz.tbi" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genome-whisperer" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/long_desc" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pangenome/gopan.go" beforeDir="false" afterPath="$PROJECT_DIR$/pangenome/gopan.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scan_align_stage.go" beforeDir="false" afterPath="$PROJECT_DIR$/scan_align_stage.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/snpEff_genes.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/snpEff_summary.html" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/utils/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/utils/utils.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/v1/alignment/alignShortReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/alignment/alignShortReads.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/v1/alignment/alignmentStats.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/alignment/alignmentStats.go" afterDir="false" />
@@ -109,7 +104,6 @@
       <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/variants/variant_calling.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go.backup" beforeDir="false" afterPath="$PROJECT_DIR$/v1/variants/variant_calling.go.backup" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go.deepseek" beforeDir="false" afterPath="$PROJECT_DIR$/v1/variants/variant_calling.go.deepseek" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.og" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go.og" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.unoptimised" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go.unoptimised" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/RunVariantCallerOptimised.go.1" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCallerOptimised.go.1" afterDir="false" />
@@ -158,6 +152,9 @@
     <commands />
     <urls />
   </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 6
@@ -190,11 +187,11 @@
     &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
     &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/GodwinMafireyi&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/mafir&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;advanced.settings&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
   }
 }</component>
@@ -205,40 +202,31 @@
   <component name="RecapUselessUpdatesCounter">
     <option name="suspendCountdown" value="0" />
   </component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="D:\GitLab\genome-whisperer\alignmentdir" />
+    </key>
+  </component>
   <component name="RunManager">
     <configuration default="true" type="GoApplicationRunConfiguration" factoryName="Go Application">
       <module name="genome-whisperer" />
       <working_directory value="$PROJECT_DIR$" />
       <go_parameters value="-i" />
-      <kind />
+      <kind value="FILE" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$" />
-      <method v="2" />
-    </configuration>
-    <configuration name="go build RunAlignReads.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
-      <module name="genome-whisperer" />
-      <working_directory value="$PROJECT_DIR$" />
-      <kind value="FILE" />
-      <package value="github.com/gmaffy/genome-whisperer" />
-      <directory value="$PROJECT_DIR$" />
-      <filePath value="$PROJECT_DIR$/alignment/RunAlignReads.go" />
       <method v="2" />
     </configuration>
     <configuration default="true" type="GoTestRunConfiguration" factoryName="Go Test">
       <module name="genome-whisperer" />
       <working_directory value="$PROJECT_DIR$" />
       <go_parameters value="-i" />
-      <kind />
+      <kind value="DIRECTORY" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$" />
       <framework value="gotest" />
       <method v="2" />
     </configuration>
-    <recent_temporary>
-      <list>
-        <item itemvalue="Go Build.go build RunAlignReads.go" />
-      </list>
-    </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
@@ -273,21 +261,6 @@
           <url>file://$PROJECT_DIR$/utils/utils.go</url>
           <line>160</line>
           <option name="timeStamp" value="4" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
-          <url>file://$PROJECT_DIR$/alignment/RunAlignReads.go</url>
-          <line>2</line>
-          <option name="timeStamp" value="5" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
-          <url>file://$PROJECT_DIR$/alignment/RunAlignReads.go</url>
-          <line>659</line>
-          <option name="timeStamp" value="6" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
-          <url>file://$PROJECT_DIR$/alignment/baseRecal.go</url>
-          <line>212</line>
-          <option name="timeStamp" value="7" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
