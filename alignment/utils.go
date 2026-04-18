@@ -3,6 +3,7 @@ package alignment
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/gmaffy/genome-whisperer/utils"
 )
@@ -116,7 +117,17 @@ func BamIndex(bam string, verbose bool) error {
 	return err
 }
 
-func MarkDuplicates(referencePath string, sortedBam string, rgmdBam string, rgmdMetrics string, verbose bool, aligner string, gatkLogLevel string) error {
+func MarkDuplicates(referencePath string, sortedBam string, verbose bool, aligner string, gatkLogLevel string) error {
+
+	baseName := ""
+	if strings.HasSuffix(sortedBam, ".bam") {
+		baseName = strings.TrimSuffix(sortedBam, ".bam")
+	} else {
+		baseName = strings.TrimSuffix(sortedBam, ".cram")
+	}
+	rgmdBam := baseName + ".RGMD.bam"
+	rgmdMetrics := baseName + ".RGMD.metrics.txt"
+
 	var cmd string
 	switch aligner {
 	case "bwa-mem":

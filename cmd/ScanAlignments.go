@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/gmaffy/genome-whisperer/alignment"
+	"github.com/gmaffy/genome-whisperer/alignmentdir"
 	"github.com/spf13/cobra"
 )
 
@@ -55,17 +55,9 @@ to quickly create a Cobra application.`,
 		if vErr != nil {
 			log.Fatalf("Error getting verbose flag: %v", vErr)
 		}
-		result, _ := alignment.ScanAlignments(dataDir, speciesName, refVer, genomesDir, referencePath, verbose, quick)
+		result, _ := alignmentdir.ScanAlignments(dataDir, speciesName, refVer, genomesDir, referencePath, verbose, quick)
 
-		results := alignment.EvaluateAll(result)
-
-		for _, r := range results {
-			fmt.Printf("Sample: %s\n", r.Sample)
-			for _, step := range r.Steps {
-				fmt.Printf("  - %s\n", step)
-			}
-			fmt.Println()
-		}
+		fmt.Println(result)
 
 		//for _, bamState := range result {
 		//	if bamState.BqsrCram.Valid && bamState.RgmdCram.Valid && bamState.BqsrCram.IndexPresent && bamState.RgmdCram.IndexPresent {

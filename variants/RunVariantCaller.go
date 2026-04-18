@@ -33,7 +33,7 @@ func HapCaller(ref string, bam string, verbose bool, vcfType string, vcf string)
 	fmt.Println(cmdStrHap)
 	slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStrHap))
 
-	err = utils.RunBashCmdVerbose(cmdStrHap)
+	err := utils.RunBashCmdVerbose(cmdStrHap)
 	return err
 }
 

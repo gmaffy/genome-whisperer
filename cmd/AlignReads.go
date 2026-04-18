@@ -10,6 +10,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/alignment"
+	"github.com/gmaffy/genome-whisperer/alignmentdir"
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/spf13/cobra"
 )
@@ -185,7 +186,7 @@ var AlignReadsCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			alignment.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, genomesDir, verbose, gatkLogLevel, aligner, quick, skipVerification, bqsr, bootstrap, knownSites, threads)
+			alignmentdir.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, genomesDir, verbose, gatkLogLevel, aligner, quick, skipVerification, bqsr, bootstrap, knownSites, threads)
 		} else {
 			//fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)

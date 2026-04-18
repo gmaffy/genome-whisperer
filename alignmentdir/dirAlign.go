@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/gmaffy/genome-whisperer/alignment"
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
@@ -287,8 +288,57 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 	bamsStatResults, _ := ScanAlignments(dataDir, species, refVer, genomesDir, resolvedFasta, verbose, quick)
 
+	var failedSamples []string
 	for _, s := range bamsStatResults {
 		sampleAction := GetSampleActions(s)
-		fmt.Println(sampleAction)
+		color.Cyan("[%s] Things to do\n----------------------------------------\n", s.Sample)
+		if sampleAction.Perfect {
+			color.Green("Sample %s is already aligned and indexed. Skipping.\n", s.Sample)
+		} else {
+
+			for _, step := range sampleAction.Steps {
+				color.Blue("[%s] %s on %s\n", s.Sample, step.Program, strings.Join(step.Inputs, ", "))
+				prog := step.Program
+				input := step.Inputs[0]
+
+				switch prog {
+				case "bam_to_cram":
+					cramPath := strings.Replace(input, ".bam", ".cram", 1)
+					err = alignment.BamToCram(input, cramPath, resolvedFasta, verbose)
+					if err != nil {
+						failedSamples = append(failedSamples, s.Sample)
+						color.Red("Error converting %s to cram: %v\n", input, err)
+						continue
+					}
+				case "markdup":
+					//rgmdBam := strings.Replace(input, ".bam", ".rgmd.bam", 1)
+					err = alignment.MarkDuplicates(resolvedFasta, input, verbose, aligner, gatkLogLevel)
+					if err != nil {
+						failedSamples = append(failedSamples, s.Sample)
+						color.Red("[%s] Error marking duplicates: %v\n", s.Sample, err)
+						continue
+
+					}
+				case "indexBam":
+					err = alignment.BamIndex(input, verbose)
+					if err != nil {
+						failedSamples = append(failedSamples, s.Sample)
+						color.Red("[%s] Error indexing %s: %v\n", s.Sample, input, err)
+						continue
+					}
+
+				case "scratch":
+					color.Yellow("Aligning %s\n", input)
+
+				case "rm":
+					err = os.Remove(input)
+					if err != nil {
+						failedSamples = append(failedSamples, s.Sample)
+					}
+				}
+
+			}
+		}
+
 	}
 }
