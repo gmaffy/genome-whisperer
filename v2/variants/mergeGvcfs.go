@@ -169,7 +169,7 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 					color.Yellow("[%s] skipping integrity check for %s\n", sample, color.BlueString(vcf))
 				} else {
 					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sample, color.BlueString(vcf))
-					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
+					if vErr := ValidateGvcf(vcf, verbose, quick); vErr != nil {
 						color.Red("[%s] gVCF %s corrupted: %v\n", sample, color.BlueString(vcf), vErr)
 						missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "corrupted"})
 					} else {

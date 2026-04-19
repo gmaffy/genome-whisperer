@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/gmaffy/genome-whisperer/variants"
 )
 
 // ============================= 1. Scan all dirs to see the stage of each sample ==================================== //
@@ -132,7 +132,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 			if strings.HasSuffix(name, "sorted.bam") {
 				sampleState.SortedBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
 
-				valErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
+				valErr := variants.ValidateBam(bamPath, resolvedFasta, verbose, quick)
 				if valErr == nil {
 					sampleState.SortedBam.Valid = true
 					//color.Green("[%s] has VALID sorted bam: %s\n", sampleName, bamPath)
@@ -153,7 +153,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 			} else if strings.HasSuffix(name, "rgmd.bam") || strings.HasSuffix(name, "RGMD.bam") {
 				sampleState.RgmdBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
 
-				valErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
+				valErr := variants.ValidateBam(bamPath, resolvedFasta, verbose, quick)
 				if valErr == nil {
 					sampleState.RgmdBam.Valid = true
 					//color.Green("[%s] has VALID rgmd bam: %s\n", sampleName, bamPath)
@@ -175,7 +175,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 			} else if strings.HasSuffix(name, "rgmd.cram") || strings.HasSuffix(name, "RGMD.cram") {
 				sampleState.RgmdCram = FileInfo{Path: bamPath, Size: bamSize, Present: true}
 
-				valErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
+				valErr := variants.ValidateBam(bamPath, resolvedFasta, verbose, quick)
 				if valErr == nil {
 					sampleState.RgmdCram.Valid = true
 					//color.Green("[%s] has VALID rgmd cram: %s\n", sampleName, bamPath)
@@ -202,7 +202,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 			} else if strings.HasSuffix(name, "bqsr.bam") || strings.HasSuffix(name, "BQSR.bam") {
 				sampleState.BqsrBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
 
-				varErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
+				varErr := variants.ValidateBam(bamPath, resolvedFasta, verbose, quick)
 				if varErr == nil {
 					sampleState.BqsrBam.Valid = true
 					color.Green("[%s] has VALID bqsr bam: %s\n", sampleName, bamPath)
@@ -220,7 +220,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 			} else if strings.HasSuffix(name, "bqsr.cram") || strings.HasSuffix(name, "BQSR.cram") {
 				sampleState.BqsrCram = FileInfo{Path: bamPath, Size: bamSize, Present: true}
 
-				varErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
+				varErr := variants.ValidateBam(bamPath, resolvedFasta, verbose, quick)
 				if varErr == nil {
 					sampleState.BqsrCram.Valid = true
 					color.Green("[%s] has VALID bqsr cram: %s\n", sampleName, bamPath)

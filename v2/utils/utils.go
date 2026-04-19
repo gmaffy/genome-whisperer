@@ -345,7 +345,7 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 		} else {
 			mbdbErr = RunBashCmd(mbdbStr)
 		}
-
+		
 		if mbdbErr != nil {
 			return fmt.Errorf("makeblastdb creation failed: %v", mbdbErr)
 		}
@@ -353,63 +353,4 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 	fmt.Printf("Fasta file prep done ...\n\n")
 
 	return nil
-}
-
-func ValidateGvcf(vcf string, verbose bool, quick bool) error {
-	if quick {
-		tbi := vcf + ".tbi"
-		if _, err := os.Stat(tbi); err != nil {
-			return fmt.Errorf("TBI index missing for %s", vcf)
-		}
-		valStr := fmt.Sprintf("bcftools view -h %s > /dev/null", vcf)
-		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
-		if verbose {
-			return RunBashCmdVerbose(valStr)
-		}
-		return RunBashCmd(valStr)
-	}
-
-	valStr := fmt.Sprintf("bcftools index --tbi --force %s", vcf)
-	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
-	if verbose {
-		return RunBashCmdVerbose(valStr)
-	}
-	return RunBashCmd(valStr)
-}
-
-func ValidateBam(bam string, ref string, verbose bool, quick bool) error {
-	var valStr string
-	if quick {
-		valStr = fmt.Sprintf("samtools quickcheck %s > /dev/null", bam)
-	} else {
-		valStr = fmt.Sprintf(`samtools view -T %s -h %s > /dev/null`, ref, bam)
-	}
-	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
-	if verbose {
-		return RunBashCmdVerbose(valStr)
-	}
-	return RunBashCmd(valStr)
-}
-
-func ValidateFastqGz(fastq string, verbose bool, quick bool) error {
-	if quick {
-		// Just check the gzip magic bytes and EOF integrity
-		valStr := fmt.Sprintf("gzip -t %s", fastq)
-		fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
-		if verbose {
-			return RunBashCmdVerbose(valStr)
-		}
-		return RunBashCmd(valStr)
-	}
-
-	// Full validation: gzip integrity + FASTQ format check (4-line records, quality scores)
-	valStr := fmt.Sprintf(
-		`bash -c 'gzip -cd %s | awk "NR%%4==1 && !/^@/ { print \"Bad header at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } NR%%4==3 && !/^\+/ { print \"Bad separator at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } END { if(NR%%4!=0) { print \"Truncated: \", NR, \"lines\" > \"/dev/stderr\"; exit 1 } }" '`,
-		fastq,
-	)
-	fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
-	if verbose {
-		return RunBashCmdVerbose(valStr)
-	}
-	return RunBashCmd(valStr)
 }

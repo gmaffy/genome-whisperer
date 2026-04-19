@@ -979,6 +979,41 @@ type SampleWork struct {
 	cramDir string // filepath.Dir of the cram, used to derive gvcf output path
 }
 
+func ValidateGvcf(vcf string, verbose bool, quick bool) error {
+	if quick {
+		tbi := vcf + ".tbi"
+		if _, err := os.Stat(tbi); err != nil {
+			return fmt.Errorf("TBI index missing for %s", vcf)
+		}
+		valStr := fmt.Sprintf("bcftools view -h %s > /dev/null", vcf)
+		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
+		if verbose {
+			return utils.RunBashCmdVerbose(valStr)
+		}
+		return utils.RunBashCmd(valStr)
+	}
+
+	valStr := fmt.Sprintf("bcftools index --tbi --force %s", vcf)
+	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
+	if verbose {
+		return utils.RunBashCmdVerbose(valStr)
+	}
+	return utils.RunBashCmd(valStr)
+}
+
+func ValidateBam(bam string, ref string, verbose bool, quick bool) error {
+	var valStr string
+	if quick {
+		valStr = fmt.Sprintf("samtools quickcheck %s > /dev/null", bam)
+	} else {
+		valStr = fmt.Sprintf(`samtools view -T %s -h %s > /dev/null`, ref, bam)
+	}
+	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
+	if verbose {
+		return utils.RunBashCmdVerbose(valStr)
+	}
+	return utils.RunBashCmd(valStr)
+}
 func VariantCallingDir(dataDir string, species string, refVer string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string, quick bool) {
 
 	// ============================================= Validate paths ================================================ //
@@ -1076,7 +1111,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 			cram := cramFiles[0]
 			//fmt.Printf("CRAM file found for %s: %s\n", sample, cram)
 			color.Green("[%s] bqsr.cram file FOUND! 😊: %s\n", sample, cram)
-			err := utils.ValidateBam(cram, refFasta, verbose, quick)
+			err := ValidateBam(cram, refFasta, verbose, quick)
 			if err != nil {
 				color.Red("[%s] bqsr.cram file is not valid: %v\n", sample, err)
 				missingBams = append(missingBams, sample)
@@ -1145,7 +1180,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 					vcf := vcfFiles[0]
 					color.Green("[%s] gVCF file for chrom %s exists: %s\n\n", sw.sample, color.BlueString(chrom.ID), vcf)
 					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sw.sample, color.BlueString(vcf))
-					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
+					if vErr := ValidateGvcf(vcf, verbose, quick); vErr != nil {
 						color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(vcf), vErr)
 						if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 							color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(vcf), err)
@@ -1187,7 +1222,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 			if _, statErr := os.Stat(contigGvcfPath); statErr == nil {
 
 				fmt.Printf("[%s] checking integrity of gVCF file: %s .......................\n\n", sw.sample, color.BlueString(contigGvcfPath))
-				if vErr := utils.ValidateGvcf(contigGvcfPath, verbose, quick); vErr != nil {
+				if vErr := ValidateGvcf(contigGvcfPath, verbose, quick); vErr != nil {
 					color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(contigGvcfPath), vErr)
 					if _, err := CreateGvcf(sw.cram, refFasta, contigs, contigGvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 						color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(contigGvcfPath), err)

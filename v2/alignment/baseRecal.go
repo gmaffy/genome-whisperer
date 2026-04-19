@@ -343,7 +343,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, gatkLogLeve
 	if sErr != nil || iErr != nil {
 		msg := fmt.Sprintf("Hard Filtered VCF files not found for bam file: %s. Skipping\n", bam)
 		slog.Info(msg)
-		return []string{}, fmt.Errorf("%s", msg)
+		return []string{}, fmt.Errorf(msg)
 	}
 
 	knownSites := []string{hardFilteredSnpVCF, hardFilteredIndelVCF}

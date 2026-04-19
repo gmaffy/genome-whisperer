@@ -10,27 +10,16 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
-//func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
-//	lines := []string{
-//		"cd ~/", "rm -r GLnexus.DB",
-//		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
-//		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
-//	}
-//	return strings.Join(lines, "\n")
-//}
-
 func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
 	lines := []string{
-		"set -euo pipefail",
-		"cd ~/",
-		"rm -rf GLnexus.DB",
+		"cd ~/", "rm -r GLnexus.DB",
 		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
 		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
 	}
-	return strings.Join(lines, " && \\\n")
+	return strings.Join(lines, "\n")
 }
 
-func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, merger string, verbose bool, quick bool, skipVerification bool) {
+func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, merger string, verbose bool, quick bool) {
 	fmt.Println("Merging GVCFs ...")
 	if config != "" {
 		fmt.Println("Using config file: ", config)
@@ -43,7 +32,6 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	}
 
 	println("Merging GVCFs using plennegy data structure...")
-
 	// ============================================= Validate paths ================================================ //
 
 	dInfo, err := os.Stat(dataDir)
@@ -152,10 +140,10 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 
 	var missingGvcfs []missingEntry
 
-	// Build the per-(sample,chrom) gvcf path the same way VariantCallingDir does, using FindBamOrVcfs.
+	// Build the per-(sample,chrom) gvcf path the same way VariantCallingDir does, using findBamOrVcfs.
 	for _, sample := range samples {
 		for _, chrom := range chroms {
-			_, vcfFiles := FindBamOrVcfs(dataDirAbs, species, sample, refVer, "gvcfs", chrom.ID)
+			_, vcfFiles := findBamOrVcfs(dataDirAbs, species, sample, refVer, "gvcfs", chrom.ID)
 
 			switch len(vcfFiles) {
 			case 0:
@@ -165,16 +153,12 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 			case 1:
 				vcf := vcfFiles[0]
 				color.Green("[%s] gVCF found for chrom %s: %s\n", sample, chrom.ID, vcf)
-				if skipVerification {
-					color.Yellow("[%s] skipping integrity check for %s\n", sample, color.BlueString(vcf))
+				fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sample, color.BlueString(vcf))
+				if vErr := validateGvcf(vcf, verbose, quick); vErr != nil {
+					color.Red("[%s] gVCF %s corrupted: %v\n", sample, color.BlueString(vcf), vErr)
+					missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "corrupted"})
 				} else {
-					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sample, color.BlueString(vcf))
-					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
-						color.Red("[%s] gVCF %s corrupted: %v\n", sample, color.BlueString(vcf), vErr)
-						missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "corrupted"})
-					} else {
-						color.Green("[%s] gVCF %s is valid!!\n\n", sample, vcf)
-					}
+					color.Green("[%s] gVCF %s is valid!!\n\n", sample, vcf)
 				}
 
 			default:

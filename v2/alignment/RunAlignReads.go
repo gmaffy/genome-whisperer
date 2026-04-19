@@ -782,7 +782,7 @@ func RunAlignReadsConfig(configPath string, threadsPerSample int, bqsr bool, boo
 	} else {
 		Msg := fmt.Sprintf("Aligner %s is not supported", aligner)
 		slog.Error(Msg)
-		return nil, fmt.Errorf("%s", Msg)
+		return nil, fmt.Errorf(Msg)
 	}
 	return bams, nil
 
