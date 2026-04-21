@@ -6,8 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="2ed741eb-c74a-40b0-aecf-7a60442acf3a" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/helper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignmentdir/dirAlign.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignmentdir/dirAlign.go.og" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bsaseq/interactiveMode.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/interactiveMode.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -15,7 +14,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="169" />
+    <option name="cachedIndexableFilesCount" value="171" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">

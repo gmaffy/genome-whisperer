@@ -3,6 +3,7 @@ package bsaseq
 import (
 	"fmt"
 
+	"github.com/fatih/color"
 	"github.com/go-gota/gota/dataframe"
 	"github.com/go-gota/gota/series"
 
@@ -16,6 +17,13 @@ import (
 )
 
 func InteractiveRun(vcfFile string, popStructure string, rep int, outDir string) {
+	color.Cyan("===================================== Inputs ==============================================\n")
+	color.Cyan("Variant File : %s\n", vcfFile)
+	color.Cyan("Output Dir: %s\n", outDir)
+
+	color.Cyan("--------------------------------- Parameters ---------------------------------------------\n")
+	color.Cyan("Population structure: %s\n", popStructure)
+	color.Cyan("Number of repetitions: %v\n", rep)
 	// ======================================== Create Results dir =================================================== #
 	resultsDir, err := createResultsDir(outDir)
 	if err != nil {
