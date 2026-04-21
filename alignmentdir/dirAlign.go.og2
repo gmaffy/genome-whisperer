@@ -79,14 +79,14 @@ type GenomeRef struct {
 
 func GetValidGenomesFromDisk(genomesDir string) (map[string][]GenomeRef, error) {
 	result := make(map[string][]GenomeRef)
-	//fmt.Printf("Searching for genomes in %s\n", genomesDir)
+	fmt.Printf("Searching for genomes in %s\n", genomesDir)
 	species, err := os.ReadDir(genomesDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading genomes dir %s: %w", genomesDir, err)
 	}
 
 	for _, sp := range species {
-		//fmt.Printf("Scanning species: %s\n", sp.Name())
+		fmt.Printf("Scanning species: %s\n", sp.Name())
 		if !sp.IsDir() {
 			continue
 		}
@@ -173,7 +173,7 @@ func resolveRefFasta(refFasta, genomesDir, species, refVer string) (string, erro
 	return "", fmt.Errorf("species %q found but no assembly matching refVer %q in %s", species, refVer, genomesDir)
 }
 
-// ProcessingReason describes an individual pipeline step for a sample.
+// ProcessingReason describes why a sample was queued and what processSample should do.
 type ProcessingReason string
 
 const (
@@ -181,8 +181,6 @@ const (
 	ReasonAlignFromReads ProcessingReason = "align_from_reads"
 	// ReasonMarkDupSortedBam — sorted.bam present; run MarkDuplicates then convert to cram.
 	ReasonMarkDupSortedBam ProcessingReason = "markdup_sorted_bam"
-	// ReasonIndexRgmdBam — rgmd.bam present but has no index; index it before converting.
-	ReasonIndexRgmdBam ProcessingReason = "index_rgmd_bam"
 	// ReasonConvertRgmdBam — rgmd.bam present; convert to rgmd.cram.
 	ReasonConvertRgmdBam ProcessingReason = "convert_rgmd_bam"
 	// ReasonIndexRgmdCram — rgmd.cram present but missing index.
@@ -193,7 +191,7 @@ const (
 	ReasonConvertBqsrBam ProcessingReason = "convert_bqsr_bam"
 	// ReasonIndexBqsrCram — bqsr.cram present but missing index.
 	ReasonIndexBqsrCram ProcessingReason = "index_bqsr_cram"
-	// ReasonCleanup — all required crams present; remove intermediate files.
+	// ReasonCleanup — all required crams present; only cleanup/other-files remain.
 	ReasonCleanup ProcessingReason = "cleanup"
 )
 
@@ -204,7 +202,7 @@ type sampleTask struct {
 	fwd           string
 	rev           string
 	state         SampleBamState
-	plan          []ProcessingReason
+	reason        ProcessingReason
 }
 
 type sampleResult struct {
@@ -323,9 +321,9 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			continue
 		}
 
-		// Build the full ordered plan from the current state so processSample
-		// can execute every step without re-scanning the filesystem.
-		plan, needsReads := buildPlan(state, bqsr)
+		// Determine processing reason from current state so processSample can
+		// dispatch without re-inspecting the filesystem.
+		reason, needsReads := classifyReason(state, bqsr)
 
 		var fwd, rev string
 		if needsReads {
@@ -339,7 +337,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			rev = revReads[0]
 		}
 
-		color.Yellow("[%s] Sample queued — %d steps: %v\n\n", sample, len(plan), plan)
+		color.Yellow("[%s] Sample queued for processing (reason: %s)...\n\n", sample, reason)
 		tasks = append(tasks, sampleTask{
 			sample:        sample,
 			bamDir:        bamDir,
@@ -347,7 +345,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			fwd:           fwd,
 			rev:           rev,
 			state:         state,
-			plan:          plan,
+			reason:        reason,
 		})
 	}
 
@@ -355,12 +353,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	color.Green("Samples queued:   %d\n", len(tasks))
 	fmt.Printf("\n-------------------------------------- Queued Samples --------------------------------------\n")
 	for _, task := range tasks {
-		color.Yellow("%s\n", task.sample)
-		fmt.Printf("\nTo DO:\n-------------------------------------------------\n\n")
-		for _, reason := range task.plan {
-			fmt.Printf("%s\n", reason)
-		}
-		fmt.Printf("\n\n================================================================\n\n")
+		fmt.Printf("%s\n", task.sample)
 	}
 	fmt.Printf("----------------------------------------------------------------------------------------------\n")
 
@@ -459,52 +452,40 @@ func getPathsWithCleanReadsDir(dataDir, species string) ([]string, error) {
 	return roots, nil
 }
 
-// buildPlan inspects the current SampleBamState and returns the complete
-// ordered list of steps still required to finish the sample, plus a bool
+// classifyReason inspects the current SampleBamState and returns the
+// ProcessingReason that describes what still needs to happen, plus a bool
 // indicating whether paired FASTQ reads must be located before queuing.
-// Steps are determined once from the snapshot; processSample executes them
-// in order without any further filesystem re-scans between steps.
-func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
-	var plan []ProcessingReason
-	needsReads := false
+func classifyReason(state SampleBamState, bqsr bool) (ProcessingReason, bool) {
+	rgmdOK := isUsable(state.RgmdCram) && hasIndex(state.RgmdCram)
 
-	rgmdCramReady := isUsable(state.RgmdCram)
-
-	if !rgmdCramReady {
+	if !isUsable(state.RgmdCram) {
 		switch {
 		case isUsable(state.RgmdBam):
-			// rgmd.bam exists — index it if needed, then convert to cram.
-			if !hasIndex(state.RgmdBam) {
-				plan = append(plan, ReasonIndexRgmdBam)
-			}
-			plan = append(plan, ReasonConvertRgmdBam)
+			return ReasonConvertRgmdBam, false
 		case isUsable(state.SortedBam):
-			plan = append(plan, ReasonMarkDupSortedBam)
+			return ReasonMarkDupSortedBam, false
 		default:
-			plan = append(plan, ReasonAlignFromReads)
-			needsReads = true
+			return ReasonAlignFromReads, true
 		}
-		// After producing the cram we always need to index it.
-		plan = append(plan, ReasonIndexRgmdCram)
-	} else if !hasIndex(state.RgmdCram) {
-		plan = append(plan, ReasonIndexRgmdCram)
 	}
 
-	if bqsr {
+	if !hasIndex(state.RgmdCram) {
+		return ReasonIndexRgmdCram, false
+	}
+
+	if bqsr && rgmdOK {
 		if !isUsable(state.BqsrCram) {
 			if isUsable(state.BqsrBam) {
-				plan = append(plan, ReasonConvertBqsrBam)
-			} else {
-				plan = append(plan, ReasonRunBQSR, ReasonConvertBqsrBam)
+				return ReasonConvertBqsrBam, false
 			}
-			plan = append(plan, ReasonIndexBqsrCram)
-		} else if !hasIndex(state.BqsrCram) {
-			plan = append(plan, ReasonIndexBqsrCram)
+			return ReasonRunBQSR, false
+		}
+		if !hasIndex(state.BqsrCram) {
+			return ReasonIndexBqsrCram, false
 		}
 	}
 
-	plan = append(plan, ReasonCleanup)
-	return plan, needsReads
+	return ReasonCleanup, false
 }
 
 func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verbose, quick, skipVer, bqsr, bootstrap bool, knownSites []string, threads int) sampleResult {
@@ -512,177 +493,143 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		return sampleResult{sample: task.sample, err: err}
 	}
 
-	sn := task.sample
+	state := task.state
 
-	// Live paths: updated in-place as each step produces a new file, so later
-	// steps always have the correct path without any filesystem re-scan.
-	rgmdBamPath := task.state.RgmdBam.Path
-	rgmdCramPath := task.state.RgmdCram.Path
-	bqsrBamPath := task.state.BqsrBam.Path
-	// bqsrCramPath is derived from bqsrBamPath when needed.
-
-	color.Cyan("[%s] Plan (%d steps): %v\n", sn, len(task.plan), task.plan)
-
-	for i, step := range task.plan {
-		color.Cyan("[%s] Step %d/%d: %s\n", sn, i+1, len(task.plan), step)
-
-		switch step {
-
-		// ------------------------------------------------------------------ //
-		// Align from raw reads → sorted.bam → rgmd.bam → rgmd.cram           //
-		// ------------------------------------------------------------------ //
-		case ReasonAlignFromReads:
-			if task.fwd == "" || task.rev == "" {
-				return sampleResult{sample: sn, err: fmt.Errorf("no usable alignment intermediates or paired reads found")}
-			}
-			if !skipVer {
-				color.Cyan("[%s] Validating forward reads: %s\n", sn, task.fwd)
-				if err := utils.ValidateFastqGz(task.fwd, verbose, quick); err != nil {
-					color.Red("[%s] Forward read validation failed: %v\n", sn, err)
-					return sampleResult{sample: sn, err: fmt.Errorf("forward read validation failed: %w", err)}
-				}
-				color.Green("[%s] Forward reads are valid\n", sn)
-
-				color.Cyan("[%s] Validating reverse reads: %s\n", sn, task.rev)
-				if err := utils.ValidateFastqGz(task.rev, verbose, quick); err != nil {
-					color.Red("[%s] Reverse read validation failed: %v\n", sn, err)
-					return sampleResult{sample: sn, err: fmt.Errorf("reverse read validation failed: %w", err)}
-				}
-				color.Green("[%s] Reverse reads are valid\n", sn)
-			}
-
-			sortedBam := filepath.Join(task.bamDir, sn+".sorted.bam")
-			color.Cyan("[%s] Aligning PE reads → %s using %s ...\n", sn, sortedBam, aligner)
-			if err := alignPairedReads(task.fwd, task.rev, refFasta, sortedBam, sn, aligner, threads, verbose); err != nil {
-				color.Red("[%s] Alignment failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] Alignment done: %s\n", sn, sortedBam)
-
-			rgmdBamPath = filepath.Join(task.bamDir, sn+".rgmd.bam")
-			color.Cyan("[%s] MarkDuplicates: sorted.bam → rgmd.bam ...\n", sn)
-			if err := alignment.MarkDuplicates(refFasta, sortedBam, verbose, aligner, gatkLogLevel); err != nil {
-				color.Red("[%s] MarkDuplicates failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] MarkDuplicates done: %s\n", sn, rgmdBamPath)
-
-			// The next step (ReasonConvertRgmdBam) is always in the plan after
-			// ReasonAlignFromReads; set rgmdCramPath so it has the right target.
-			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
-
-		// ------------------------------------------------------------------ //
-		// sorted.bam → rgmd.bam → rgmd.cram (MarkDuplicates path)            //
-		// ------------------------------------------------------------------ //
-		case ReasonMarkDupSortedBam:
-			rgmdBamPath = strings.TrimSuffix(task.state.SortedBam.Path, ".bam") + ".rgmd.bam"
-			color.Cyan("[%s] MarkDuplicates: sorted.bam → rgmd.bam ...\n", sn)
-			if err := alignment.MarkDuplicates(refFasta, task.state.SortedBam.Path, verbose, aligner, gatkLogLevel); err != nil {
-				color.Red("[%s] MarkDuplicates failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] MarkDuplicates done: %s\n", sn, rgmdBamPath)
-			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
-
-		// ------------------------------------------------------------------ //
-		// Index rgmd.bam (needed before samtools view / BamToCram)           //
-		// ------------------------------------------------------------------ //
-		case ReasonIndexRgmdBam:
-			color.Cyan("[%s] Indexing rgmd.bam: %s ...\n", sn, rgmdBamPath)
-			if err := alignment.BamIndex(rgmdBamPath, verbose); err != nil {
-				color.Red("[%s] rgmd.bam index failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] rgmd.bam indexed successfully\n", sn)
-
-		// ------------------------------------------------------------------ //
-		// rgmd.bam → rgmd.cram                                                //
-		// ------------------------------------------------------------------ //
-		case ReasonConvertRgmdBam:
-			color.Cyan("[%s] Converting rgmd.bam → rgmd.cram ...\n", sn)
-			if err := alignment.BamToCram(rgmdBamPath, refFasta, verbose); err != nil {
-				color.Red("[%s] BamToCram (rgmd) failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
-			color.Green("[%s] rgmd.cram created: %s\n", sn, rgmdCramPath)
-
-		// ------------------------------------------------------------------ //
-		// Index rgmd.cram                                                     //
-		// ------------------------------------------------------------------ //
-		case ReasonIndexRgmdCram:
-			color.Cyan("[%s] Indexing rgmd.cram: %s ...\n", sn, rgmdCramPath)
-			if err := alignment.BamIndex(rgmdCramPath, verbose); err != nil {
-				color.Red("[%s] rgmd.cram index failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] rgmd.cram indexed successfully\n", sn)
-
-		// ------------------------------------------------------------------ //
-		// BQSR: rgmd.cram → bqsr.bam                                         //
-		// ------------------------------------------------------------------ //
-		case ReasonRunBQSR:
-			sampleKnownSites := append([]string(nil), knownSites...)
-			if len(sampleKnownSites) == 0 && bootstrap {
-				color.Cyan("[%s] Bootstrapping BQSR known sites from %s ...\n", sn, rgmdCramPath)
-				var err error
-				sampleKnownSites, err = createBootstrapKnownSites(refFasta, rgmdCramPath, gatkLogLevel, verbose)
-				if err != nil {
-					color.Red("[%s] Bootstrapping BQSR known sites failed: %v\n", sn, err)
-					return sampleResult{sample: sn, err: err}
-				}
-				color.Green("[%s] Bootstrap known sites created\n", sn)
-			}
-			color.Cyan("[%s] Running BQSR on %s ...\n", sn, rgmdCramPath)
-			outBam, err := runBQSR(refFasta, rgmdCramPath, sampleKnownSites, verbose)
-			if err != nil {
-				color.Red("[%s] BQSR failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			bqsrBamPath = outBam
-			color.Green("[%s] BQSR done: %s\n", sn, bqsrBamPath)
-
-		// ------------------------------------------------------------------ //
-		// bqsr.bam → bqsr.cram                                               //
-		// ------------------------------------------------------------------ //
-		case ReasonConvertBqsrBam:
-			color.Cyan("[%s] Converting bqsr.bam → bqsr.cram ...\n", sn)
-			if err := alignment.BamToCram(bqsrBamPath, refFasta, verbose); err != nil {
-				color.Red("[%s] BamToCram (bqsr) failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] bqsr.cram created\n", sn)
-
-		// ------------------------------------------------------------------ //
-		// Index bqsr.cram                                                     //
-		// ------------------------------------------------------------------ //
-		case ReasonIndexBqsrCram:
-			bqsrCramPath := strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
-			color.Cyan("[%s] Indexing bqsr.cram: %s ...\n", sn, bqsrCramPath)
-			if err := alignment.BamIndex(bqsrCramPath, verbose); err != nil {
-				color.Red("[%s] bqsr.cram index failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] bqsr.cram indexed successfully\n", sn)
-
-		// ------------------------------------------------------------------ //
-		// Cleanup — remove all intermediates; keep final CRAMs + indexes      //
-		// ------------------------------------------------------------------ //
-		case ReasonCleanup:
-			color.Cyan("[%s] Cleaning up intermediate files in %s ...\n", sn, task.bamDir)
-			if err := cleanupSampleOutputs(task.bamDir, rgmdCramPath, bqsrBamPath, bqsr); err != nil {
-				color.Red("[%s] Cleanup failed: %v\n", sn, err)
-				return sampleResult{sample: sn, err: err}
-			}
-			color.Green("[%s] Cleanup done\n", sn)
-
-		default:
-			return sampleResult{sample: sn, err: fmt.Errorf("unknown processing step: %q", step)}
+	// Dispatch based on the reason that was determined at queue time.
+	switch task.reason {
+	case ReasonAlignFromReads:
+		if task.fwd == "" || task.rev == "" {
+			return sampleResult{sample: task.sample, err: fmt.Errorf("no usable alignment intermediates or paired reads found")}
 		}
+		color.Cyan("[%s] Aligning using reads: %s and %s ...\n", task.sample, task.fwd, task.rev)
+
+		if !skipVer {
+			color.Cyan("[%s] Validating Forward reads: %s\n", task.sample, task.fwd)
+			if err := utils.ValidateFastqGz(task.fwd, verbose, quick); err != nil {
+				color.Red("[%s] Forward read validation failed: %v\n", task.sample, err)
+				return sampleResult{sample: task.sample, err: fmt.Errorf("forward read validation failed: %w", err)}
+			}
+			color.Green("[%s] Forward reads are valid: %s\n", task.sample, task.fwd)
+
+			color.Cyan("[%s] Validating Reverse reads: %s\n", task.sample, task.rev)
+			if err := utils.ValidateFastqGz(task.rev, verbose, quick); err != nil {
+				color.Red("[%s] Reverse read validation failed: %v\n", task.sample, err)
+				return sampleResult{sample: task.sample, err: fmt.Errorf("reverse read validation failed: %w", err)}
+			}
+			color.Green("[%s] Reverse reads are valid: %s\n", task.sample, task.rev)
+		}
+
+		sortedBam := filepath.Join(task.bamDir, task.sample+".sorted.bam")
+		color.Cyan("[%s] Aligning PE reads to %s using %s ...\n", task.sample, refFasta, aligner)
+		if err := alignPairedReads(task.fwd, task.rev, refFasta, sortedBam, task.sample, aligner, threads, verbose); err != nil {
+			color.Red("[%s] Alignment failed: %v\n", task.sample, err)
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] %s bam file created successfully\n", task.sample, sortedBam)
+
+		rgmdBam := filepath.Join(task.bamDir, task.sample+".rgmd.bam")
+		color.Cyan("[%s] Converting sorted.bam to RGMD.bam ...\n", task.sample)
+		if err := alignment.MarkDuplicates(refFasta, sortedBam, verbose, aligner, gatkLogLevel); err != nil {
+			color.Red("[%s] MarkDuplicates failed: %v\n", task.sample, err)
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] Converting sorted.bam to RGMD.bam done\n", task.sample)
+
+		color.Cyan("[%s] Converting RGMD.bam to RGMD.cram ...\n", task.sample)
+		if err := alignment.BamToCram(rgmdBam, refFasta, verbose); err != nil {
+			color.Red("[%s] Converting RGMD.bam to RGMD.cram failed: %v\n", task.sample, err)
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] Converting RGMD.bam to RGMD.cram done\n", task.sample)
+
+	case ReasonMarkDupSortedBam:
+		rgmdBam := strings.TrimSuffix(state.SortedBam.Path, ".bam") + ".RGMD.bam"
+		color.Cyan("[%s] MarkDuplicates sorted.bam -> RGMD.bam ...\n", task.sample)
+		if err := alignment.MarkDuplicates(refFasta, state.SortedBam.Path, verbose, aligner, gatkLogLevel); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] MarkDuplicates done\n", task.sample)
+
+		color.Cyan("[%s] Converting RGMD.bam to RGMD.cram ...\n", task.sample)
+		if err := alignment.BamToCram(rgmdBam, refFasta, verbose); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] Converting RGMD.bam to RGMD.cram done\n", task.sample)
+
+	case ReasonConvertRgmdBam:
+		color.Cyan("[%s] Converting rgmd.bam to rgmd.cram ...\n", task.sample)
+		if err := alignment.BamToCram(state.RgmdBam.Path, refFasta, verbose); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] Converting rgmd.bam to rgmd.cram done\n", task.sample)
+
+	case ReasonIndexRgmdCram:
+		color.Cyan("[%s] Creating rgmd.cram index ...\n", task.sample)
+		if err := alignment.BamIndex(state.RgmdCram.Path, verbose); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] rgmd.cram index created successfully\n", task.sample)
+
+	case ReasonRunBQSR:
+		sampleKnownSites := append([]string(nil), knownSites...)
+		if len(sampleKnownSites) == 0 && bootstrap {
+			color.Cyan("[%s] Bootstrapping BQSR known sites ...\n", task.sample)
+			var err error
+			sampleKnownSites, err = createBootstrapKnownSites(refFasta, state.RgmdCram.Path, gatkLogLevel, verbose)
+			if err != nil {
+				color.Red("[%s] Bootstrapping BQSR failed: %v\n", task.sample, err)
+				return sampleResult{sample: task.sample, err: err}
+			}
+			color.Green("[%s] Known sites created successfully\n", task.sample)
+		}
+		color.Cyan("[%s] Running BQSR ...\n", task.sample)
+		if _, err := runBQSR(refFasta, state.RgmdCram.Path, sampleKnownSites, verbose); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+
+	case ReasonConvertBqsrBam:
+		color.Cyan("[%s] Converting bqsr.bam to bqsr.cram ...\n", task.sample)
+		if err := alignment.BamToCram(state.BqsrBam.Path, refFasta, verbose); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] Converting bqsr.bam to bqsr.cram done\n", task.sample)
+
+	case ReasonIndexBqsrCram:
+		color.Cyan("[%s] Creating bqsr.cram index ...\n", task.sample)
+		if err := alignment.BamIndex(state.BqsrCram.Path, verbose); err != nil {
+			return sampleResult{sample: task.sample, err: err}
+		}
+		color.Green("[%s] bqsr.cram index created successfully\n", task.sample)
+
+	case ReasonCleanup:
+		// Nothing to build; fall through to cleanup below.
+
+	default:
+		return sampleResult{sample: task.sample, err: fmt.Errorf("unknown processing reason: %q", task.reason)}
 	}
 
-	color.Green("[%s] All steps complete ✅\n", sn)
-	return sampleResult{sample: sn, success: true}
+	// After any mutating step, re-scan so the cleanup and final-check see
+	// the updated filesystem state.
+	var scanErr error
+	state, scanErr = inspectSampleBamDir(task.sample, task.bamDir, refFasta, verbose, quick)
+	if scanErr != nil {
+		color.Red("[%s] Re-scan of bams directory failed: %v\n", task.sample, scanErr)
+		return sampleResult{sample: task.sample, err: scanErr}
+	}
+
+	if err := cleanupSampleOutputs(task.bamDir, state, bqsr); err != nil {
+		return sampleResult{sample: task.sample, err: err}
+	}
+
+	finalState, err := inspectSampleBamDir(task.sample, task.bamDir, refFasta, verbose, quick)
+	if err != nil {
+		return sampleResult{sample: task.sample, err: err}
+	}
+	if !sampleIsComplete(finalState, bqsr) {
+		return sampleResult{sample: task.sample, err: fmt.Errorf("sample outputs are still incomplete after processing")}
+	}
+
+	return sampleResult{sample: task.sample, success: true}
 }
 
 func inspectSampleBamDir(sample, bamDir, refFasta string, verbose, quick bool) (SampleBamState, error) {
@@ -792,6 +739,27 @@ func getAlignmentFileInfo(path, refFasta string, verbose, quick bool) FileInfo {
 	}
 
 	return info
+}
+
+func sampleHasRequiredFinals(state SampleBamState, requireBQSR bool) bool {
+	rgmdOK := isUsable(state.RgmdCram) && hasIndex(state.RgmdCram)
+	if !rgmdOK {
+		return false
+	}
+	if !requireBQSR {
+		return !state.BqsrCram.Present || (isUsable(state.BqsrCram) && hasIndex(state.BqsrCram))
+	}
+	return isUsable(state.BqsrCram) && hasIndex(state.BqsrCram)
+}
+
+func sampleIsComplete(state SampleBamState, requireBQSR bool) bool {
+	if !sampleHasRequiredFinals(state, requireBQSR) {
+		return false
+	}
+	return !state.SortedBam.Present &&
+		!state.RgmdBam.Present &&
+		!state.BqsrBam.Present &&
+		len(state.OtherFiles) == 0
 }
 
 func alignPairedReads(fwd, rev, refFasta, sortedBam, sample, aligner string, threads int, verbose bool) error {
@@ -1025,32 +993,50 @@ func createBootstrapKnownSitesOld(refFasta, input, gatkLogLevel string, verbose 
 	return []string{filteredSNP, filteredINDEL}, nil
 }
 
-// cleanupSampleOutputs removes all files in bamDir except:
-//   - rgmd.cram and its index
-//   - bqsr.cram and its index (when requireBQSR is true)
-//   - any .txt or .pdf files (logs, recal tables, plots)
-//
-// rgmdCramPath is the live path produced by the pipeline.
-// bqsrBamPath is the bqsr.bam path (used to derive bqsr.cram path); ignored when !requireBQSR.
-func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrBamPath string, requireBQSR bool) error {
+func cleanupSampleOutputs(bamDir string, state SampleBamState, requireBQSR bool) error {
 	keep := make(map[string]struct{})
 
-	addWithIndex := func(cramPath string) {
-		keep[cramPath] = struct{}{}
-		stem := strings.TrimSuffix(cramPath, filepath.Ext(cramPath))
-		for _, idx := range []string{stem + ".crai", cramPath + ".crai", stem + ".bai", cramPath + ".bai"} {
-			if _, err := os.Stat(idx); err == nil {
-				keep[idx] = struct{}{}
+	if isUsable(state.RgmdCram) && hasIndex(state.RgmdCram) {
+		p := state.RgmdCram.Path
+		keep[p] = struct{}{}
+		// Inline existingIndexFiles logic
+		var candidates []string
+		if strings.HasSuffix(strings.ToLower(p), ".bam") {
+			candidates = []string{strings.TrimSuffix(p, filepath.Ext(p)) + ".bai"}
+		} else if strings.HasSuffix(strings.ToLower(p), ".cram") {
+			stem := strings.TrimSuffix(p, filepath.Ext(p))
+			candidates = []string{stem + ".crai", p + ".crai"}
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				keep[c] = struct{}{}
 			}
 		}
 	}
 
-	if rgmdCramPath != "" {
-		addWithIndex(rgmdCramPath)
+	if isUsable(state.BqsrCram) && hasIndex(state.BqsrCram) {
+		p := state.BqsrCram.Path
+		keep[p] = struct{}{}
+		// Inline existingIndexFiles logic
+		var candidates []string
+		if strings.HasSuffix(strings.ToLower(p), ".bam") {
+			candidates = []string{strings.TrimSuffix(p, filepath.Ext(p)) + ".bai"}
+		} else if strings.HasSuffix(strings.ToLower(p), ".cram") {
+			stem := strings.TrimSuffix(p, filepath.Ext(p))
+			candidates = []string{stem + ".crai", p + ".crai"}
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				keep[c] = struct{}{}
+			}
+		}
 	}
-	if requireBQSR && bqsrBamPath != "" {
-		bqsrCramPath := strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
-		addWithIndex(bqsrCramPath)
+
+	if requireBQSR && len(keep) < 4 {
+		return fmt.Errorf("cannot clean up before both final CRAMs are ready")
+	}
+	if !requireBQSR && len(keep) == 0 {
+		return fmt.Errorf("cannot clean up before rgmd.cram is ready")
 	}
 
 	entries, err := os.ReadDir(bamDir)
@@ -1066,13 +1052,8 @@ func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrBamPath string, requireBQSR 
 		if _, ok := keep[fullPath]; ok {
 			continue
 		}
-		// Always preserve log/report files.
-		lower := strings.ToLower(entry.Name())
-		if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".pdf") {
-			continue
-		}
 		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("removing %s: %w", fullPath, err)
+			return err
 		}
 	}
 
