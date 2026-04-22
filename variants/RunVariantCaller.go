@@ -103,7 +103,6 @@ func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer stri
 	}
 
 	if len(matches) == 0 {
-		//color.Red("No %s files found in %s. Skipping ....\n\n", bamOrVcf, sample)
 		return fmt.Errorf("no %s files found in %s ", bamOrVcf, sample), matches
 	}
 	if len(matches) > 1 {
@@ -111,7 +110,6 @@ func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer stri
 		return fmt.Errorf("multiple %s files found in %s", bamOrVcf, sample), matches
 	}
 
-	//color.Green("Found %s file for sample %s: %s\n\n", bamOrVcf, color.BlueString(sample), matches[0])
 	return nil, matches
 }
 
@@ -136,7 +134,7 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 		}
 		hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, sID, theGVCF, gatkLogLevel)
 
-		color.Green("\n---------------------------------------------------------------------------------\n%s\n\n----------------------------------------------------------------------------------------\n\n", hapCmdStr)
+		fmt.Printf("\n---------------------------------------------------------------------------------\n%s\n\n----------------------------------------------------------------------------------------\n\n", hapCmdStr)
 		if verbose {
 			err = utils.RunBashCmdVerbose(hapCmdStr)
 		} else {
@@ -972,14 +970,40 @@ func VariantCallingConfig(configFile string, species string, maxParallelJobs int
 	}
 }
 
-// SampleWork bundles per-sample data needed by the worker goroutine.
-type SampleWork struct {
-	sample  string
-	cram    string
-	cramDir string // filepath.Dir of the cram, used to derive gvcf output path
+const (
+	stageHaplotypeCaller  = "HaplotypeCaller"
+	stageGenomicsDBImport = "GenomicsDBImport"
+	stageGenotypeGVCFs    = "GenotypeGVCFs"
+	stageGLNEXUS          = "GLNEXUS"
+	stageGLNEXUSBCFTOOLS  = "GLNEXUS_BCFTOOLS"
+	stageGLNEXUSIndex     = "GLNEXUS_INDEX"
+	stageSelectSNPs       = "SelectSNPs"
+	stageSelectINDELs     = "SelectINDELs"
+	stageHardFilterSNPs   = "HardFilteringSNPS"
+	stageHardFilterINDELs = "HardFilteringINDELS"
+	stageMergeVcfs        = "MergeVcfs"
+	stageDeepVariant      = "DEEPVARIANT"
+
+	glnexusDBDir = "GLnexus.DB"
+)
+
+// FailedTask tracks which sample/chromosome combinations failed
+type FailedTask struct {
+	Sample string
+	Chrom  string
+	Reason error
 }
 
-func VariantCallingDir(dataDir string, species string, refVer string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string, quick bool) {
+// SampleWork bundles per-sample data needed by the worker goroutine.
+// Fields are exported for potential JSON serialization/debugging.
+type SampleWork struct {
+	Sample  string
+	Cram    string
+	CramDir string // filepath.Dir of the cram, used to derive gvcf output path
+}
+
+// VariantCallingDir performs variant calling on all discovered samples in a directory.
+func VariantCallingDir(dataDir string, species string, refVer string, genomesDir string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string, quick bool, threadsPerJob int) {
 
 	// ============================================= Validate paths ================================================ //
 	fmt.Println("Checking paths ...")
@@ -1007,22 +1031,24 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 		fmt.Println("Please provide reference version name")
 		return
 	}
-	if refFasta == "" {
-		fmt.Println("Please provide reference name")
+
+	resolvedFasta, resolveErr := utils.ResolveRefFasta(refFasta, genomesDir, species, refVer)
+	if resolveErr != nil {
+		color.Red("Could not resolve reference fasta: %v\n", resolveErr)
 		return
 	}
 
-	fastaInfo, err := os.Stat(refFasta)
+	fastaInfo, err := os.Stat(resolvedFasta)
 	if err != nil {
-		fmt.Printf("Error accessing reference fasta file: %s\n", refFasta)
+		fmt.Printf("Error accessing reference fasta file: %s\n", resolvedFasta)
 		return
 	}
 	if !fastaInfo.Mode().IsRegular() {
-		fmt.Printf("Reference fasta file: %s is not a regular file\n", refFasta)
+		fmt.Printf("Reference fasta file: %s is not a regular file\n", resolvedFasta)
 		return
 	}
 
-	dictFilePath := refFasta[:len(refFasta)-len(filepath.Ext(refFasta))] + ".dict"
+	dictFilePath := resolvedFasta[:len(resolvedFasta)-len(filepath.Ext(resolvedFasta))] + ".dict"
 	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
 		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
 		return
@@ -1034,14 +1060,15 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 		return
 	}
 
-	color.Green("All file paths valid\n....................................................\n\n")
+	color.Cyan("All file paths valid\n....................................................\n\n")
 
 	// ================================== Discover samples ===================================== //
-	color.Green("Checking Samples in dir structure ...\n\n")
+	color.Cyan("================================== Discovering samples =====================================\n\n")
 	pattern := filepath.Join(dataDir, species, "*", "*", "reference_genomes")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		panic(err)
+		color.Red("Error finding samples: %v\n", err)
+		return
 	}
 
 	color.Green("SAMPLES FOUND:\n---------------------------------------------------------------------\n\n ")
@@ -1055,163 +1082,247 @@ func VariantCallingDir(dataDir string, species string, refVer string, refFasta s
 			fmt.Println(s)
 		}
 	}
-	color.Green("\nFound %d sample(s) in the data directory for %s\n==================================\n\n", len(samples), color.GreenString(species))
+	color.Cyan("\nFound %d sample(s) in the data directory for %s\n==================================\n\n", len(samples), species)
 
 	// ======================================= Resolve valid samples up-front ======================================= //
 	fmt.Println("Looking for bam files ....")
 
 	var (
-		validSamples []SampleWork
+		mu           sync.Mutex
 		missingBams  []string
 		multipleBams []string
+		validSamples []SampleWork
+		wg1          sync.WaitGroup
 	)
 
 	for _, sample := range samples {
-		_, cramFiles := FindBamOrVcfs(dataDirAbs, species, sample, refVer, "bams", "")
-		switch len(cramFiles) {
-		case 0:
-			missingBams = append(missingBams, sample)
-			color.Red("[%s] bqsr.cram file MISSING! 😒\n", sample)
-		case 1:
-			cram := cramFiles[0]
-			//fmt.Printf("CRAM file found for %s: %s\n", sample, cram)
-			color.Green("[%s] bqsr.cram file FOUND! 😊: %s\n", sample, cram)
-			err := utils.ValidateBam(cram, refFasta, verbose, quick)
-			if err != nil {
-				color.Red("[%s] bqsr.cram file is not valid: %v\n", sample, err)
+		wg1.Add(1)
+		go func(sample string) {
+			defer wg1.Done()
+
+			pattern := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*bqsr.cram",
+				dataDirAbs, strings.ToLower(species), sample, refVer)
+
+			cramFiles, cErr := filepath.Glob(pattern)
+			if cErr != nil {
+				color.Red("Error finding bam files: %v\n", cErr)
+				mu.Lock()
 				missingBams = append(missingBams, sample)
-			} else {
-				validSamples = append(validSamples, SampleWork{sample: sample, cram: cram, cramDir: filepath.Dir(filepath.Dir(filepath.Dir(cram)))})
+				mu.Unlock()
+				return
 			}
 
-		default:
-			color.Red("[%s] has multiple cram files.⚠️.\n%s\n\nI don't know which one to use.  Remove bad ones: %v\n\n", sample, cramFiles)
-			multipleBams = append(multipleBams, sample)
-		}
+			if len(cramFiles) == 0 {
+				color.Red("[%s] bqsr.cram file MISSING! ❌\n", sample)
+				mu.Lock()
+				missingBams = append(missingBams, sample)
+				mu.Unlock()
+			} else if len(cramFiles) > 1 {
+				color.Red("[%s] Multiple bqsr.cram files found! Skipping ...❌.\n\n", sample)
+				mu.Lock()
+				multipleBams = append(multipleBams, sample)
+				mu.Unlock()
+			} else {
+				color.Green("[%s] bqsr.cram file FOUND! ✅: %s\n", sample, cramFiles[0])
+				color.Cyan("Validating bam file ...\n")
+
+				valErr := utils.ValidateBam(cramFiles[0], refFasta, verbose, quick)
+				if valErr != nil {
+					color.Red("[%s] bqsr.cram file is not valid: %v\n", sample, valErr)
+					mu.Lock()
+					missingBams = append(missingBams, sample)
+					mu.Unlock()
+				} else {
+					color.Green("[%s] bqsr.cram file is valid! ✅\n", sample)
+					mu.Lock()
+					validSamples = append(validSamples, SampleWork{
+						Sample:  sample,
+						Cram:    cramFiles[0],
+						CramDir: filepath.Dir(filepath.Dir(filepath.Dir(cramFiles[0]))),
+					})
+					mu.Unlock()
+				}
+			}
+		}(sample)
 	}
+
+	wg1.Wait()
 
 	color.Green("\nValid: %d\n", len(validSamples))
 	color.Red("Missing: %d\n", len(missingBams))
 	color.Yellow("Multiple: %d\n", len(multipleBams))
 
-	fmt.Printf("\n==============================================================\n\n")
-
-	color.Green("Creating gVCFs for %d valid samples ...................................\n\n", len(validSamples))
-
+	fmt.Printf("\n=========================================================================================\n\n")
 	if len(validSamples) == 0 {
 		color.Red("No valid samples found. Exiting.")
 		return
 	}
 
-	// ==================================== Concurrent per-chrom GVCF creation ====================================== //
-	var failedSamples []string
-	maxWorkers := runtime.NumCPU()
-	if maxWorkers < 1 {
-		maxWorkers = 1
+	color.Cyan("==================================Creating gVCFs for %d valid samples ===========================================\n\n", len(validSamples))
+
+	// ==================================== Resource-aware concurrent GVCF creation ====================================== //
+
+	var failedTasks []FailedTask
+	var failedMu sync.Mutex
+
+	// FIX: Calculate max concurrent jobs based on threads per job and available CPUs.
+	// Each gVCF creation (HaplotypeCaller/DeepVariant) is CPU-intensive.
+	// We limit concurrent jobs so that total threads used ≤ CPU cores.
+	totalCores := runtime.NumCPU()
+	if threadsPerJob <= 0 {
+		threadsPerJob = 4 // Default: assume each job uses ~4 threads
 	}
+	maxParallelJobs := totalCores / threadsPerJob
+	if maxParallelJobs < 1 {
+		maxParallelJobs = 1
+	}
+
+	color.Cyan("Machine has %d cores. Using %d threads per job. Max parallel jobs: %d\n\n",
+		totalCores, threadsPerJob, maxParallelJobs)
+
+	// Semaphore to limit concurrent gVCF creation jobs
+	sem := make(chan struct{}, maxParallelJobs)
 
 	type workItem struct {
-		sw    SampleWork
-		chrom SeqInfo
+		sw       SampleWork
+		chroms   []SeqInfo
+		label    string // chrom.ID or "contigs"
+		isContig bool
 	}
 
-	workCh := make(chan workItem)
+	// Buffered channel sized to hold all work to prevent blocking
+	totalWork := len(validSamples) * (len(chroms) + 1) // +1 for potential contigs
+	workCh := make(chan workItem, totalWork)
 	var wg sync.WaitGroup
 
-	// Fan out workers.
-	for i := 0; i < maxWorkers; i++ {
+	// Fan out workers — one per job slot, each running jobs sequentially from the channel
+	for i := 0; i < maxParallelJobs; i++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer wg.Done()
 			for item := range workCh {
 				sw := item.sw
-				chrom := item.chrom
+				label := item.label
 
-				cramName := filepath.Base(sw.cram)
-				gvcfName := strings.Replace(cramName, ".cram", fmt.Sprintf(".%s.g.vcf.gz", chrom.ID), 1)
-				gvcfPath := filepath.Join(sw.cramDir, refVer, "gvcfs", gvcfName)
+				// Acquire semaphore slot (represents CPU allocation for this job)
+				sem <- struct{}{}
 
-				_, vcfFiles := FindBamOrVcfs(dataDirAbs, species, sw.sample, refVer, "gvcfs", chrom.ID)
+				cramName := filepath.Base(sw.Cram)
+				var gvcfName string
+				if item.isContig {
+					gvcfName = strings.Replace(cramName, ".cram", ".contigs.g.vcf.gz", 1)
+					gvcfName = strings.Replace(gvcfName, ".bam", ".contigs.g.vcf.gz", 1)
+				} else {
+					gvcfName = strings.Replace(cramName, ".cram", fmt.Sprintf(".%s.g.vcf.gz", label), 1)
+					gvcfName = strings.Replace(gvcfName, ".bam", fmt.Sprintf(".%s.g.vcf.gz", label), 1)
+				}
+				gvcfPath := filepath.Join(sw.CramDir, refVer, "gvcfs", gvcfName)
+
+				var vcfFiles []string
+				if item.isContig {
+					if _, statErr := os.Stat(gvcfPath); statErr == nil {
+						vcfFiles = []string{gvcfPath}
+					}
+				} else {
+					_, vcfFiles = FindBamOrVcfs(dataDirAbs, species, sw.Sample, refVer, "gvcfs", label)
+				}
 
 				switch len(vcfFiles) {
 				case 0:
-					color.Red("[%s] gVCF not found for chrom %s — creating ........\n\n", sw.sample, color.GreenString(chrom.ID))
-					if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
-						color.Red("[%s] Error creating gVCF for chrom %s: %v\n\n", sw.sample, chrom.ID, err)
-						failedSamples = append(failedSamples, []string{sw.sample, chrom.ID}...)
+					color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating ........\n\n", workerID, sw.Sample, label)
+					if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+						color.Red("[Worker %d] [%s] Error creating gVCF for %s: %v\n\n", workerID, sw.Sample, label, err)
+						failedMu.Lock()
+						failedTasks = append(failedTasks, FailedTask{
+							Sample: sw.Sample,
+							Chrom:  label,
+							Reason: err,
+						})
+						failedMu.Unlock()
+					} else {
+						color.Green("[Worker %d] [%s] gVCF for %s created successfully\n\n", workerID, sw.Sample, label)
 					}
 
 				case 1:
 					vcf := vcfFiles[0]
-					color.Green("[%s] gVCF file for chrom %s exists: %s\n\n", sw.sample, color.BlueString(chrom.ID), vcf)
-					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sw.sample, color.BlueString(vcf))
+					color.Green("[Worker %d] [%s] gVCF file for %s exists: %s\n\n", workerID, sw.Sample, label, vcf)
+					fmt.Printf("[Worker %d] [%s] checking integrity of gVCF file: %s ..........\n", workerID, sw.Sample, color.BlueString(vcf))
 					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
-						color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(vcf), vErr)
-						if _, err := CreateGvcf(sw.cram, refFasta, []SeqInfo{chrom}, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
-							color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(vcf), err)
-							failedSamples = append(failedSamples, []string{sw.sample, chrom.ID}...)
+						color.Red("[Worker %d] [%s] gVCF %s corrupted. Error: (%v) — re-creating\n", workerID, sw.Sample, color.BlueString(vcf), vErr)
+						if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+							color.Red("[Worker %d] [%s] Error re-creating gVCF %s: %v\n", workerID, sw.Sample, color.BlueString(vcf), err)
+							failedMu.Lock()
+							failedTasks = append(failedTasks, FailedTask{
+								Sample: sw.Sample,
+								Chrom:  label,
+								Reason: err,
+							})
+							failedMu.Unlock()
 						} else {
-							color.Green("[%s] gVCF %s re-created successfully\n", sw.sample, color.BlueString(vcf))
+							color.Green("[Worker %d] [%s] gVCF %s re-created successfully\n", workerID, sw.Sample, color.BlueString(vcf))
 						}
 					} else {
-						color.Green("[%s] gVCF %s is valid!!\n\n", sw.sample, vcf)
+						color.Green("[Worker %d] [%s] gVCF %s is valid!!\n\n", workerID, sw.Sample, vcf)
 					}
 
 				default:
-					color.Red("[%s] Multiple gVCF files found for chrom %s. Please remove extra gVCF in here.\n\n", sw.sample, chrom.ID)
+					color.Red("[Worker %d] [%s] Multiple gVCF files found for %s. Please remove extra gVCF in here.\n\n", workerID, sw.Sample, label)
+					failedMu.Lock()
+					failedTasks = append(failedTasks, FailedTask{
+						Sample: sw.Sample,
+						Chrom:  label,
+						Reason: fmt.Errorf("multiple gVCF files found"),
+					})
+					failedMu.Unlock()
 				}
+
+				// Release semaphore slot
+				<-sem
 			}
-		}()
+		}(i)
 	}
 
-	// Enqueue (sample × chrom) work items.
+	// Enqueue chromosome work items.
 	for _, sw := range validSamples {
 		for _, chrom := range chroms {
-			workCh <- workItem{sw: sw, chrom: chrom}
+			workCh <- workItem{sw: sw, chroms: []SeqInfo{chrom}, label: chrom.ID}
 		}
 	}
+
+	// Enqueue contig work items into the same worker pool
+	if len(contigs) > 0 {
+		for _, sw := range validSamples {
+			workCh <- workItem{sw: sw, chroms: contigs, label: "contigs", isContig: true}
+		}
+	}
+
 	close(workCh)
 	wg.Wait()
 
-	// ============================== Contig gVCFs (skip if already present) ============================== //
-	if len(contigs) == 0 {
-		color.Yellow("No contigs found in reference dict. Skipping contig gVCF creation.\n\n")
-	} else {
-		color.Green("Creating contig gVCFs for %d valid samples ...................................\n\n", len(validSamples))
-		for _, sw := range validSamples {
-			cramName := filepath.Base(sw.cram)
-			contigGvcfName := strings.Replace(cramName, ".cram", ".contigs.g.vcf.gz", 1)
-			contigGvcfPath := filepath.Join(sw.cramDir, refVer, "gvcfs", contigGvcfName)
+	// ================================== Summary ====================================== //
+	fmt.Printf("\n=========================== FINAL SUMMARY ===========================\n")
+	fmt.Printf("Machine cores:     %d\n", totalCores)
+	fmt.Printf("Threads per job:     %d\n", threadsPerJob)
+	fmt.Printf("Max parallel jobs:   %d\n", maxParallelJobs)
+	fmt.Printf("Samples processed: %d\n", len(validSamples))
+	fmt.Printf("Missing BAMs:      %d %v\n", len(missingBams), missingBams)
 
-			// Skip if the contig gVCF already exists and is readable.
-			if _, statErr := os.Stat(contigGvcfPath); statErr == nil {
-
-				fmt.Printf("[%s] checking integrity of gVCF file: %s .......................\n\n", sw.sample, color.BlueString(contigGvcfPath))
-				if vErr := utils.ValidateGvcf(contigGvcfPath, verbose, quick); vErr != nil {
-					color.Red("[%s] gVCF %s corrupted. Error: (%v) — re-creating\n", sw.sample, color.BlueString(contigGvcfPath), vErr)
-					if _, err := CreateGvcf(sw.cram, refFasta, contigs, contigGvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
-						color.Red("[%s] Error re-creating gVCF %s: %v\n", sw.sample, color.BlueString(contigGvcfPath), err)
-					} else {
-						color.Green("[%s] gVCF %s re-created successfully\n", sw.sample, color.BlueString(contigGvcfPath))
-					}
-				} else {
-					color.Green("[%s] gVCF %s is valid!!\n\n", sw.sample, color.BlueString(contigGvcfPath))
-				}
-			} else {
-				color.Green("[%s] Creating contig gVCF: %s\n", sw.sample, color.BlueString(contigGvcfPath))
-				if _, err := CreateGvcf(sw.cram, refFasta, contigs, contigGvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
-					fmt.Printf("[%s] Error creating contig gVCF: %v\n", sw.sample, err)
-				}
-			}
+	if len(failedTasks) > 0 {
+		color.Red("Failed gVCF tasks: %d\n", len(failedTasks))
+		for _, f := range failedTasks {
+			fmt.Printf("  - Sample: %s, Chrom/Label: %s, Reason: %v\n", f.Sample, f.Chrom, f.Reason)
 		}
+	} else {
+		color.Green("All gVCF tasks completed successfully!\n")
 	}
-
-	fmt.Printf("Missing bams (%d): %v\n==================================\n", len(missingBams), missingBams)
+	fmt.Printf("=====================================================================\n\n")
 
 	if !noMerging {
-		if len(missingBams) == 0 && len(failedSamples) == 0 {
-			fmt.Println("no missing bam files and no failed samples. Calling MergeVcfs")
-
+		if len(missingBams) == 0 && len(failedTasks) == 0 {
+			color.Cyan("\nNo missing BAMs and no failed samples. Ready for merging.\n")
+			// TODO: Implement actual merge call here
+		} else {
+			color.Yellow("Skipping merge due to missing BAMs (%d) or failed tasks (%d)\n", len(missingBams), len(failedTasks))
 		}
 	}
 }

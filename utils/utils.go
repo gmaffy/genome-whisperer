@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/fatih/color"
 )
 
 type LogEntry struct {
@@ -393,7 +395,6 @@ func ValidateBam(bam string, ref string, verbose bool, quick bool) error {
 
 func ValidateFastqGz(fastq string, verbose bool, quick bool) error {
 	if quick {
-		// Just check the gzip magic bytes and EOF integrity
 		valStr := fmt.Sprintf("gzip -t %s", fastq)
 		fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
 		if verbose {
@@ -402,7 +403,6 @@ func ValidateFastqGz(fastq string, verbose bool, quick bool) error {
 		return RunBashCmd(valStr)
 	}
 
-	// Full validation: gzip integrity + FASTQ format check (4-line records, quality scores)
 	valStr := fmt.Sprintf(
 		`bash -c 'gzip -cd %s | awk "NR%%4==1 && !/^@/ { print \"Bad header at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } NR%%4==3 && !/^\+/ { print \"Bad separator at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } END { if(NR%%4!=0) { print \"Truncated: \", NR, \"lines\" > \"/dev/stderr\"; exit 1 } }" '`,
 		fastq,
@@ -412,4 +412,104 @@ func ValidateFastqGz(fastq string, verbose bool, quick bool) error {
 		return RunBashCmdVerbose(valStr)
 	}
 	return RunBashCmd(valStr)
+}
+
+type GenomeRef struct {
+	RefVer    string
+	FastaPath string
+	DictPath  string
+}
+
+func GetValidGenomesFromDisk(genomesDir string) (map[string][]GenomeRef, error) {
+	result := make(map[string][]GenomeRef)
+	species, err := os.ReadDir(genomesDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading genomes dir %s: %w", genomesDir, err)
+	}
+
+	for _, sp := range species {
+		if !sp.IsDir() {
+			continue
+		}
+		spKey := strings.ToUpper(sp.Name())
+		spDir := filepath.Join(genomesDir, sp.Name())
+
+		refs, err := os.ReadDir(spDir)
+		if err != nil {
+			continue
+		}
+
+		for _, ref := range refs {
+			if !ref.IsDir() {
+				continue
+			}
+			assemblyDir := filepath.Join(spDir, ref.Name(), "assembly")
+			info, err := os.Stat(assemblyDir)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
+			entries, err := os.ReadDir(assemblyDir)
+			if err != nil {
+				continue
+			}
+
+			var fastaPath, dictPath string
+			for _, f := range entries {
+				if f.IsDir() {
+					continue
+				}
+				name := f.Name()
+				switch {
+				case strings.HasSuffix(name, ".fa"),
+					strings.HasSuffix(name, ".fasta"),
+					strings.HasSuffix(name, ".fna"):
+					fastaPath = filepath.Join(assemblyDir, name)
+				case strings.HasSuffix(name, ".dict"):
+					dictPath = filepath.Join(assemblyDir, name)
+				}
+			}
+
+			if fastaPath != "" && dictPath != "" {
+				result[spKey] = append(result[spKey], GenomeRef{
+					RefVer:    strings.ToUpper(ref.Name()),
+					FastaPath: fastaPath,
+					DictPath:  dictPath,
+				})
+			}
+		}
+	}
+
+	fmt.Printf("Discovered genomes: %d\n", len(result))
+
+	return result, nil
+}
+
+func ResolveRefFasta(refFasta, genomesDir, species, refVer string) (string, error) {
+	if refFasta != "" {
+		if _, err := os.Stat(refFasta); err != nil {
+			return "", fmt.Errorf("provided refFasta %q not accessible: %w", refFasta, err)
+		}
+		return refFasta, nil
+	}
+	if genomesDir == "" {
+		return "", fmt.Errorf("either refFasta or genomesDir must be provided")
+	}
+	genomes, err := GetValidGenomesFromDisk(genomesDir)
+	if err != nil {
+		return "", fmt.Errorf("auto-discovering genomes: %w", err)
+	}
+	spKey := strings.ToUpper(species)
+	refs, ok := genomes[spKey]
+	if !ok {
+		return "", fmt.Errorf("no genomes found for species %q in %s", species, genomesDir)
+	}
+	verKey := strings.ToUpper(refVer)
+	for _, r := range refs {
+		if r.RefVer == verKey {
+			color.Green("Auto-resolved reference: %s\n", r.FastaPath)
+			return r.FastaPath, nil
+		}
+	}
+	return "", fmt.Errorf("species %q found but no assembly matching refVer %q in %s", species, refVer, genomesDir)
 }

@@ -16,8 +16,6 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
-// Helper functions for identifying read directions.
-// These could be inlined within GetReadsPE to reduce function call overhead.
 func isFwd(filename string) bool {
 	return strings.HasSuffix(filename, "1.fastq.gz") ||
 		strings.HasSuffix(filename, "1.fq.gz") ||
@@ -29,8 +27,6 @@ func isFwd(filename string) bool {
 		strings.Contains(filename, "1.fq")
 }
 
-// Helper functions for identifying read directions.
-// These could be inlined within GetReadsPE to reduce function call overhead.
 func isRev(filename string) bool {
 	return strings.HasSuffix(filename, "2.fastq.gz") ||
 		strings.HasSuffix(filename, "2.fq.gz") ||
@@ -79,14 +75,12 @@ type GenomeRef struct {
 
 func GetValidGenomesFromDisk(genomesDir string) (map[string][]GenomeRef, error) {
 	result := make(map[string][]GenomeRef)
-	//fmt.Printf("Searching for genomes in %s\n", genomesDir)
 	species, err := os.ReadDir(genomesDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading genomes dir %s: %w", genomesDir, err)
 	}
 
 	for _, sp := range species {
-		//fmt.Printf("Scanning species: %s\n", sp.Name())
 		if !sp.IsDir() {
 			continue
 		}
