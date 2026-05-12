@@ -2,7 +2,7 @@
 //                   Author: Godwin Mafireyi                                  //
 //                   Email:  mafireyi@gmail.com                               //
 //                   Tel:    +27788673138                                     //
-//                  GeneSpa                                      //
+//                  GeneSpa                                                   //
 // ========================================================================== //
 
 package genespace
@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -269,15 +270,6 @@ func resistantLinesUnique(records []VCFRecord, allGTCols []string, resLines []st
 // Stubs for external lookups (gene_descriptions / add_prg).
 // Replace with real implementations or database lookups as needed.
 // -------------------------------------------------------------------------- //
-func geneDesc(_ string, gene string) string {
-	// TODO: implement gene_descriptions_old.gene_desc equivalent
-	return "N/A"
-}
-
-func prgStats(_ string, gene string) [3]string {
-	// TODO: implement add_prg_old.prot_prg_dic equivalent
-	return [3]string{"0.0", "NA", "NA"}
-}
 
 // -------------------------------------------------------------------------- //
 // nonSigEffects mirrors the Python filter (rows whose effect IS in this list
@@ -295,12 +287,14 @@ var nonCodingEffects = map[string]bool{
 // -------------------------------------------------------------------------- //
 // geneSpace is the main analysis function, mirroring gene_space() in Python.
 // -------------------------------------------------------------------------- //
-func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, species string) ([]GeneSpaceRow, error) {
+func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, species, descFile, prgFile string) ([]GeneSpaceRow, error) {
 	fmt.Println("Reading VCF table ...")
 	records, allGTCols, err := readVCFTable(vcfTable)
 	if err != nil {
 		return nil, err
 	}
+	color.Cyan("  %d records\n", len(records))
+	color.Cyan("  %s columns\n", strings.Join(allGTCols, ","))
 
 	fmt.Println("Filtering VCF table ...")
 	var qtlRecords []VCFRecord
@@ -311,10 +305,32 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 	}
 	fmt.Printf("QTL records: %d\n", len(qtlRecords))
 
+	// OPTIMIZATION: Index records by position for faster lookup within gene ranges
+	posToRecords := make(map[int][]VCFRecord)
+	for _, rec := range qtlRecords {
+		posToRecords[rec.POS] = append(posToRecords[rec.POS], rec)
+	}
+	// Sorted unique positions
+	var sortedPos []int
+	for p := range posToRecords {
+		sortedPos = append(sortedPos, p)
+	}
+	sort.Ints(sortedPos)
+
 	fmt.Println("Getting resistant lines unique data frame ...")
 	resLines := strings.Split(csResLines, ",")
 	uniqueRecords := resistantLinesUnique(qtlRecords, allGTCols, resLines)
 	fmt.Printf("Unique records: %d\n", len(uniqueRecords))
+
+	posToUniqueRecords := make(map[int][]VCFRecord)
+	for _, rec := range uniqueRecords {
+		posToUniqueRecords[rec.POS] = append(posToUniqueRecords[rec.POS], rec)
+	}
+	var sortedUniquePos []int
+	for p := range posToUniqueRecords {
+		sortedUniquePos = append(sortedUniquePos, p)
+	}
+	sort.Ints(sortedUniquePos)
 
 	fmt.Println("Getting gene start and stop positions ...")
 	geneDic, err := geneStartStop(gffPath, chrom, start, stop)
@@ -322,7 +338,75 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 		return nil, err
 	}
 
+	// Load external data
+	descMap := make(map[string]string)
+	if descFile != "" {
+		fmt.Printf("Loading gene descriptions from %s ...\n", descFile)
+		df, err := os.Open(descFile)
+		if err == nil {
+			scanner := bufio.NewScanner(df)
+			for scanner.Scan() {
+				flds := strings.Split(scanner.Text(), "\t")
+				if len(flds) >= 2 {
+					descMap[flds[0]] = flds[1]
+				}
+			}
+			df.Close()
+		} else {
+			color.Red("  Warning: could not open description file: %v\n", err)
+		}
+	}
+
+	type prgEntry struct {
+		percIdent    string
+		qlenMatchLen string
+		eval         string
+	}
+	prgMap := make(map[string]prgEntry)
+	if prgFile != "" {
+		fmt.Printf("Loading PRG stats from %s ...\n", prgFile)
+		pf, err := os.Open(prgFile)
+		if err == nil {
+			scanner := bufio.NewScanner(pf)
+			if scanner.Scan() {
+				header := strings.Split(scanner.Text(), "\t")
+				idx := make(map[string]int)
+				for i, h := range header {
+					idx[h] = i
+				}
+				qseqIdx, ok1 := idx["QseqID"]
+				percIdx, ok2 := idx["PercIdent"]
+				lenIdx, ok3 := idx["Length"]
+				qlenIdx, ok4 := idx["Qlen"]
+				evalIdx, ok5 := idx["Eval"]
+				if ok1 && ok2 && ok3 && ok4 && ok5 {
+					for scanner.Scan() {
+						flds := strings.Split(scanner.Text(), "\t")
+						if len(flds) > max(qseqIdx, percIdx, lenIdx, qlenIdx, evalIdx) {
+							// Use first occurrence for each gene
+							geneID := flds[qseqIdx]
+							if _, exists := prgMap[geneID]; !exists {
+								prgMap[geneID] = prgEntry{
+									percIdent:    flds[percIdx],
+									qlenMatchLen: flds[lenIdx] + "/" + flds[qlenIdx],
+									eval:         flds[evalIdx],
+								}
+							}
+						}
+					}
+				}
+			}
+			pf.Close()
+		} else {
+			color.Red("  Warning: could not open PRG file: %v\n", err)
+		}
+	}
+
 	var rows []GeneSpaceRow
+
+	// Pre-filter records for each gene might be slow if there are many genes.
+	// We can group records by position or just iterate.
+	// Given the original structure, let's keep it but optimize internal loops.
 
 	for gene, gr := range geneDic {
 		fmt.Printf("Processing gene: %s\n", gene)
@@ -331,11 +415,15 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 
 		// SNPs within gene
 		var geneRecords []VCFRecord
-		for _, rec := range qtlRecords {
-			if rec.POS >= gStart && rec.POS <= gStop {
-				geneRecords = append(geneRecords, rec)
+		idx := sort.SearchInts(sortedPos, gStart)
+		for i := idx; i < len(sortedPos); i++ {
+			p := sortedPos[i]
+			if p > gStop {
+				break
 			}
+			geneRecords = append(geneRecords, posToRecords[p]...)
 		}
+
 		// Significant SNPs (non-coding effects)
 		numSig := 0
 		for _, rec := range geneRecords {
@@ -346,10 +434,13 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 
 		// Unique SNPs within gene
 		var uniqueGene []VCFRecord
-		for _, rec := range uniqueRecords {
-			if rec.POS >= gStart && rec.POS <= gStop {
-				uniqueGene = append(uniqueGene, rec)
+		idxU := sort.SearchInts(sortedUniquePos, gStart)
+		for i := idxU; i < len(sortedUniquePos); i++ {
+			p := sortedUniquePos[i]
+			if p > gStop {
+				break
 			}
+			uniqueGene = append(uniqueGene, posToUniqueRecords[p]...)
 		}
 		// Unique significant SNPs (coding / non-synonymous)
 		resSig := 0
@@ -359,8 +450,14 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 			}
 		}
 
-		stats := prgStats(species, gene)
-		desc := geneDesc(species, gene)
+		desc := "N/A"
+		if d, ok := descMap[gene]; ok {
+			desc = d
+		}
+		stats := [3]string{"0.0", "NA", "NA"}
+		if p, ok := prgMap[gene]; ok {
+			stats = [3]string{p.percIdent, p.qlenMatchLen, p.eval}
+		}
 
 		fmt.Printf("  #SNPs: %d  #SigSNPs: %d  #ResUnique: %d  #ResUniqueSig: %d\n",
 			len(geneRecords), numSig, len(uniqueGene), resSig)
