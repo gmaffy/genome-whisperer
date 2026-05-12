@@ -134,15 +134,20 @@ func resIsUnique(resGTs, susGTs []string) bool {
 		return false // heterozygous
 	}
 
-	// Resistant lines must not be missing
+	// res unique means res is not sus.
+	// i.e sus is homozygous and different from res.
+	// We already verified sus is homozygous.
+	// Now check that ALL resistant lines are different from sus.
+	// And resistant lines must not be missing (as per previous requirement,
+	// though "res is not sus" might imply missing is okay as long as it's not sus,
+	// but usually we want valid genotypes for comparisons).
+	// Let's stick to: if any res is missing, we might not want to call it unique,
+	// or if any res matches sus, it's definitely not unique.
+
 	for _, r := range unphRes {
 		if r == "./." {
 			return false
 		}
-	}
-
-	// Resistant lines must not carry the susceptible genotype
-	for _, r := range unphRes {
 		if r == singleSus {
 			return false
 		}
@@ -233,19 +238,7 @@ func readVCFTable(path string) ([]VCFRecord, []string, error) {
 // resistantLinesUnique filters records to those where the resistant lines
 // carry a genotype that is uniquely different from all susceptibles.
 // -------------------------------------------------------------------------- //
-func resistantLinesUnique(records []VCFRecord, allGTCols []string, resLines []string) []VCFRecord {
-	resSet := make(map[string]struct{})
-	for _, r := range resLines {
-		resSet[r] = struct{}{}
-	}
-
-	var susLines []string
-	for _, col := range allGTCols {
-		if _, ok := resSet[col]; !ok {
-			susLines = append(susLines, col)
-		}
-	}
-
+func resistantLinesUnique(records []VCFRecord, resLines []string, susLines []string) []VCFRecord {
 	fmt.Println("Resistant lines:", resLines)
 	fmt.Println("Susceptible lines:", susLines)
 
@@ -287,7 +280,7 @@ var nonCodingEffects = map[string]bool{
 // -------------------------------------------------------------------------- //
 // geneSpace is the main analysis function, mirroring gene_space() in Python.
 // -------------------------------------------------------------------------- //
-func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, species, descFile, prgFile string) ([]GeneSpaceRow, error) {
+func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLines []string, descFile, prgFile string) ([]GeneSpaceRow, error) {
 	fmt.Println("Reading VCF table ...")
 	records, allGTCols, err := readVCFTable(vcfTable)
 	if err != nil {
@@ -318,8 +311,7 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 	sort.Ints(sortedPos)
 
 	fmt.Println("Getting resistant lines unique data frame ...")
-	resLines := strings.Split(csResLines, ",")
-	uniqueRecords := resistantLinesUnique(qtlRecords, allGTCols, resLines)
+	uniqueRecords := resistantLinesUnique(qtlRecords, resLines, susLines)
 	fmt.Printf("Unique records: %d\n", len(uniqueRecords))
 
 	posToUniqueRecords := make(map[int][]VCFRecord)
@@ -459,8 +451,7 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, spe
 			stats = [3]string{p.percIdent, p.qlenMatchLen, p.eval}
 		}
 
-		fmt.Printf("  #SNPs: %d  #SigSNPs: %d  #ResUnique: %d  #ResUniqueSig: %d\n",
-			len(geneRecords), numSig, len(uniqueGene), resSig)
+		fmt.Printf("  #SNPs: %d  #SigSNPs: %d  #ResUnique: %d  #ResUniqueSig: %d\n", len(geneRecords), numSig, len(uniqueGene), resSig)
 		fmt.Printf("  Gene description: %s\n", desc)
 		fmt.Printf("  %%PRG: %v\n", stats)
 
@@ -533,7 +524,7 @@ func writeExcel(path string, rows []GeneSpaceRow) error {
 // -------------------------------------------------------------------------- //
 //func main() {
 //	if len(os.Args) < 8 {
-//		fmt.Println("USAGE: gene_space <gff> <super_vcf> <chrom> <start> <stop> <comma-separated-resistant-lines> <species>")
+//		fmt.Println("USAGE: gene_space <gff> <super_vcf> <chrom> <start> <stop> <res-lines> <sus-lines>")
 //		os.Exit(1)
 //	}
 //
@@ -542,8 +533,8 @@ func writeExcel(path string, rows []GeneSpaceRow) error {
 //	chrom := os.Args[3]
 //	startStr := os.Args[4]
 //	stopStr := os.Args[5]
-//	csResLines := os.Args[6]
-//	species := os.Args[7]
+//	resLinesStr := os.Args[6]
+//	susLinesStr := os.Args[7]
 //
 //	start, err := strconv.Atoi(startStr)
 //	if err != nil {
@@ -556,7 +547,10 @@ func writeExcel(path string, rows []GeneSpaceRow) error {
 //		os.Exit(1)
 //	}
 //
-//	if _, err := geneSpace(gff, superVCF, chrom, start, stop, csResLines, species); err != nil {
+//	resLines := strings.Split(resLinesStr, ",")
+//	susLines := strings.Split(susLinesStr, ",")
+//
+//	if _, err := GeneSpace(gff, superVCF, chrom, start, stop, resLines, susLines, "", ""); err != nil {
 //		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 //		os.Exit(1)
 //	}
