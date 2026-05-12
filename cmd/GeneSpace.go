@@ -41,7 +41,6 @@ to quickly create a Cobra application.`,
 		resLines := strings.Split(resLinesStr, ",")
 		susLines := strings.Split(susLinesStr, ",")
 
-		fmt.Println("Running GeneSpace analysis ...")
 		_, err := genespace.GeneSpace(gff, vcfTable, chrom, start, stop, resLines, susLines, descFile, prgFile)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)

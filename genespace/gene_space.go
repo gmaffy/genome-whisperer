@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/schollz/progressbar/v3"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -239,9 +240,6 @@ func readVCFTable(path string) ([]VCFRecord, []string, error) {
 // carry a genotype that is uniquely different from all susceptibles.
 // -------------------------------------------------------------------------- //
 func resistantLinesUnique(records []VCFRecord, resLines []string, susLines []string) []VCFRecord {
-	fmt.Println("Resistant lines:", resLines)
-	fmt.Println("Susceptible lines:", susLines)
-
 	var out []VCFRecord
 	for _, rec := range records {
 		resGTs := make([]string, len(resLines))
@@ -281,22 +279,24 @@ var nonCodingEffects = map[string]bool{
 // geneSpace is the main analysis function, mirroring gene_space() in Python.
 // -------------------------------------------------------------------------- //
 func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLines []string, descFile, prgFile string) ([]GeneSpaceRow, error) {
-	fmt.Println("Reading VCF table ...")
+	color.Green("▶ Starting GeneSpace analysis for chromosome %s (%d - %d)", chrom, start, stop)
+
+	fmt.Print("  Reading VCF table... ")
 	records, allGTCols, err := readVCFTable(vcfTable)
 	if err != nil {
+		fmt.Println("FAILED")
 		return nil, err
 	}
-	color.Cyan("  %d records\n", len(records))
-	color.Cyan("  %s columns\n", strings.Join(allGTCols, ","))
+	fmt.Printf("DONE (%d records, %d columns)\n", len(records), len(allGTCols))
 
-	fmt.Println("Filtering VCF table ...")
+	fmt.Print("  Filtering QTL region... ")
 	var qtlRecords []VCFRecord
 	for _, rec := range records {
 		if rec.CHROM == chrom && rec.POS >= start && rec.POS < stop {
 			qtlRecords = append(qtlRecords, rec)
 		}
 	}
-	fmt.Printf("QTL records: %d\n", len(qtlRecords))
+	fmt.Printf("DONE (%d records)\n", len(qtlRecords))
 
 	// OPTIMIZATION: Index records by position for faster lookup within gene ranges
 	posToRecords := make(map[int][]VCFRecord)
@@ -310,9 +310,9 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 	}
 	sort.Ints(sortedPos)
 
-	fmt.Println("Getting resistant lines unique data frame ...")
+	fmt.Print("  Identifying resistant-unique variants... ")
 	uniqueRecords := resistantLinesUnique(qtlRecords, resLines, susLines)
-	fmt.Printf("Unique records: %d\n", len(uniqueRecords))
+	fmt.Printf("DONE (%d records)\n", len(uniqueRecords))
 
 	posToUniqueRecords := make(map[int][]VCFRecord)
 	for _, rec := range uniqueRecords {
@@ -324,16 +324,18 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 	}
 	sort.Ints(sortedUniquePos)
 
-	fmt.Println("Getting gene start and stop positions ...")
+	fmt.Print("  Parsing GFF for genes... ")
 	geneDic, err := geneStartStop(gffPath, chrom, start, stop)
 	if err != nil {
+		fmt.Println("FAILED")
 		return nil, err
 	}
+	fmt.Printf("DONE (%d genes)\n", len(geneDic))
 
 	// Load external data
 	descMap := make(map[string]string)
 	if descFile != "" {
-		fmt.Printf("Loading gene descriptions from %s ...\n", descFile)
+		fmt.Printf("  Loading gene descriptions from %s... ", descFile)
 		df, err := os.Open(descFile)
 		if err == nil {
 			scanner := bufio.NewScanner(df)
@@ -344,8 +346,10 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 				}
 			}
 			df.Close()
+			fmt.Printf("DONE (%d loaded)\n", len(descMap))
 		} else {
-			color.Red("  Warning: could not open description file: %v\n", err)
+			fmt.Println("FAILED")
+			color.Red("    Warning: could not open description file: %v", err)
 		}
 	}
 
@@ -356,7 +360,7 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 	}
 	prgMap := make(map[string]prgEntry)
 	if prgFile != "" {
-		fmt.Printf("Loading PRG stats from %s ...\n", prgFile)
+		fmt.Printf("  Loading PRG stats from %s... ", prgFile)
 		pf, err := os.Open(prgFile)
 		if err == nil {
 			scanner := bufio.NewScanner(pf)
@@ -389,19 +393,32 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 				}
 			}
 			pf.Close()
+			fmt.Printf("DONE (%d loaded)\n", len(prgMap))
 		} else {
-			color.Red("  Warning: could not open PRG file: %v\n", err)
+			fmt.Println("FAILED")
+			color.Red("    Warning: could not open PRG file: %v", err)
 		}
 	}
 
 	var rows []GeneSpaceRow
 
-	// Pre-filter records for each gene might be slow if there are many genes.
-	// We can group records by position or just iterate.
-	// Given the original structure, let's keep it but optimize internal loops.
+	// Process genes
+	fmt.Println("  Processing genes...")
+	bar := progressbar.NewOptions(len(geneDic),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(15),
+		progressbar.OptionSetDescription("[cyan]Analyzing genes...[reset]"),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]■[reset]",
+			SaucerHead:    "[green]■[reset]",
+			SaucerPadding: " ",
+			BarStart:      "|",
+			BarEnd:        "|",
+		}))
 
 	for gene, gr := range geneDic {
-		fmt.Printf("Processing gene: %s\n", gene)
+		bar.Describe(fmt.Sprintf("[cyan]Analyzing gene: [yellow]%s[reset]", gene))
 		gStart, _ := strconv.Atoi(gr.Start)
 		gStop, _ := strconv.Atoi(gr.Stop)
 
@@ -451,10 +468,6 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 			stats = [3]string{p.percIdent, p.qlenMatchLen, p.eval}
 		}
 
-		fmt.Printf("  #SNPs: %d  #SigSNPs: %d  #ResUnique: %d  #ResUniqueSig: %d\n", len(geneRecords), numSig, len(uniqueGene), resSig)
-		fmt.Printf("  Gene description: %s\n", desc)
-		fmt.Printf("  %%PRG: %v\n", stats)
-
 		rows = append(rows, GeneSpaceRow{
 			Gene:             gene,
 			Start:            gr.Start,
@@ -468,7 +481,10 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 			NumResUniqueSNPs: len(uniqueGene),
 			NumResSigSNPs:    resSig,
 		})
+		bar.Add(1)
 	}
+	bar.Finish()
+	fmt.Println()
 
 	// Sort by Start position
 	sort.Slice(rows, func(i, j int) bool {
@@ -482,7 +498,7 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 	if err := writeExcel(outFile, rows); err != nil {
 		return nil, fmt.Errorf("writing Excel: %w", err)
 	}
-	fmt.Printf("Output written to %s\n", outFile)
+	color.Green("✔ Results written to %s", outFile)
 
 	return rows, nil
 }
