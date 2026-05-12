@@ -295,7 +295,7 @@ var nonCodingEffects = map[string]bool{
 // -------------------------------------------------------------------------- //
 // geneSpace is the main analysis function, mirroring gene_space() in Python.
 // -------------------------------------------------------------------------- //
-func geneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, species string) ([]GeneSpaceRow, error) {
+func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, csResLines, species string) ([]GeneSpaceRow, error) {
 	fmt.Println("Reading VCF table ...")
 	records, allGTCols, err := readVCFTable(vcfTable)
 	if err != nil {
