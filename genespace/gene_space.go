@@ -236,10 +236,10 @@ func readVCFTable(path string) ([]VCFRecord, []string, error) {
 }
 
 // -------------------------------------------------------------------------- //
-// resistantLinesUnique filters records to those where the resistant lines
+// resNotSus filters records to those where the resistant lines
 // carry a genotype that is uniquely different from all susceptibles.
 // -------------------------------------------------------------------------- //
-func resistantLinesUnique(records []VCFRecord, resLines []string, susLines []string) []VCFRecord {
+func resNotSus(records []VCFRecord, resLines []string, susLines []string) []VCFRecord {
 	var out []VCFRecord
 	for _, rec := range records {
 		resGTs := make([]string, len(resLines))
@@ -311,7 +311,7 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 	sort.Ints(sortedPos)
 
 	fmt.Print("  Identifying resistant-unique variants... ")
-	uniqueRecords := resistantLinesUnique(qtlRecords, resLines, susLines)
+	uniqueRecords := resNotSus(qtlRecords, resLines, susLines)
 	fmt.Printf("DONE (%d records)\n", len(uniqueRecords))
 
 	posToUniqueRecords := make(map[int][]VCFRecord)
@@ -512,7 +512,7 @@ func writeExcel(path string, rows []GeneSpaceRow) error {
 
 	headers := []string{
 		"GENE", "START", "STOP", "PRG_PERC", "PRG_MATCH/LEN", "PRG_EVAL",
-		"GENE_DESCRIPTION", "#SNPs", "#SIG SNPs", "#RES_UNIQUE SNPs", "#RES_UNIQUE SIG SNPs",
+		"GENE_DESCRIPTION", "#SNPs", "#SIG SNPs", "#ResNotSus SNPs", "#ResNotSus SIG SNPs",
 	}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
