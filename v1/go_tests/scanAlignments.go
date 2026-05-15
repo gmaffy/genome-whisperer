@@ -19,12 +19,12 @@ import (
 type AlignmentStage int
 
 const (
-	StageUnknown    AlignmentStage = iota
-	StageScratch                   // No usable files at all — must align from raw reads
-	StageSorted                    // sorted.bam exists; needs markdup
-	StageRgmd                      // rgmd bam/cram exists; needs BQSR
-	StageBqsr                      // bqsr bam/cram exists; needs conversion/indexing
-	StageComplete                  // bqsr.cram + rgmd.cram, both valid + indexed, no intermediates
+	StageUnknown  AlignmentStage = iota
+	StageScratch                 // No usable files at all — must align from raw reads
+	StageSorted                  // sorted.bam exists; needs markdup
+	StageRgmd                    // rgmd bam/cram exists; needs BQSR
+	StageBqsr                    // bqsr bam/cram exists; needs conversion/indexing
+	StageComplete                // bqsr.cram + rgmd.cram, both valid + indexed, no intermediates
 )
 
 // FileInfo holds presence, validity, and index metadata for a single alignment file.

@@ -31,6 +31,7 @@ to quickly create a Cobra application.`,
 		susLinesStr, _ := cmd.Flags().GetString("sus-lines")
 		descFile, _ := cmd.Flags().GetString("desc-file")
 		prgFile, _ := cmd.Flags().GetString("prg-file")
+		outDir, _ := cmd.Flags().GetString("out-dir")
 
 		if gff == "" || vcfTable == "" || chrom == "" || resLinesStr == "" || susLinesStr == "" {
 			fmt.Println("Error: gff, vcf-table, chrom, res-lines, and sus-lines are required")
@@ -41,7 +42,7 @@ to quickly create a Cobra application.`,
 		resLines := strings.Split(resLinesStr, ",")
 		susLines := strings.Split(susLinesStr, ",")
 
-		_, err := genespace.GeneSpace(gff, vcfTable, chrom, start, stop, resLines, susLines, descFile, prgFile)
+		_, err := genespace.GeneSpace(gff, vcfTable, chrom, start, stop, resLines, susLines, descFile, prgFile, outDir)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
@@ -60,4 +61,5 @@ func init() {
 	GeneSpaceCmd.Flags().StringP("sus-lines", "u", "", "Comma-separated susceptible lines (required)")
 	GeneSpaceCmd.Flags().String("desc-file", "", "Gene description TSV file")
 	GeneSpaceCmd.Flags().String("prg-file", "", "PRG blast results file")
+	GeneSpaceCmd.Flags().String("out-dir", ".", "Output directory for Excel file")
 }

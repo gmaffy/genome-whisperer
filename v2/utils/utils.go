@@ -345,7 +345,7 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 		} else {
 			mbdbErr = RunBashCmd(mbdbStr)
 		}
-		
+
 		if mbdbErr != nil {
 			return fmt.Errorf("makeblastdb creation failed: %v", mbdbErr)
 		}

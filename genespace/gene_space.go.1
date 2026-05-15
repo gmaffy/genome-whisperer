@@ -1,4 +1,4 @@
-package gene_space
+package genespace
 
 import (
 	"bufio"
@@ -6,17 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
 )
-
-type GeneDetails struct {
-	Gene  string
-	Start int
-	Stop  int
-}
 
 func genePosFromGffMap(gff, chrom string, start, stop int) (map[string][2]string, error) {
 	dic := make(map[string][2]string)
@@ -201,33 +196,135 @@ func getQtlRecords(path, chrom string, start, stop int) ([]VCFRecord, []string, 
 	return records, gtCols, nil
 }
 
-func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLines []string, descFile, prgFile string) error {
+func resNotSus(resGTs, susGTs []string) bool {
+	unphase := func(gt string) string { return strings.ReplaceAll(gt, "|", "/") }
 
-	color.Green("▶ Starting GeneSpace analysis for chromosome %s (%d - %d)", chrom, start, stop)
-	qtlRecords, gtCols, err := getQtlRecords(vcfTable)
-	if err != nil {
-		return fmt.Errorf("reading VCF table: %w", err)
+	// Build sus set of non-missing genotypes
+	susSet := make(map[string]struct{})
+	for _, g := range susGTs {
+		if u := unphase(g); u != "./." {
+			susSet[u] = struct{}{}
+		}
 	}
-	gencPos, err := genePosFromGffMap(gffPath, chrom, start, stop)
-	if err != nil {
-		return fmt.Errorf("reading GFF file: %w", err)
-	}
-	geneDesc, err := geneDescMap(descFile)
-	if err != nil {
-		return fmt.Errorf("reading gene description file: %w", err)
-	}
-	genePrg, err := genePrgMap(prgFile)
-	if err != nil {
-		return fmt.Errorf("reading PRG blast file: %w", err)
+	if len(susSet) == 0 || len(susSet) != 1 {
+		return false
 	}
 
-	for gene, pos := range gencPos {
-		color.Green("Working on gene %s (%s)", gene, pos[0])
-		for _, rec := range qtlRecords {
-			
+	// Single sus genotype must be homozygous
+	var singleSus string
+	for k := range susSet {
+		singleSus = k
+	}
+	if a, b, ok := strings.Cut(singleSus, "/"); ok && a != b {
+		return false
+	}
+
+	// All res must be non-missing and differ from sus
+	for _, g := range resGTs {
+		if u := unphase(g); u == "./." || u == singleSus {
+			return false
 		}
 	}
 
-	return nil
+	return true
+}
+
+type GeneSpaceRow struct {
+	Gene             string
+	Start            int
+	Stop             int
+	PRGPerc          float64
+	PRGMatchLen      string
+	PRGEval          float64
+	GeneDescription  string
+	NumSNPs          int
+	NumSigSNPs       int
+	NumResNotSusSNPs int
+}
+
+func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLines []string, descFile, prgFile string) ([]GeneSpaceRow, error) {
+
+	color.Green("▶ Starting GeneSpace analysis for chromosome %s (%d - %d)", chrom, start, stop)
+	qtlRecords, _, err := getQtlRecords(vcfTable, chrom, start, stop)
+	if err != nil {
+		return nil, fmt.Errorf("reading VCF table: %w", err)
+	}
+	gencPos, err := genePosFromGffMap(gffPath, chrom, start, stop)
+	if err != nil {
+		return nil, fmt.Errorf("reading GFF file: %w", err)
+	}
+	geneDesc, err := geneDescMap(descFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading gene description file: %w", err)
+	}
+	genePrg, err := genePrgMap(prgFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading PRG blast file: %w", err)
+	}
+
+	synonymous_effects := []string{"UPSTREAM", "DOWNSTREAM", "SYNONYMOUS_CODING", "SYNONYMOUS_STOP", "INTRON"}
+
+	geneSpaceRows := []GeneSpaceRow{}
+	for gene, pos := range gencPos {
+		color.Green("Working on gene %s (%s - %s)", gene, pos[0], pos[1])
+		gene_start, _ := strconv.Atoi(pos[0])
+		gene_stop, _ := strconv.Atoi(pos[1])
+		num_of_snps := 0
+		sig_snps := 0
+		res_not_sus := 0
+
+		for _, rec := range qtlRecords {
+			if rec.POS >= gene_start && rec.POS <= gene_stop {
+				num_of_snps++
+
+				if !slices.Contains(synonymous_effects, rec.SNPEffEffect) {
+					sig_snps++
+				}
+
+				resGTs := make([]string, len(resLines))
+				for i, r := range resLines {
+					resGTs[i] = rec.Genotypes[r]
+				}
+				susGTs := make([]string, len(susLines))
+				for i, s := range susLines {
+					susGTs[i] = rec.Genotypes[s]
+				}
+				if resNotSus(resGTs, susGTs) {
+					res_not_sus++
+				}
+
+			}
+
+		}
+		desc, okDesc := geneDesc[gene]
+		if !okDesc {
+			desc = "NA"
+		}
+
+		prg, okPrg := genePrg[gene]
+		if !okPrg {
+			prg = PrgMatches{
+				PercIdent:    -1,
+				MatchLenQlen: "NA",
+				Eval:         -1,
+			}
+		}
+
+		rec := GeneSpaceRow{
+			Gene:            gene,
+			Start:           gene_start,
+			Stop:            gene_stop,
+			PRGPerc:         prg.PercIdent,
+			PRGMatchLen:     prg.MatchLenQlen,
+			PRGEval:         prg.Eval,
+			GeneDescription: desc,
+			NumSNPs:         num_of_snps,
+			NumSigSNPs:      sig_snps,
+		}
+		geneSpaceRows = append(geneSpaceRows, rec)
+
+	}
+
+	return geneSpaceRows, nil
 
 }

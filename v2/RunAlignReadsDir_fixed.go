@@ -371,11 +371,11 @@ func RunAlignReadsDir(
 			}
 
 			// ---- Output paths ---- //
-			sortedBam    := filepath.Join(readPair.bamDir, sampleName+".sorted.bam")
-			rgmdBam      := filepath.Join(readPair.bamDir, sampleName+".rgmd.bam")
-			rgmdCram     := filepath.Join(readPair.bamDir, sampleName+".rgmd.cram")
-			rgmdMetrics  := filepath.Join(readPair.bamDir, sampleName+".rgmd.metrics.txt")
-			bqsrCram     := filepath.Join(readPair.bamDir, sampleName+".bqsr.cram")
+			sortedBam := filepath.Join(readPair.bamDir, sampleName+".sorted.bam")
+			rgmdBam := filepath.Join(readPair.bamDir, sampleName+".rgmd.bam")
+			rgmdCram := filepath.Join(readPair.bamDir, sampleName+".rgmd.cram")
+			rgmdMetrics := filepath.Join(readPair.bamDir, sampleName+".rgmd.metrics.txt")
+			bqsrCram := filepath.Join(readPair.bamDir, sampleName+".bqsr.cram")
 
 			// bamToCram converts src BAM/CRAM → dst CRAM and immediately indexes it.
 			bamToCram := func(src, dst string) error {

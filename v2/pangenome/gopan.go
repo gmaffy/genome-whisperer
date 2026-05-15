@@ -295,7 +295,7 @@ func GoPan(config string, assembler string, gatkLogLevel string, verbose bool, a
 	fmt.Println("")
 
 	i, latestRef, err := LatestRef(out, ref)
-	if err != nil{
+	if err != nil {
 		fmt.Printf("Error : %v:", err)
 		return
 	}

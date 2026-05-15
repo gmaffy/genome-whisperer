@@ -18,13 +18,13 @@ type AlignConfig struct {
 	DataDir      string
 	Species      string
 	RefVer       string
-	RefFasta     string   // explicit fasta path; mutually exclusive with GenomesDir
-	GenomesDir   string   // auto-discovery dir; mutually exclusive with RefFasta
-	Aligner      string   // "bwa-mem2" or "pbmm2"
+	RefFasta     string // explicit fasta path; mutually exclusive with GenomesDir
+	GenomesDir   string // auto-discovery dir; mutually exclusive with RefFasta
+	Aligner      string // "bwa-mem2" or "pbmm2"
 	GatkLogLevel string
 	Threads      int
 	Verbose      bool
-	Quick        bool     // quick validation (gzip integrity only)
+	Quick        bool // quick validation (gzip integrity only)
 	SkipVer      bool
 	BQSR         bool
 	Bootstrap    bool
