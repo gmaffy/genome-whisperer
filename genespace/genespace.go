@@ -536,23 +536,27 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 				sigSnps := 0
 				resNotSusCount := 0
 
-				for _, rec := range qtlRecords[lo:hi] {
-					numOfSnps++
-					if !slices.Contains(synonymousEffects, rec.SNPEffEffect) {
-						sigSnps++
+				if len(resLines) > 0 && len(susLines) > 0 {
+					for _, rec := range qtlRecords[lo:hi] {
+						numOfSnps++
+						if !slices.Contains(synonymousEffects, rec.SNPEffEffect) {
+							sigSnps++
+						}
+						resGTs := make([]string, len(resLines))
+						for i, r := range resLines {
+							resGTs[i] = rec.Genotypes[r]
+						}
+						susGTs := make([]string, len(susLines))
+						for i, s := range susLines {
+							susGTs[i] = rec.Genotypes[s]
+						}
+						if resNotSus(resGTs, susGTs) {
+							resNotSusCount++
+						}
 					}
-					resGTs := make([]string, len(resLines))
-					for i, r := range resLines {
-						resGTs[i] = rec.Genotypes[r]
-					}
-					susGTs := make([]string, len(susLines))
-					for i, s := range susLines {
-						susGTs[i] = rec.Genotypes[s]
-					}
-					if resNotSus(resGTs, susGTs) {
-						resNotSusCount++
-					}
+
 				}
+
 
 				desc, okDesc := geneDesc[gene]
 				if !okDesc {
