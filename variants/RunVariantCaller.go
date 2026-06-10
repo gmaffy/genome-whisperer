@@ -201,7 +201,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	}
 
 	// ----------------------------------- Create/Open log file ----------------------------------------------------- //
-	fmt.Println("Reading log file ...")
+	fmt.Println("Reading log file ...", refFile)
 
 	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -272,8 +272,11 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 					jlog.Error("VARIANT CALLING", "PROGRAM", "mkdir", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", cErr))
 					return "", fmt.Errorf("failed to created directory %s - %s", dir, cErr)
 				}
+				fmt.Printf("Created directory: %s\n", dir)
 			}
 		}
+
+		
 
 		sem <- struct{}{}
 		wg.Add(1)
