@@ -462,9 +462,13 @@ func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
 	var plan []ProcessingReason
 	needsReads := false
 
-	rgmdCramReady := isUsable(state.RgmdCram)
+	rgmdCramValid := isUsable(state.RgmdCram)
 
-	if !rgmdCramReady {
+	if rgmdCramValid {
+		if !hasIndex(state.RgmdCram) {
+			plan = append(plan, ReasonIndexRgmdCram)
+		}
+	} else {
 		switch {
 		case isUsable(state.RgmdBam):
 			// rgmd.bam exists — index it if needed, then convert to cram.
@@ -479,8 +483,6 @@ func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
 			needsReads = true
 		}
 		// After producing the cram we always need to index it.
-		plan = append(plan, ReasonIndexRgmdCram)
-	} else if !hasIndex(state.RgmdCram) {
 		plan = append(plan, ReasonIndexRgmdCram)
 	}
 
@@ -513,7 +515,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 	rgmdBamPath := task.state.RgmdBam.Path
 	rgmdCramPath := task.state.RgmdCram.Path
 	bqsrBamPath := task.state.BqsrBam.Path
-	// bqsrCramPath is derived from bqsrBamPath when needed.
+	bqsrCramPath := task.state.BqsrCram.Path
 
 	color.Cyan("[%s] Plan (%d steps): %v\n", sn, len(task.plan), task.plan)
 
@@ -645,13 +647,16 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				color.Red("[%s] BamToCram (bqsr) failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
-			color.Green("[%s] bqsr.cram created\n", sn)
+			bqsrCramPath = strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
+			color.Green("[%s] bqsr.cram created: %s\n", sn, bqsrCramPath)
 
 		// ------------------------------------------------------------------ //
 		// Index bqsr.cram                                                     //
 		// ------------------------------------------------------------------ //
 		case ReasonIndexBqsrCram:
-			bqsrCramPath := strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
+			if bqsrCramPath == "" {
+				bqsrCramPath = strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
+			}
 			color.Cyan("[%s] Indexing bqsr.cram: %s ...\n", sn, bqsrCramPath)
 			if err := alignment.BamIndex(bqsrCramPath, verbose); err != nil {
 				color.Red("[%s] bqsr.cram index failed: %v\n", sn, err)
@@ -664,7 +669,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// ------------------------------------------------------------------ //
 		case ReasonCleanup:
 			color.Cyan("[%s] Cleaning up intermediate files in %s ...\n", sn, task.bamDir)
-			if err := cleanupSampleOutputs(task.bamDir, rgmdCramPath, bqsrBamPath, bqsr); err != nil {
+			if err := cleanupSampleOutputs(task.bamDir, rgmdCramPath, bqsrCramPath, bqsr); err != nil {
 				color.Red("[%s] Cleanup failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -1021,12 +1026,12 @@ func createBootstrapKnownSitesOld(refFasta, input, gatkLogLevel string, verbose 
 
 // cleanupSampleOutputs removes all files in bamDir except:
 //   - rgmd.cram and its index
-//   - bqsr.cram and its index (when requireBQSR is true)
+//   - bqsr.cram and its index when present
 //   - any .txt or .pdf files (logs, recal tables, plots)
 //
 // rgmdCramPath is the live path produced by the pipeline.
-// bqsrBamPath is the bqsr.bam path (used to derive bqsr.cram path); ignored when !requireBQSR.
-func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrBamPath string, requireBQSR bool) error {
+// bqsrCramPath is the final bqsr.cram path when available.
+func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrCramPath string, requireBQSR bool) error {
 	keep := make(map[string]struct{})
 
 	addWithIndex := func(cramPath string) {
@@ -1042,8 +1047,7 @@ func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrBamPath string, requireBQSR 
 	if rgmdCramPath != "" {
 		addWithIndex(rgmdCramPath)
 	}
-	if requireBQSR && bqsrBamPath != "" {
-		bqsrCramPath := strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
+	if bqsrCramPath != "" {
 		addWithIndex(bqsrCramPath)
 	}
 
