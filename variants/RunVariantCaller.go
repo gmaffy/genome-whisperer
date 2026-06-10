@@ -624,7 +624,8 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 				}
 			}(seq)
 
-		case "DeepVariant":
+		case "deepvariant":
+			fmt.Printf("Variant Calling using DeepVariant on chromosome %s................\n\n", seq.ID)
 			// ---------------------------------------- Check Deps -------------------------------------------------- //
 			go func(seq *linear.Seq) {
 				defer func() {
@@ -638,6 +639,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 				for _, bam := range bams {
 
+					fmt.Printf("Working on BAM %s, chromosome %s................\n\n", bam, seq.ID)
 					refDir := filepath.Dir(refFile)
 					refName := filepath.Base(refFile)
 					bamDir := filepath.Dir(bam)

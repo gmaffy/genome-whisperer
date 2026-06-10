@@ -236,7 +236,7 @@ func init() {
 	rootCmd.AddCommand(VariantCallingCmd)
 
 	VariantCallingCmd.Flags().StringSliceP("bam", "b", []string{}, "Recalibrated bam file (Can specify multiple)")
-	VariantCallingCmd.Flags().StringP("out", "o", "", "Recalibrated bam file")
+	VariantCallingCmd.Flags().StringP("out", "o", "", "Output directory")
 	VariantCallingCmd.Flags().StringP("species", "s", "", "Species name")
 	VariantCallingCmd.Flags().IntP("threads", "t", 4, "Number of threads per sample")
 	VariantCallingCmd.Flags().String("verbosity", "WARNING", "Verbosity level for GATK")
