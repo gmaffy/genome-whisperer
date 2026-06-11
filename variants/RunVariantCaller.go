@@ -276,8 +276,6 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 			}
 		}
 
-		
-
 		sem <- struct{}{}
 		wg.Add(1)
 
@@ -295,7 +293,12 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 
 				// -------------------------------- HAPLOTYPE CALLER (Skip completed) ------------------------------- //
 				var vSlice []string
+				var vSliceMu sync.Mutex
 
+				var callerWg sync.WaitGroup
+				// Create a sub-semaphore to limit parallel samples per chromosome if needed,
+				// or just rely on the fact that HaplotypeCaller itself is multithreaded.
+				// For now, let's process samples concurrently within the chromosome goroutine.
 				for _, bam := range bams {
 					bamName := filepath.Base(bam)
 					theGVCF := ""
@@ -308,36 +311,42 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						os.Exit(1)
 					}
 
+					vSliceMu.Lock()
 					vSlice = append(vSlice, "-V "+theGVCF)
+					vSliceMu.Unlock()
 
-					if utils.StageHasCompleted(logged, "HaplotypeCaller", bamName, seq.ID) {
-						msg := fmt.Sprintf("HaplotypeCaller already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
-						slog.Info(msg)
-
-					} else {
-						hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, seq.ID, theGVCF, gatkLogLevel)
-
-						jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", hapCmdStr)
-						slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-
-						var hapErr error
-						if verbose {
-							hapErr = utils.RunBashCmdVerbose(hapCmdStr)
+					callerWg.Add(1)
+					go func(bam string, bamName string, theGVCF string) {
+						defer callerWg.Done()
+						if utils.StageHasCompleted(logged, "HaplotypeCaller", bamName, seq.ID) {
+							msg := fmt.Sprintf("HaplotypeCaller already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
+							slog.Info(msg)
 						} else {
-							hapErr = utils.RunBashCmd(hapCmdStr)
-						}
+							hapCmdStr := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, seq.ID, theGVCF, gatkLogLevel)
 
-						if hapErr != nil {
-							jlog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
-							slog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
-							log.Fatalf("FAILED: %v", hapErr)
-						}
+							jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED", "CMD", hapCmdStr)
+							slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 
-						jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-					}
+							var hapErr error
+							if verbose {
+								hapErr = utils.RunBashCmdVerbose(hapCmdStr)
+							} else {
+								hapErr = utils.RunBashCmd(hapCmdStr)
+							}
+
+							if hapErr != nil {
+								jlog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
+								slog.Error("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", hapErr))
+								log.Fatalf("FAILED: %v", hapErr)
+							}
+
+							jlog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+							slog.Info("VARIANT CALLING", "PROGRAM", "HaplotypeCaller", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+						}
+					}(bam, bamName, theGVCF)
 				}
+				callerWg.Wait()
+				fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
 
 				// ---------------------------------- MERGING (Skip completed) ------------------------------- //
 
@@ -639,7 +648,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 				fmt.Println(seq.ID)
 
 				// ------------------------------------ DEEP VARIANT CALLING (Skip completed) ------------------------------- //
-
+				var callerWg sync.WaitGroup
 				for _, bam := range bams {
 
 					fmt.Printf("Working on BAM %s, chromosome %s................\n\n", bam, seq.ID)
@@ -661,32 +670,37 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 						os.Exit(1)
 					}
 
-					if utils.StageHasCompleted(logged, "DEEPVARIANT", bamName, seq.ID) {
-						msg := fmt.Sprintf("DEEPVARIANT already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
-						slog.Info(msg)
+					callerWg.Add(1)
+					go func(bam string, bamName string, bamDir string, refDir string, refName string, vcfName string, gvcfName string) {
+						defer callerWg.Done()
+						if utils.StageHasCompleted(logged, "DEEPVARIANT", bamName, seq.ID) {
+							msg := fmt.Sprintf("DEEPVARIANT already completed for BAM FILE %s, CHROMOSOME %s. Skipping.\n\n------------------------------\n\n", bamName, seq.ID)
+							slog.Info(msg)
 
-					} else {
-						jlog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-						slog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
-
-						dvCmdStr := fmt.Sprintf(`docker run -v "%s":"/bam" -v "%s":"/ref" -v "%s":"/output" google/deepvariant:"%s" /opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s --regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s --intermediate_results_dir /output/tmp`, bamDir, refDir, gvcfPath, dvVer, modelType, refName, bamName, seq.ID, vcfName, gvcfName)
-
-						var dvErr error
-						if verbose {
-							dvErr = utils.RunBashCmdVerbose(dvCmdStr)
 						} else {
-							dvErr = utils.RunBashCmd(dvCmdStr)
-						}
+							jlog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
+							slog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "STARTED")
 
-						if dvErr != nil {
-							jlog.Error("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", dvErr))
-							slog.Error("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", dvErr))
-							log.Fatalf("FAILED: %v", dvErr)
+							dvCmdStr := fmt.Sprintf(`docker run -v "%s":"/bam" -v "%s":"/ref" -v "%s":"/output" google/deepvariant:"%s" /opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s --regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s --intermediate_results_dir /output/tmp`, bamDir, refDir, gvcfPath, dvVer, modelType, refName, bamName, seq.ID, vcfName, gvcfName)
+
+							var dvErr error
+							if verbose {
+								dvErr = utils.RunBashCmdVerbose(dvCmdStr)
+							} else {
+								dvErr = utils.RunBashCmd(dvCmdStr)
+							}
+
+							if dvErr != nil {
+								jlog.Error("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", dvErr))
+								slog.Error("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", fmt.Sprintf("FAILED: %v", dvErr))
+								log.Fatalf("FAILED: %v", dvErr)
+							}
+							jlog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
+							slog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
 						}
-						jlog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-						slog.Info("VARIANT CALLING", "PROGRAM", "DEEPVARIANT", "SAMPLE", bamName, "CHROMOSOME", seq.ID, "STATUS", "COMPLETED")
-					}
+					}(bam, bamName, bamDir, refDir, refName, vcfName, gvcfName)
 				}
+				callerWg.Wait()
 
 				if !noMerging {
 					if merger == "glnexus" {
@@ -1185,9 +1199,6 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 	color.Cyan("Machine has %d cores. Using %d threads per job. Max parallel jobs: %d\n\n",
 		totalCores, threadsPerJob, maxParallelJobs)
 
-	// Semaphore to limit concurrent gVCF creation jobs
-	sem := make(chan struct{}, maxParallelJobs)
-
 	type workItem struct {
 		sw       SampleWork
 		chroms   []SeqInfo
@@ -1201,16 +1212,13 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 	var wg sync.WaitGroup
 
 	// Fan out workers — one per job slot, each running jobs sequentially from the channel
-	for i := 0; i < maxParallelJobs; i++ {
+	for i := range maxParallelJobs {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
 			for item := range workCh {
 				sw := item.sw
 				label := item.label
-
-				// Acquire semaphore slot (represents CPU allocation for this job)
-				sem <- struct{}{}
 
 				cramName := filepath.Base(sw.Cram)
 				var gvcfName string
@@ -1280,9 +1288,6 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					})
 					failedMu.Unlock()
 				}
-
-				// Release semaphore slot
-				<-sem
 			}
 		}(i)
 	}

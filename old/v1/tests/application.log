@@ -1,0 +1,11 @@
+{"time":"2025-06-18T10:01:46.99628887+02:00","level":"INFO","msg":"Hello","CHROM":"GS","POS":1000}
+{"time":"2025-06-18T10:09:22.739790845+02:00","level":"INFO","msg":"Hello","CHROM":"GS","POS":1000}
+{"time":"2025-06-18T10:09:48.893184592+02:00","level":"INFO","msg":"Hello","CHROM":"GS","POS":1000}
+{"time":"2025-06-18T10:15:46.193957021+02:00","level":"INFO","msg":"Hello","CHROM":"GS","POS":1000}
+{"time":"2025-06-18T10:15:54.935407983+02:00","level":"INFO","msg":"Hello","CHROM":"GS","POS":1000}
+{"time":"2025-06-18T15:27:32.876358784+02:00","level":"INFO","msg":"Hello","CHROM":1,"HapCaller":"STATUS","!BADKEY":"STATED"}
+{"time":"2025-06-18T15:27:32.876613744+02:00","level":"INFO","msg":"Hello","CHROM":2,"HapCaller":"STATUS","!BADKEY":"STATED"}
+{"time":"2025-06-18T15:27:32.877074366+02:00","level":"INFO","msg":"Hello","CHROM":1,"HapCaller":"STATUS","!BADKEY":"COMPLETED"}
+{"time":"2025-06-18T15:27:32.877195986+02:00","level":"INFO","msg":"Hello","CHROM":3,"HapCaller":"STATUS","!BADKEY":"STATED"}
+{"time":"2025-06-18T15:27:32.877291774+02:00","level":"INFO","msg":"Hello","CHROM":2,"HapCaller":"STATUS","!BADKEY":"COMPLETED"}
+{"time":"2025-06-18T15:27:32.877382112+02:00","level":"INFO","msg":"Goodbye","ExtraKey":"ExtraValue"}

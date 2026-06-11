@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"strings"
+
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
 
@@ -53,7 +55,7 @@ var VariantCallingCmd = &cobra.Command{
 
 		verbosity, vErr := cmd.Flags().GetString("verbosity")
 		if vErr != nil {
-			log.Fatalf("Error getting species flag: %v", vErr)
+			log.Fatalf("Error getting verbosity flag: %v", vErr)
 		}
 
 		outDir, outErr := cmd.Flags().GetString("out")
@@ -110,12 +112,16 @@ var VariantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting genomes-dir flag: %v", gerr)
 		}
 
+		caller = strings.ToLower(caller)
+		merger = strings.ToLower(merger)
+
 		//-------------------------------------------- Check dependencies ------------------------------------------ //
 		switch caller {
 		case "gatk":
 			gatkErr := utils.CheckDeps([]string{"gatk"})
 			if gatkErr != nil {
 				fmt.Println("Dependency check failed ... ", gatkErr)
+				return
 			}
 			if merger == "glnexus" {
 				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
@@ -123,6 +129,9 @@ var VariantCallingCmd = &cobra.Command{
 					fmt.Println("Dependency check failed ... ", glnErr)
 					return
 				}
+			} else if merger != "gatk" {
+				fmt.Println("merger must be either glnexus or gatk")
+				return
 			}
 
 		case "deepvariant":
@@ -142,7 +151,7 @@ var VariantCallingCmd = &cobra.Command{
 				return
 			}
 		default:
-			fmt.Println("merger must be either glnexus or gatk")
+			fmt.Println("caller must be either gatk or deepvariant")
 			return
 		}
 

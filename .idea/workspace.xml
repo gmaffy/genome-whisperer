@@ -5,93 +5,143 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2ed741eb-c74a-40b0-aecf-7a60442acf3a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/genespace/genespace.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/genome-whisperer.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/genome-whisperer.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignment/alignmentStats.go" beforeDir="false" afterPath="$PROJECT_DIR$/alignment/alignmentStats.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/annotation/annotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/annotation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/annotation/createSnpEffDb.go" beforeDir="false" afterPath="$PROJECT_DIR$/annotation/createSnpEffDb.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/bsaSeqFromConfig.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/oneBulk.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/oneBulk.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/oneBulkUtils.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/oneBulkUtils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/publication/new_one.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/publication/new_one.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/twoBulkUtils.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/twoBulkUtils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/twoBulks.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/twoBulks.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/bsaseq/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/AddGeneDescriptions.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/AddGeneDescriptions.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/AddPrg.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/AddPrg.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/AlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/AlignReads.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/BQSR.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/BQSR.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/CreateSnpEffDB.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/CreateSnpEffDB.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/CreateTemplate.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/CreateTemplate.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/GeneSpace.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/GeneSpace.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/GetVariantType.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/GetVariantType.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/GoBSAseq.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/GoBSAseq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/GoPan.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/GoPan.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/HardFilterINDELs.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/HardFilterINDELs.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/HardFilterSNPs.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/HardFilterSNPs.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/HardFilterVCFs.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/HardFilterVCFs.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/MergeGvcfs.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/MergeGvcfs.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/PrepareFastaFile.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/PrepareFastaFile.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/RunSnpEff.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/RunSnpEff.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/ScanAlignments.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/ScanAlignments.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/VariantAnnotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantAnnotation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/root.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/root.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/genespace/gene_space.go" beforeDir="false" afterPath="$PROJECT_DIR$/genespace/gene_space.go.1" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/genome-whisperer.exe" beforeDir="false" afterPath="$PROJECT_DIR$/genome-whisperer.exe" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pangenome/gopan.go" beforeDir="false" afterPath="$PROJECT_DIR$/pangenome/gopan.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/alignment/alignmentStats.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/alignment/alignmentStats.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/alignment/baseRecal.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/alignment/baseRecal.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/annotation/annotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/annotation/annotation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/annotation/createSnpEffDb.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/annotation/createSnpEffDb.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/bsaSeqFromConfig.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/bsaSeqFromConfig.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/interactiveMode.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/interactiveMode.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/oneBulk.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/oneBulk.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/oneBulkUtils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/oneBulkUtils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulkUtils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/twoBulkUtils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulks.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/twoBulks.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/bsaseq/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/alignLrPb.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/alignLrPb.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/alignSrMem.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/alignSrMem.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/bqsr.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/bqsr.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/createSnpEffDb.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/createSnpEffDb.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/getVariantType.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/getVariantType.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/goBSAseq.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/goBSAseq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/goPan.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/goPan.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/hardFilterIndels.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/hardFilterIndels.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/hardFilterSnps.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/hardFilterSnps.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/root.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/root.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/variantAnnotation.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/variantAnnotation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/variantCalling.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/cmd/variantCalling.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/go_tests/runAlignReadsDir.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/go_tests/runAlignReadsDir.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/go_tests/scanAlignments.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/go_tests/scanAlignments.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/pangenome/gopan.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/pangenome/gopan.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/tests/helpers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/parse_log_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/tests/parse_log_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/utils/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/utils/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/variants/hardFiltering.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/variants/hardFiltering.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go" beforeDir="false" afterPath="$PROJECT_DIR$/v1/variants/variant_calling.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/RunAlignReadsDir_fixed.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/RunAlignReadsDir_fixed.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/RunAlignReads.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/alignment/RunAlignReads.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/alignment/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/dirBQSR.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/alignmentdir/dirBQSR.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/scanAlignments.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/alignmentdir/scanAlignments.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/oneBulk.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/bsaseq/oneBulk.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/oneBulkUtils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/bsaseq/oneBulkUtils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/bsaseq/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/BQSR.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/cmd/BQSR.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/GetVariantType.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/cmd/GetVariantType.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/GoPan.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/cmd/GoPan.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterINDELs.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/cmd/HardFilterINDELs.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterSNPs.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/cmd/HardFilterSNPs.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/root.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/cmd/root.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/pangenome/gopan.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/pangenome/gopan.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/utils/utils.go" beforeDir="false" afterPath="$PROJECT_DIR$/v2/utils/utils.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/hardFiltering.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/hardFiltering.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignmentdir/dirAlign.go.og" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/alignmentdir/dirAlign.go.og2" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bsaseq/publication/new_one.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/cmd/VariantCalling.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantCalling.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/fix_gene_space.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/genespace/work/geneSpace.go.1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/genespace/work/gene_space.go.1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/genespace/work/genespace.go.mine_good" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/genespace/work/genespace.go.perfect_with_no_excel" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/genome-whisperer.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/genome-whisperer.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/snpEff_genes.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/snpEff_summary.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/LICENSE" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/alignment/alignShortReads.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/alignment/alignmentStats.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/alignment/baseRecal.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/alignment/baseRecalBackup" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/annotation/annotation.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/annotation/createSnpEffDb.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/bsaSeqFromConfig.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/bsaSeqFromConfig.go.edited" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/interactiveMode.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/oneBulk.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/oneBulkUtils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/onebulk_og.go1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulkUtils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulks.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulks_og.go1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/bsaseq/utils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/alignLrPb.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/alignSrMem.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/bqsr.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/createSnpEffDb.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/getVariantType.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/goBSAseq.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/goPan.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/hardFilterIndels.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/hardFilterSnps.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/root.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/variantAnnotation.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/cmd/variantCalling.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/config.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/genome-whisperer" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/go.mod" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/go.sum" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/go_tests/runAlignReadsDir.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/go_tests/scanAlignments.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/gwpy_config.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/pangenome/gopan.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/phy_config.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/qodana.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/reads_2.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/VAR_OG" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/application.log" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/helpers_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/log.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/masurca/app.log" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/masurca/test.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/parse_log_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/variant_calline" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/tests/variant_calling.go1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/utils/utils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/variants/hardFiltering.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go.backup" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go.deepseek" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/LICENSE" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/RunAlignReads.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/RunAlignReadsDir_fixed.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/RunAlignReads.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/alignmentStats.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/baseRecal.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/legacy_code/RunAlignReads.go.og" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/legacy_code/RunAlignReads.go.withloging" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/legacy_code/old_code" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignment/utils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/dirAlign.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/dirBQSR.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/scanAlignments.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/annotation/annotation.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/annotation/createSnpEffDb.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/bsaSeqFromConfig.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/interactiveMode.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/oneBulk.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/oneBulkUtils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/twoBulkUtils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/twoBulks.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/bsaseq/utils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/AddGeneDescriptions.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/AddPrg.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/AlignReads.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/BQSR.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/CreateSnpEffDB.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/CreateTemplate.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/GetVariantType.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/GoBSAseq.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/GoPan.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterINDELs.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterSNPs.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterVCFs.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/MergeGvcfs.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/PrepareFastaFile.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/RunSnpEff.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/ScanAlignments.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/VariantAnnotation.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/VariantCalling.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/cmd/root.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/config.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/files.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/go.mod" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/go.sum" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/pangenome/gopan.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/qodana.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/scan_align_stage.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/utils/utils.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCaller.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCaller.go.og" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCaller.go.unoptimised" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCallerOptimised.go.1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/hardFiltering.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/mergeGvcfs.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/mergeGvcfs.go.working" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/v2/variants/mergeGvcfs.gobetter" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.og" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.unoptimised" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/RunVariantCallerOptimised.go.1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/mergeGvcfs.go.working" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/mergeGvcfs.gobetter" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -99,7 +149,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="176" />
+    <option name="cachedIndexableFilesCount" value="172" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -109,7 +159,7 @@
       </list>
     </option>
   </component>
-  <component name="GOROOT" url="file:///opt/homebrew/opt/go/libexec" />
+  <component name="GOROOT" url="file://C:/Program Files/Go" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
@@ -132,6 +182,65 @@
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.8515118653956106" />
+      <entry key="MS500" value="3.514119299769497" />
+      <entry key="S2" value="4.529297519029743" />
+      <entry key="S5" value="4.801845508889919" />
+      <entry key="S10" value="4.8991911117699285" />
+      <entry key="S30" value="4.966003876318972" />
+      <entry key="S60" value="4.982952891313451" />
+      <entry key="M2" value="4.9925861523209605" />
+      <entry key="M5" value="5.0967405802635115" />
+      <entry key="M10" value="5.445857128174149" />
+      <entry key="M15" value="5.736053907159201" />
+      <entry key="M30" value="6.21367336080003" />
+      <entry key="H1" value="6.558075175668976" />
+      <entry key="H2" value="6.765281037916519" />
+      <entry key="H4" value="6.878983579759741" />
+      <entry key="D1" value="6.97930307517807" />
+      <entry key="W1" value="6.9970301138471385" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.7907425951806786" />
+      <entry key="MS500" value="3.4774654464319794" />
+      <entry key="S2" value="4.515364958855068" />
+      <entry key="S5" value="4.795730465551744" />
+      <entry key="S10" value="4.896035530544076" />
+      <entry key="S30" value="4.964929459962882" />
+      <entry key="S60" value="4.982412812533443" />
+      <entry key="M2" value="4.992313588841902" />
+      <entry key="M5" value="5.096567398051274" />
+      <entry key="M10" value="5.445658059385407" />
+      <entry key="M15" value="5.73585863491448" />
+      <entry key="M30" value="6.21352417781403" />
+      <entry key="H1" value="6.557981985926462" />
+      <entry key="H2" value="6.765228846488953" />
+      <entry key="H4" value="6.878955948273299" />
+      <entry key="D1" value="6.979298244074385" />
+      <entry key="W1" value="6.997029417987752" />
+    </decayedShown>
   </component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
@@ -168,10 +277,11 @@
     &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
     &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/godwinmafireyi&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/GodwinMafireyi&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;run.configurations.included.in.services&quot;: &quot;true&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;advanced.settings&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
   }
@@ -188,7 +298,14 @@
       <recent name="D:\GitLab\genome-whisperer\alignmentdir" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunDashboard">
+    <option name="configurationTypes">
+      <set>
+        <option value="GoApplicationRunConfiguration" />
+      </set>
+    </option>
+  </component>
+  <component name="RunManager" selected="Go Build.go build github.com/gmaffy/genome-whisperer">
     <configuration default="true" type="GoApplicationRunConfiguration" factoryName="Go Application">
       <module name="genome-whisperer" />
       <working_directory value="$PROJECT_DIR$" />
@@ -196,6 +313,51 @@
       <kind value="FILE" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/gmaffy/genome-whisperer" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="genome-whisperer" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/gmaffy/genome-whisperer" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/gmaffy/genome-whisperer/bsaseq/publication" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="genome-whisperer" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/gmaffy/genome-whisperer/bsaseq/publication" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$/bsaseq/publication" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/gmaffy/genome-whisperer/old/publication" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="genome-whisperer" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/gmaffy/genome-whisperer/old/publication" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$/old/publication" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build v1/" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="genome-whisperer" />
+      <working_directory value="$PROJECT_DIR$/old/v1" />
+      <kind value="PACKAGE" />
+      <package value="github.com/gmaffy/genome-whisperer" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$/old/v1" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build v2/" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+      <module name="genome-whisperer" />
+      <working_directory value="$PROJECT_DIR$/old/v2" />
+      <kind value="PACKAGE" />
+      <package value="github.com/gmaffy/genome-whisperer" />
+      <directory value="$PROJECT_DIR$" />
+      <auto_managed_config_id value="$PROJECT_DIR$/old/v2" />
       <method v="2" />
     </configuration>
     <configuration default="true" type="GoTestRunConfiguration" factoryName="Go Test">
@@ -212,8 +374,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-gosdk-72a9cf600ed8-3dd3895e5e08-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-261.23567.143" />
-        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-GO-261.23567.143" />
+        <option value="bundled-gosdk-72a9cf600ed8-3dd3895e5e08-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-261.25134.147" />
+        <option value="bundled-js-predefined-d6986cc7102b-31caf2ab9e3c-JavaScript-GO-261.25134.147" />
       </set>
     </attachedChunks>
   </component>
