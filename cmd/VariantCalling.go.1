@@ -175,9 +175,7 @@ var VariantCallingCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			if dirErr := variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, verbosity, quick, threads); dirErr != nil {
-				color.Red("VariantCallingDir failed: %v\n", dirErr)
-			}
+			variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, verbosity, quick, threads)
 		} else {
 
 			fmt.Printf("Running without config flag\n")

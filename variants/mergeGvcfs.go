@@ -34,12 +34,12 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	fmt.Println("Merging GVCFs ...")
 	if config != "" {
 		fmt.Println("Using config file: ", config)
-		return
+		// return
 	}
 
 	if len(gvcfs) > 0 {
 		fmt.Println("Using gvcfs: ", gvcfs)
-		return
+		// return
 	}
 
 	println("Merging GVCFs using plennegy data structure...")
@@ -155,7 +155,7 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	// Build the per-(sample,chrom) gvcf path the same way VariantCallingDir does, using FindBamOrVcfs.
 	for _, sample := range samples {
 		for _, chrom := range chroms {
-			_, vcfFiles := FindBamOrVcfs(dataDirAbs, species, sample, refVer, "gvcfs", chrom.ID)
+			vcfFiles, _ := FindBamOrVcfs(dataDirAbs, species, sample, refVer, "gvcfs", chrom.ID)
 
 			switch len(vcfFiles) {
 			case 0:
@@ -169,8 +169,8 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 					color.Yellow("[%s] skipping integrity check for %s\n", sample, color.BlueString(vcf))
 				} else {
 					fmt.Printf("[%s] checking integrity of gVCF file: %s ..........\n", sample, color.BlueString(vcf))
-					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
-						color.Red("[%s] gVCF %s corrupted: %v\n", sample, color.BlueString(vcf), vErr)
+					if vvvErr := utils.ValidateGvcf(vcf, verbose, quick); vvvErr != nil {
+						color.Red("[%s] gVCF %s corrupted: %v\n", sample, color.BlueString(vcf), vvvErr)
 						missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "corrupted"})
 					} else {
 						color.Green("[%s] gVCF %s is valid!!\n\n", sample, vcf)
