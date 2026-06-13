@@ -23,151 +23,32 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage-name constants (defined once, used everywhere to avoid typos)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const (
+	stageHaplotypeCaller  = "HaplotypeCaller"
+	stageGenomicsDBImport = "GenomicsDBImport"
+	stageGenotypeGVCFs    = "GenotypeGVCFs"
+	stageGLNEXUS          = "GLNEXUS"
+	stageGLNEXUSBCFTOOLS  = "GLNEXUS_BCFTOOLS"
+	stageGLNEXUSIndex     = "GLNEXUS_INDEX"
+	stageSelectSNPs       = "SelectSNPs"
+	stageSelectINDELs     = "SelectINDELs"
+	stageHardFilterSNPs   = "HardFilteringSNPS"
+	stageHardFilterINDELs = "HardFilteringINDELS"
+	stageMergeVcfs        = "MergeVcfs"
+	stageDeepVariant      = "DEEPVARIANT"
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
 type SeqInfo struct {
 	ID  string
 	Len int
-}
-
-func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string, refVer string, logLevel string, verbose bool, out string) (string, error) {
-
-	var regions string
-	var gVCF string
-	if len(chroms) == 1 {
-		regions = chroms[0].ID
-		chromDir := strings.ReplaceAll(regions, ".", "_")
-		chromDirPath := filepath.Join(out, chromDir)
-		gvcfPath := filepath.Join(chromDirPath, "gvcfs")
-		gVCF = filepath.Join(gvcfPath, species+refVer+"."+regions+".g.vcf.gz")
-
-	} else {
-		f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
-		if err != nil {
-			return "", fmt.Errorf("creating GATK interval list: %w", err)
-		}
-		defer os.Remove(f.Name())
-		defer f.Close()
-		for _, c := range chroms {
-			fmt.Fprintln(f, c.ID)
-		}
-		regions = f.Name()
-
-		chromDirPath := filepath.Join(out, "contigs")
-		gvcfPath := filepath.Join(chromDirPath, "gvcfs")
-		gVCF = filepath.Join(gvcfPath, species+refVer+"Contigs.g.vcf.gz")
-
-	}
-
-	hapCmdStr := fmt.Sprintf(
-		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`, refFile, bam, regions, gVCF, logLevel,
-	)
-	fmt.Printf("\n%s\n\n", hapCmdStr)
-	return gVCF, runCmd(hapCmdStr, verbose)
-
-}
-
-func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer, dvVer string, modelType string, verbose bool, out string) (string, error) {
-
-	var regions string
-	var gVCF string
-	if len(chroms) == 1 {
-		regions = chroms[0].ID
-		chromDir := strings.ReplaceAll(regions, ".", "_")
-		chromDirPath := filepath.Join(out, chromDir)
-		gvcfDir := filepath.Join(chromDirPath, "gvcfs")
-		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
-	} else {
-
-		chromDirPath := filepath.Join(out, "contigs")
-		gvcfDir := filepath.Join(chromDirPath, "gvcfs")
-		gVCF = filepath.Join(gvcfDir, species+refVer+"."+"Contigs.g.vcf.gz")
-		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
-		if err != nil {
-			return "", fmt.Errorf("creating DeepVariant interval list: %w", err)
-		}
-		defer os.Remove(f.Name())
-		defer f.Close()
-		for _, c := range chroms {
-			fmt.Fprintf(f, "%s\t0\t%d\n", c.ID, c.Len)
-		}
-		regions = f.Name()
-
-	}
-
-	bamDir := filepath.Dir(bam)
-	bamName := filepath.Base(bam)
-	refDir := filepath.Dir(refFile)
-	refName := filepath.Base(refFile)
-	gvcfName := filepath.Base(gVCF)
-	vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
-
-	//regions = f.Name() // absolute host path inside gvcfDir → translatable to /output/...
-	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_", "/", "_").Replace(regions)
-	intermediateName := fmt.Sprintf("tmp_%s_%s", strings.TrimSuffix(bamName, filepath.Ext(bamName)), safeRegion)
-
-	dvCmdStr := fmt.Sprintf(
-		`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
-			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
-			`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
-			`--intermediate_results_dir /output/%s`,
-		bamDir, refDir, out, dvVer,
-		modelType, refName, bamName,
-		regions, vcfName, gvcfName,
-		intermediateName,
-	)
-	fmt.Printf("\n%s\n\n", dvCmdStr)
-	return gVCF, runCmd(dvCmdStr, verbose)
-}
-
-func MergeGvcfsGATK(gvcfDir string, chrom string, verbose bool, theDB string) (string, error) {
-	outDir := filepath.Dir(gvcfDir)
-	theDB = filepath.Join(outDir, chrom+"DB")
-
-	if rErr := os.RemoveAll(theDB); rErr != nil {
-		return "", fmt.Errorf("removing %s: %w", theDB, rErr)
-	}
-	for 
-	gDBCmd := fmt.Sprintf(
-		`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s `+
-			`--genomicsdb-workspace-path %s --tmp-dir %s -L %s `+
-			`--genomicsdb-shared-posixfs-optimizations true --batch-size 50 `+
-			`--bypass-feature-reader --verbosity %s`,
-		vArgs, theDB, tmpPath, seq.ID, gatkLogLevel,
-	)
-	return "", nil
-}
-
-func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer string, caller string, verbose bool, vcfDir string) (string, error) {
-
-	var glnexusPreset string
-	if caller == "gatk" {
-		glnexusPreset = "gatk"
-	} else {
-		glnexusPreset = "DeepVariant"
-	}
-	jointVCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.vcf.gz")
-	jointBCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.bcf")
-	glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s %s/*.g.vcf.gz > %s`, glnexusPreset, filepath.Join(vcfDir, "GLnexus.DB"), gvcfPath, jointBCF)
-	err := runCmd(glnexusCmd, verbose)
-	if err != nil {
-		return "", fmt.Errorf("glnexus_cli: %w", err)
-	}
-	bcfCmd := fmt.Sprintf("bcftools view %s | bgzip -@ 4 -c > %s", jointBCF, jointVCF)
-	err = runCmd(bcfCmd, verbose)
-	if err != nil {
-		return "", fmt.Errorf("bcftools view: %w", err)
-	}
-
-	indexCmd := fmt.Sprintf(`tabix -p vcf %s`, jointVCF)
-	err = runCmd(indexCmd, verbose)
-	if err != nil {
-		return "", fmt.Errorf("indexing joint VCF with tabix: %w", err)
-	}
-
-	return jointVCF, nil
-}
-
-func HardFilterVcf(vcf string, cfg string) (string, error) {
-	return "", nil
 }
 
 // FailedTask tracks which sample/chromosome combinations failed.

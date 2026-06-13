@@ -5,151 +5,22 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2ed741eb-c74a-40b0-aecf-7a60442acf3a" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/genome-whisperer.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/genome-whisperer.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go.working" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignmentdir/dirAlign.go.og" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/alignmentdir/dirAlign.go.og2" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bsaseq/publication/new_one.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/VariantCalling.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/VariantCalling.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fix_gene_space.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genespace/work/geneSpace.go.1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genespace/work/gene_space.go.1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genespace/work/genespace.go.mine_good" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genespace/work/genespace.go.perfect_with_no_excel" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genome-whisperer.exe" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/genome-whisperer.zip" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/snpEff_genes.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/snpEff_summary.html" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/LICENSE" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/alignment/alignShortReads.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/alignment/alignmentStats.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/alignment/baseRecal.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/alignment/baseRecalBackup" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/annotation/annotation.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/annotation/createSnpEffDb.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/bsaSeqFromConfig.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/bsaSeqFromConfig.go.edited" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/interactiveMode.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/oneBulk.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/oneBulkUtils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/onebulk_og.go1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulkUtils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulks.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/twoBulks_og.go1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/bsaseq/utils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/alignLrPb.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/alignSrMem.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/bqsr.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/createSnpEffDb.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/getVariantType.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/goBSAseq.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/goPan.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/hardFilterIndels.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/hardFilterSnps.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/root.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/variantAnnotation.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/cmd/variantCalling.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/config.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/genome-whisperer" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/go.mod" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/go.sum" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/go_tests/runAlignReadsDir.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/go_tests/scanAlignments.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/gwpy_config.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/main.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/pangenome/gopan.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/phy_config.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/qodana.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/reads_2.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/VAR_OG" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/application.log" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/helpers_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/log.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/masurca/app.log" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/masurca/test.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/parse_log_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/variant_calline" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/tests/variant_calling.go1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/utils/utils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/variants/hardFiltering.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go.backup" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v1/variants/variant_calling.go.deepseek" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/LICENSE" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/RunAlignReads.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/RunAlignReadsDir_fixed.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/RunAlignReads.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/alignmentStats.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/baseRecal.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/legacy_code/RunAlignReads.go.og" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/legacy_code/RunAlignReads.go.withloging" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/legacy_code/old_code" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignment/utils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/dirAlign.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/dirBQSR.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/alignmentdir/scanAlignments.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/annotation/annotation.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/annotation/createSnpEffDb.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/bsaSeqFromConfig.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/interactiveMode.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/oneBulk.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/oneBulkUtils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/twoBulkUtils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/twoBulks.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/bsaseq/utils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/AddGeneDescriptions.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/AddPrg.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/AlignReads.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/BQSR.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/CreateSnpEffDB.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/CreateTemplate.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/GetVariantType.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/GoBSAseq.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/GoPan.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterINDELs.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterSNPs.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/HardFilterVCFs.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/MergeGvcfs.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/PrepareFastaFile.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/RunSnpEff.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/ScanAlignments.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/VariantAnnotation.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/VariantCalling.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/cmd/root.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/config.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/files.zip" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/go.mod" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/go.sum" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/main.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/pangenome/gopan.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/qodana.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/scan_align_stage.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/utils/utils.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCaller.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCaller.go.og" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCaller.go.unoptimised" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/RunVariantCallerOptimised.go.1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/hardFiltering.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/mergeGvcfs.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/mergeGvcfs.go.working" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/v2/variants/mergeGvcfs.gobetter" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCaller.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.og" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.unoptimised" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/RunVariantCallerOptimised.go.1" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/mergeGvcfs.go.working" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/mergeGvcfs.gobetter" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_D:/GitLab/genome-whisperer" value="30rTNiEcTTQEETeXx4HDAfHF800" />
+    </persistenceIdMap>
+  </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="172" />
+    <option name="cachedIndexableFilesCount" value="185" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="FileTemplateManagerImpl">
@@ -185,61 +56,61 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.8515118653956106" />
-      <entry key="MS500" value="3.514119299769497" />
-      <entry key="S2" value="4.529297519029743" />
-      <entry key="S5" value="4.801845508889919" />
-      <entry key="S10" value="4.8991911117699285" />
-      <entry key="S30" value="4.966003876318972" />
-      <entry key="S60" value="4.982952891313451" />
-      <entry key="M2" value="4.9925861523209605" />
-      <entry key="M5" value="5.0967405802635115" />
-      <entry key="M10" value="5.445857128174149" />
-      <entry key="M15" value="5.736053907159201" />
-      <entry key="M30" value="6.21367336080003" />
-      <entry key="H1" value="6.558075175668976" />
-      <entry key="H2" value="6.765281037916519" />
-      <entry key="H4" value="6.878983579759741" />
-      <entry key="D1" value="6.97930307517807" />
-      <entry key="W1" value="6.9970301138471385" />
+      <entry key="MS100" value="1.0001787213984308" />
+      <entry key="MS500" value="1.178006274449634" />
+      <entry key="S2" value="1.6495443772868863" />
+      <entry key="S5" value="1.8414794822853806" />
+      <entry key="S10" value="1.9173219076667583" />
+      <entry key="S30" value="1.9716441837398428" />
+      <entry key="S60" value="1.985768186348413" />
+      <entry key="M2" value="2.011159426066599" />
+      <entry key="M5" value="2.646102502398999" />
+      <entry key="M10" value="4.149721889725425" />
+      <entry key="M15" value="5.343522343540383" />
+      <entry key="M30" value="9.079427444145814" />
+      <entry key="H1" value="20.991215818990252" />
+      <entry key="H2" value="50.7612067978275" />
+      <entry key="H4" value="94.08328599880824" />
+      <entry key="D1" value="172.1294265750258" />
+      <entry key="W1" value="192.36361738117574" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
       <entry key="MS500" value="0.0" />
-      <entry key="S2" value="0.0" />
-      <entry key="S5" value="0.0" />
-      <entry key="S10" value="0.0" />
-      <entry key="S30" value="0.0" />
-      <entry key="S60" value="0.0" />
-      <entry key="M2" value="0.0" />
-      <entry key="M5" value="0.0" />
-      <entry key="M10" value="0.0" />
-      <entry key="M15" value="0.0" />
-      <entry key="M30" value="0.0" />
-      <entry key="H1" value="0.0" />
-      <entry key="H2" value="0.0" />
-      <entry key="H4" value="0.0" />
-      <entry key="D1" value="0.0" />
-      <entry key="W1" value="0.0" />
+      <entry key="S2" value="2.987623844720452E-153" />
+      <entry key="S5" value="9.775306126543544E-62" />
+      <entry key="S10" value="3.1265485965427666E-31" />
+      <entry key="S30" value="6.787164799773167E-11" />
+      <entry key="S60" value="8.238425092075042E-6" />
+      <entry key="M2" value="0.0028702656842435723" />
+      <entry key="M5" value="0.09622389896493741" />
+      <entry key="M10" value="0.32029968542034326" />
+      <entry key="M15" value="0.5607806362275184" />
+      <entry key="M30" value="2.1091740886134045" />
+      <entry key="H1" value="7.190401572747584" />
+      <entry key="H2" value="15.577612181916152" />
+      <entry key="H4" value="24.12457185162378" />
+      <entry key="D1" value="35.88010627139818" />
+      <entry key="W1" value="38.53490713374641" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.7907425951806786" />
-      <entry key="MS500" value="3.4774654464319794" />
-      <entry key="S2" value="4.515364958855068" />
-      <entry key="S5" value="4.795730465551744" />
-      <entry key="S10" value="4.896035530544076" />
-      <entry key="S30" value="4.964929459962882" />
-      <entry key="S60" value="4.982412812533443" />
-      <entry key="M2" value="4.992313588841902" />
-      <entry key="M5" value="5.096567398051274" />
-      <entry key="M10" value="5.445658059385407" />
-      <entry key="M15" value="5.73585863491448" />
-      <entry key="M30" value="6.21352417781403" />
-      <entry key="H1" value="6.557981985926462" />
-      <entry key="H2" value="6.765228846488953" />
-      <entry key="H4" value="6.878955948273299" />
-      <entry key="D1" value="6.979298244074385" />
-      <entry key="W1" value="6.997029417987752" />
+      <entry key="MS100" value="0.008790114662022754" />
+      <entry key="MS500" value="0.44484285364248416" />
+      <entry key="S2" value="1.2775745808597134" />
+      <entry key="S5" value="1.6604080996211028" />
+      <entry key="S10" value="1.8202181653742937" />
+      <entry key="S30" value="1.937685809710673" />
+      <entry key="S60" value="1.9685894084475235" />
+      <entry key="M2" value="2.0053384434115054" />
+      <entry key="M5" value="2.7382306974195423" />
+      <entry key="M10" value="4.467145717753391" />
+      <entry key="M15" value="5.90150504585369" />
+      <entry key="M30" value="11.183970881071332" />
+      <entry key="H1" value="28.173362279332586" />
+      <entry key="H2" value="66.32815384587138" />
+      <entry key="H4" value="118.198225274396" />
+      <entry key="D1" value="208.00672633785697" />
+      <entry key="W1" value="230.89808067719287" />
     </decayedShown>
   </component>
   <component name="ProblemsViewState">
@@ -254,38 +125,38 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginOnboardingV2&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.analysis.ui.options.defaults&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultAutoModeForALLUsers.v1&quot;: &quot;true&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
-    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/GodwinMafireyi&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;run.configurations.included.in.services&quot;: &quot;true&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;advanced.settings&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "DefaultGoTemplateProperty": "Go File",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.GoLinterPluginOnboarding": "true",
+    "RunOnceActivity.GoLinterPluginOnboardingV2": "true",
+    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.go.analysis.ui.options.defaults": "true",
+    "RunOnceActivity.go.formatter.settings.were.checked": "true",
+    "RunOnceActivity.go.migrated.go.modules.settings": "true",
+    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultAutoModeForALLUsers.v1": "true",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "main",
+    "go.import.settings.migrated": "true",
+    "go.sdk.automatically.set": "true",
+    "junie.onboarding.icon.badge.shown": "true",
+    "last_opened_file_path": "C:/Users/mafir",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "run.configurations.included.in.services": "true",
+    "settings.editor.selected.configurable": "advanced.settings",
+    "to.speed.mode.migration.done": "true"
   }
-}</component>
+}]]></component>
   <component name="RecapSpentCounter">
     <option name="endsOfQuotaMs" value="1773381714316" />
     <option name="spentUsd" value="0.097858205" />
