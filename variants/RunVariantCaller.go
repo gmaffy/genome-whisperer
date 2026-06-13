@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -118,22 +119,28 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 	return gVCF, runCmd(dvCmdStr, verbose)
 }
 
-func MergeGvcfsGATK(gvcfDir string, chrom string, verbose bool, theDB string) (string, error) {
+func MergeGvcfsGATK(gvcfDir string, chrom string, verbose bool, logLevel string) (string, error) {
 	outDir := filepath.Dir(gvcfDir)
-	theDB = filepath.Join(outDir, chrom+"DB")
+	theDB := filepath.Join(outDir, chrom+"DB")
+	tmpDir := filepath.Join(outDir, "tmp")
 
 	if rErr := os.RemoveAll(theDB); rErr != nil {
 		return "", fmt.Errorf("removing %s: %w", theDB, rErr)
 	}
-	for 
+
+	sampleMap, err := CreateSampleMap(gvcfDir)
+	if err != nil {
+		return "", fmt.Errorf("creating sample map: %w", err)
+	}
+
 	gDBCmd := fmt.Sprintf(
-		`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport %s `+
+		`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport --sample-name-map %s `+
 			`--genomicsdb-workspace-path %s --tmp-dir %s -L %s `+
 			`--genomicsdb-shared-posixfs-optimizations true --batch-size 50 `+
 			`--bypass-feature-reader --verbosity %s`,
-		vArgs, theDB, tmpPath, seq.ID, gatkLogLevel,
+		sampleMap, theDB, tmpDir, chrom, logLevel,
 	)
-	return "", nil
+	return gDBCmd, runCmd(gDBCmd, verbose)
 }
 
 func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer string, caller string, verbose bool, vcfDir string) (string, error) {
@@ -168,6 +175,35 @@ func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer str
 
 func HardFilterVcf(vcf string, cfg string) (string, error) {
 	return "", nil
+}
+
+
+func CreateSampleMap(gvcfDir string) (string, error) {
+	f, err := os.Create(filepath.Join(gvcfDir, "sample_map.txt"))
+	if err != nil {
+		return "", fmt.Errorf("creating sample map: %w", err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	defer w.Flush()
+	gvcfs, _ := filepath.Glob(filepath.Join(gvcfDir, "*.g.vcf.gz"))
+	for _, sample := range gvcfs {
+		if strings.HasSuffix(sample, ".g.vcf.gz") {
+
+			out, err := exec.Command("bcftools", "query", "-l", sample).Output()
+			if err != nil {
+				return "", fmt.Errorf("%s: bcftools query -l: %w", sample, err)
+			}
+			names := strings.Fields(string(out))
+			if len(names) != 1 {
+				return "", fmt.Errorf("%s: expected 1 sample, got %d", sample, len(names))
+			}
+			_, err = w.WriteString(fmt.Sprintf("%s\t%s\n", names[0], sample))
+			if err != nil {
+			return "", fmt.Errorf("writing sample map: %w", err)
+		}
+	}
+	return f.Name(), nil
 }
 
 // FailedTask tracks which sample/chromosome combinations failed.
