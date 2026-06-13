@@ -173,28 +173,7 @@ func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer stri
 	return matches, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// runDeepVariantContainer is the single authoritative place that builds and
-// executes a DeepVariant docker command.  All callers (CreateGvcf and the
-// per-chromosome goroutine in VariantCalling) use this so fixes apply once.
-//
-// Parameters:
-//   bam        – absolute host path to the BAM/CRAM file
-//   refFile    – absolute host path to the reference FASTA
-//   outputDir  – absolute host path mounted as /output inside the container
-//   gvcfName   – base filename for the output gVCF  (e.g. sample.chr1.g.vcf.gz)
-//   vcfName    – base filename for the output VCF   (e.g. sample.chr1.vcf.gz)
-//   regions    – chromosome ID string (e.g. "chr1") OR absolute host path to a
-//                BED file that lives inside outputDir so the container can read it
-//   dvVer      – DeepVariant image version tag (e.g. "1.9.0")
-//   modelType  – DeepVariant model type (WGS, WES, PACBIO, …)
-//   verbose    – stream stdout/stderr
-// ─────────────────────────────────────────────────────────────────────────────
-
-func runDeepVariantContainer(
-	bam, refFile, outputDir, gvcfName, vcfName, regions, dvVer, modelType string,
-	verbose bool,
-) error {
+func runDeepVariantContainer(bam, refFile, outputDir, gvcfName, vcfName, regions, dvVer, modelType string, verbose bool) error {
 	bamDir := filepath.Dir(bam)
 	bamName := filepath.Base(bam)
 	refDir := filepath.Dir(refFile)
