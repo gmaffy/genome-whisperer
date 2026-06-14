@@ -35,11 +35,20 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 	var gVCF string
 	if len(chroms) == 1 {
 		regions = chroms[0].ID
-		chromDir := strings.ReplaceAll(regions, ".", "_")
-		chromDirPath := filepath.Join(out, chromDir)
-		gvcfPath := filepath.Join(chromDirPath, "gvcfs")
-		gVCF = filepath.Join(gvcfPath, species+refVer+"."+regions+".g.vcf.gz")
+		chromDirName := strings.ReplaceAll(regions, ".", "_")
+		chromDir := filepath.Join(out, chromDirName)
+		gvcfDir := filepath.Join(chromDir, "gvcfs")
+		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
 
+		// ---------------------- Create Dirs ------------------------------- //
+		err := os.MkdirAll(chromDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating GATK output directory: %w", err)
+		}
+		err = os.MkdirAll(gvcfDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating GATK output directory: %w", err)
+		}
 	} else {
 		f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
 		if err != nil {
@@ -52,9 +61,19 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		}
 		regions = f.Name()
 
-		chromDirPath := filepath.Join(out, "contigs")
-		gvcfPath := filepath.Join(chromDirPath, "gvcfs")
-		gVCF = filepath.Join(gvcfPath, species+refVer+"Contigs.g.vcf.gz")
+		chromDir := filepath.Join(out, "contigs")
+		// -------------------------- Create Directories ------------------------------------- //
+		err = os.MkdirAll(chromDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating GATK output directory: %w", err)
+		}
+
+		gvcfDir := filepath.Join(chromDir, "gvcfs")
+		err = os.MkdirAll(gvcfDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating GATK output directory: %w", err)
+		}
+		gVCF = filepath.Join(gvcfDir, species+refVer+"Contigs.g.vcf.gz")
 
 	}
 
@@ -70,16 +89,38 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 
 	var regions string
 	var gVCF string
+
 	if len(chroms) == 1 {
 		regions = chroms[0].ID
-		chromDir := strings.ReplaceAll(regions, ".", "_")
-		chromDirPath := filepath.Join(out, chromDir)
-		gvcfDir := filepath.Join(chromDirPath, "gvcfs")
+		chromDirName := strings.ReplaceAll(regions, ".", "_")
+		chromDir := filepath.Join(out, chromDirName)
+
+		// --------------------------------- Create directories -------------------------------- //
+		err := os.MkdirAll(chromDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
+		}
+
+		gvcfDir := filepath.Join(chromDir, "gvcfs")
+		err = os.MkdirAll(gvcfDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
+		}
 		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
 	} else {
 
-		chromDirPath := filepath.Join(out, "contigs")
-		gvcfDir := filepath.Join(chromDirPath, "gvcfs")
+		chromDir := filepath.Join(out, "contigs")
+		gvcfDir := filepath.Join(chromDir, "gvcfs")
+
+		err := os.MkdirAll(chromDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
+		}
+		err = os.MkdirAll(gvcfDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
+		}
+
 		gVCF = filepath.Join(gvcfDir, species+refVer+"."+"Contigs.g.vcf.gz")
 		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
 		if err != nil {
@@ -119,15 +160,17 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 	return gVCF, runCmd(dvCmdStr, verbose)
 }
 
-func MergeGvcfsGATK(gvcfDir string, chrom string, verbose bool, logLevel string) (string, error) {
+func MergeGvcfsGATK(gvcfDir string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string) (string, error) {
 	outDir := filepath.Dir(gvcfDir)
 	theDB := filepath.Join(outDir, chrom+"DB")
 	tmpDir := filepath.Join(outDir, "tmp")
+	tmpDir2 := filepath.Join(outDir, "tmp2")
+	vcfDir := filepath.Join(outDir, "VCFs")
 
 	if rErr := os.RemoveAll(theDB); rErr != nil {
 		return "", fmt.Errorf("removing %s: %w", theDB, rErr)
 	}
-
+	// --------------------------------------------- GenomicsDBImport -------------------------------------------- //
 	sampleMap, err := CreateSampleMap(gvcfDir)
 	if err != nil {
 		return "", fmt.Errorf("creating sample map: %w", err)
@@ -140,11 +183,27 @@ func MergeGvcfsGATK(gvcfDir string, chrom string, verbose bool, logLevel string)
 			`--bypass-feature-reader --verbosity %s`,
 		sampleMap, theDB, tmpDir, chrom, logLevel,
 	)
-	return gDBCmd, runCmd(gDBCmd, verbose)
+	err = runCmd(gDBCmd, verbose)
+	if err != nil {
+		return "", fmt.Errorf("gatk GenomicsDBImport: %w", err)
+	}
+	// ---------------------------------------- GenotypeGvcfs ------------------------------------------------------- //
+	jointVCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.vcf.gz")
+	genoCmd := fmt.Sprintf(
+		`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s --verbosity %s`,
+		refFile, theDB, jointVCF, tmpDir2, logLevel,
+	)
+	err = runCmd(genoCmd, verbose)
+	if err != nil {
+		return "", fmt.Errorf("gatk GenotypeGVCFs: %w", err)
+	}
+
+	return jointVCF, err
 }
 
-func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer string, caller string, verbose bool, vcfDir string) (string, error) {
-
+func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer string, caller string, verbose bool) (string, error) {
+	outDir := filepath.Dir(gvcfPath)
+	vcfDir := filepath.Join(outDir, "VCFs")
 	var glnexusPreset string
 	if caller == "gatk" {
 		glnexusPreset = "gatk"
@@ -177,7 +236,6 @@ func HardFilterVcf(vcf string, cfg string) (string, error) {
 	return "", nil
 }
 
-
 func CreateSampleMap(gvcfDir string) (string, error) {
 	f, err := os.Create(filepath.Join(gvcfDir, "sample_map.txt"))
 	if err != nil {
@@ -200,7 +258,8 @@ func CreateSampleMap(gvcfDir string) (string, error) {
 			}
 			_, err = w.WriteString(fmt.Sprintf("%s\t%s\n", names[0], sample))
 			if err != nil {
-			return "", fmt.Errorf("writing sample map: %w", err)
+				return "", fmt.Errorf("writing sample map: %w", err)
+			}
 		}
 	}
 	return f.Name(), nil
