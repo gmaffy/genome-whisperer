@@ -4,6 +4,8 @@ go 1.26.0
 
 require (
 	github.com/biogo/biogo v1.0.4
+	github.com/biogo/hts v1.1.0
+	github.com/brentp/vcfgo v0.0.0-20250902214554-a31336cef488
 	github.com/fatih/color v1.18.0
 	github.com/go-echarts/go-echarts/v2 v2.6.7
 	github.com/go-gota/gota v0.12.0
@@ -16,6 +18,7 @@ require (
 )
 
 require (
+	github.com/brentp/irelate v0.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -32,5 +35,4 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )

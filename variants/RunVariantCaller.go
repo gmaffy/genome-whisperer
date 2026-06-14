@@ -20,6 +20,8 @@ import (
 	"github.com/biogo/biogo/io/seqio"
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/seq/linear"
+	"github.com/biogo/hts/bgzf"
+	"github.com/brentp/vcfgo"
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
 )
@@ -41,13 +43,13 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
 
 		// ---------------------- Create Dirs ------------------------------- //
-		err := os.MkdirAll(chromDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating GATK output directory: %w", err)
-		}
-		err = os.MkdirAll(gvcfDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating GATK output directory: %w", err)
+		for _, dir := range []string{chromDir, gvcfDir} {
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+					return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+				}
+				//fmt.Printf("Created directory: %s\n", dir)
+			}
 		}
 	} else {
 		f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
@@ -62,16 +64,15 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		regions = f.Name()
 
 		chromDir := filepath.Join(out, "contigs")
-		// -------------------------- Create Directories ------------------------------------- //
-		err = os.MkdirAll(chromDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating GATK output directory: %w", err)
-		}
-
 		gvcfDir := filepath.Join(chromDir, "gvcfs")
-		err = os.MkdirAll(gvcfDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating GATK output directory: %w", err)
+		// -------------------------- Create Directories ------------------------------------- //
+
+		for _, dir := range []string{chromDir, gvcfDir} {
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+					return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+				}
+			}
 		}
 		gVCF = filepath.Join(gvcfDir, species+refVer+"Contigs.g.vcf.gz")
 
@@ -94,34 +95,34 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 		regions = chroms[0].ID
 		chromDirName := strings.ReplaceAll(regions, ".", "_")
 		chromDir := filepath.Join(out, chromDirName)
-
-		// --------------------------------- Create directories -------------------------------- //
-		err := os.MkdirAll(chromDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
-		}
-
 		gvcfDir := filepath.Join(chromDir, "gvcfs")
-		err = os.MkdirAll(gvcfDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
+		// --------------------------------- Create directories -------------------------------- //
+		for _, dir := range []string{chromDir, gvcfDir} {
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+					return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+				}
+				//fmt.Printf("Created directory: %s\n", dir)
+			}
 		}
+
 		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
 	} else {
 
 		chromDir := filepath.Join(out, "contigs")
 		gvcfDir := filepath.Join(chromDir, "gvcfs")
 
-		err := os.MkdirAll(chromDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
-		}
-		err = os.MkdirAll(gvcfDir, 0755)
-		if err != nil {
-			return "", fmt.Errorf("creating DeepVariant output directory: %w", err)
+		for _, dir := range []string{chromDir, gvcfDir} {
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+					return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+				}
+				//fmt.Printf("Created directory: %s\n", dir)
+			}
 		}
 
 		gVCF = filepath.Join(gvcfDir, species+refVer+"."+"Contigs.g.vcf.gz")
+
 		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
 		if err != nil {
 			return "", fmt.Errorf("creating DeepVariant interval list: %w", err)
@@ -142,7 +143,6 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 	gvcfName := filepath.Base(gVCF)
 	vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
 
-	//regions = f.Name() // absolute host path inside gvcfDir → translatable to /output/...
 	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_", "/", "_").Replace(regions)
 	intermediateName := fmt.Sprintf("tmp_%s_%s", strings.TrimSuffix(bamName, filepath.Ext(bamName)), safeRegion)
 
@@ -160,18 +160,56 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 	return gVCF, runCmd(dvCmdStr, verbose)
 }
 
-func MergeGvcfsGATK(gvcfDir string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string) (string, error) {
-	outDir := filepath.Dir(gvcfDir)
+func CreateSampleMap(gvcfs []string, outDir string) (string, error) {
+	f, err := os.Create(filepath.Join(outDir, "sample_map.txt"))
+	if err != nil {
+		return "", fmt.Errorf("creating sample map: %w", err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	defer w.Flush()
+
+	for _, sample := range gvcfs {
+		if strings.HasSuffix(sample, ".g.vcf.gz") {
+
+			out, err := exec.Command("bcftools", "query", "-l", sample).Output()
+			if err != nil {
+				return "", fmt.Errorf("%s: bcftools query -l: %w", sample, err)
+			}
+			names := strings.Fields(string(out))
+			if len(names) != 1 {
+				return "", fmt.Errorf("%s: expected 1 sample, got %d", sample, len(names))
+			}
+			_, err = w.WriteString(fmt.Sprintf("%s\t%s\n", names[0], sample))
+			if err != nil {
+				return "", fmt.Errorf("writing sample map: %w", err)
+			}
+		}
+	}
+	return f.Name(), nil
+}
+
+func MergeGvcfsGATK(gvcfs []string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string, outDir string) (string, error) {
+	//outDir := filepath.Dir(gvcfDir)
 	theDB := filepath.Join(outDir, chrom+"DB")
 	tmpDir := filepath.Join(outDir, "tmp")
 	tmpDir2 := filepath.Join(outDir, "tmp2")
 	vcfDir := filepath.Join(outDir, "VCFs")
 
+	for _, dir := range []string{tmpDir, tmpDir2, vcfDir} {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+				return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+			}
+			//fmt.Printf("Created directory: %s\n", dir)
+		}
+	}
+
 	if rErr := os.RemoveAll(theDB); rErr != nil {
 		return "", fmt.Errorf("removing %s: %w", theDB, rErr)
 	}
 	// --------------------------------------------- GenomicsDBImport -------------------------------------------- //
-	sampleMap, err := CreateSampleMap(gvcfDir)
+	sampleMap, err := CreateSampleMap(gvcfs, outDir)
 	if err != nil {
 		return "", fmt.Errorf("creating sample map: %w", err)
 	}
@@ -201,9 +239,17 @@ func MergeGvcfsGATK(gvcfDir string, refFile string, chrom string, species string
 	return jointVCF, err
 }
 
-func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer string, caller string, verbose bool) (string, error) {
-	outDir := filepath.Dir(gvcfPath)
+func MergeGvcfsGlnexus(gvcfs []string, chrom string, species string, refVer string, caller string, verbose bool, outDir string) (string, error) {
+	//outDir := filepath.Dir(gvcfPath)
 	vcfDir := filepath.Join(outDir, "VCFs")
+	for _, dir := range []string{vcfDir} {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+				return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+			}
+			//fmt.Printf("Created directory: %s\n", dir)
+		}
+	}
 	var glnexusPreset string
 	if caller == "gatk" {
 		glnexusPreset = "gatk"
@@ -212,7 +258,8 @@ func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer str
 	}
 	jointVCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.vcf.gz")
 	jointBCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.bcf")
-	glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s %s/*.g.vcf.gz > %s`, glnexusPreset, filepath.Join(vcfDir, "GLnexus.DB"), gvcfPath, jointBCF)
+	gvcfFiles := strings.Join(gvcfs, " ")
+	glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s %s > %s`, glnexusPreset, filepath.Join(vcfDir, "GLnexus.DB"), gvcfFiles, jointBCF)
 	err := runCmd(glnexusCmd, verbose)
 	if err != nil {
 		return "", fmt.Errorf("glnexus_cli: %w", err)
@@ -232,80 +279,171 @@ func MergeGvcfsGlnexus(gvcfPath string, chrom string, species string, refVer str
 	return jointVCF, nil
 }
 
-func HardFilterVcf(vcf string, cfg string) (string, error) {
-	return "", nil
-}
+// ----------------------------------------- Filter --------------------------------------------------------------- //
 
-func CreateSampleMap(gvcfDir string) (string, error) {
-	f, err := os.Create(filepath.Join(gvcfDir, "sample_map.txt"))
-	if err != nil {
-		return "", fmt.Errorf("creating sample map: %w", err)
-	}
-	defer f.Close()
-	w := bufio.NewWriter(f)
-	defer w.Flush()
-	gvcfs, _ := filepath.Glob(filepath.Join(gvcfDir, "*.g.vcf.gz"))
-	for _, sample := range gvcfs {
-		if strings.HasSuffix(sample, ".g.vcf.gz") {
-
-			out, err := exec.Command("bcftools", "query", "-l", sample).Output()
-			if err != nil {
-				return "", fmt.Errorf("%s: bcftools query -l: %w", sample, err)
-			}
-			names := strings.Fields(string(out))
-			if len(names) != 1 {
-				return "", fmt.Errorf("%s: expected 1 sample, got %d", sample, len(names))
-			}
-			_, err = w.WriteString(fmt.Sprintf("%s\t%s\n", names[0], sample))
-			if err != nil {
-				return "", fmt.Errorf("writing sample map: %w", err)
-			}
+func classifyVariant(v *vcfgo.Variant) (isSNP, isIndel bool) {
+	refLen := len(v.Ref())
+	isSNP = refLen == 1
+	for _, alt := range v.Alt() {
+		if alt == "." || alt == "*" || (len(alt) > 0 && alt[0] == '<') {
+			continue
+		}
+		if len(alt) != 1 {
+			isSNP = false
+		}
+		if len(alt) != refLen {
+			isIndel = true
 		}
 	}
-	return f.Name(), nil
+	return
 }
 
-// FailedTask tracks which sample/chromosome combinations failed.
-type FailedTask struct {
-	Sample string
-	Chrom  string
-	Reason error
-}
+func PassesHardFilter(v *vcfgo.Variant, hfcfg utils.HardFilterConfig) bool {
+	isSNP, isIndel := classifyVariant(v)
 
-// SampleWork bundles per-sample data needed by the worker goroutine.
-type SampleWork struct {
-	Sample  string
-	Cram    string
-	CramDir string // parent of the "bams" directory; used to derive gvcf output path
-}
+	switch {
+	case isSNP:
+		if float64(v.Quality) < hfcfg.SNP_QUAL_Min {
+			return false
+		}
+		if qd, ok := utils.GetFloat(v, "QD"); ok && qd < hfcfg.SNP_QD_Min {
+			return false
+		}
+		if fs, ok := utils.GetFloat(v, "FS"); ok && fs > hfcfg.SNP_FS_Max {
+			return false
+		}
+		if sor, ok := utils.GetFloat(v, "SOR"); ok && sor > hfcfg.SNP_SOR_Max {
+			return false
+		}
+		if mq, ok := utils.GetFloat(v, "MQ"); ok && mq < hfcfg.SNP_MQ_Min {
+			return false
+		}
+		if mqrs, ok := utils.GetFloat(v, "MQRankSum"); ok && mqrs < hfcfg.SNP_MQRankSum_Min {
+			return false
+		}
+		if rprs, ok := utils.GetFloat(v, "ReadPosRankSum"); ok && rprs < hfcfg.SNP_ReadPosRankSum_Min {
+			return false
+		}
+		return true
 
-// ─────────────────────────────────────────────────────────────────────────────
-// runCmd is a small helper that respects the verbose flag without repeating
-// the if/else everywhere.
-// ─────────────────────────────────────────────────────────────────────────────
+	case isIndel:
+		if float64(v.Quality) < hfcfg.INDEL_QUAL_Min {
+			return false
+		}
+		if qd, ok := utils.GetFloat(v, "QD"); ok && qd < hfcfg.INDEL_QD_Min {
+			return false
+		}
+		if fs, ok := utils.GetFloat(v, "FS"); ok && fs > hfcfg.INDEL_FS_Max {
+			return false
+		}
+		if sor, ok := utils.GetFloat(v, "SOR"); ok && sor > hfcfg.INDEL_SOR_Max {
+			return false
+		}
+		if rprs, ok := utils.GetFloat(v, "ReadPosRankSum"); ok && rprs < hfcfg.INDEL_ReadPosRankSum_Min {
+			return false
+		}
+		return true
 
-func runCmd(cmdStr string, verbose bool) error {
-	if verbose {
-		return utils.RunBashCmdVerbose(cmdStr)
+	default:
+		return false
 	}
-	return utils.RunBashCmd(cmdStr)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HapCaller – thin wrapper kept for backwards-compat with other callers
-// ─────────────────────────────────────────────────────────────────────────────
+func openVCF(path string) (io.Reader, func(), error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { f.Close() }
 
-func HapCaller(ref string, bam string, verbose bool, vcfType string, vcf string) error {
-	cmdStrHap := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -O %s`, ref, bam, vcf)
-	fmt.Println(cmdStrHap)
-	slog.Info("HaplotypeCaller", "cmd", cmdStrHap)
-	return runCmd(cmdStrHap, verbose)
+	if strings.HasSuffix(path, ".gz") {
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			f.Close()
+			return nil, nil, err
+		}
+		cleanup = func() { gz.Close(); f.Close() }
+		return gz, cleanup, nil
+	}
+	return f, cleanup, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// getChromsAndContigs reads a .dict file and splits sequences into the 21
-// longest chromosomes (plus MT/Pltd) and everything else (contigs).
-// ─────────────────────────────────────────────────────────────────────────────
+func HardFilterVcf(vcf string, cfg utils.HardFilterConfig) (string, error) {
+
+	var hardFilteredVcfPath string
+	if strings.HasSuffix(vcf, ".vcf") {
+		hardFilteredVcfPath = strings.TrimSuffix(vcf, ".vcf") + ".hard_filtered.vcf.gz"
+	} else if strings.HasSuffix(vcf, ".vcf.gz") {
+		hardFilteredVcfPath = strings.TrimSuffix(vcf, ".vcf.gz") + ".hard_filtered.vcf.gz"
+	} else {
+		return "", fmt.Errorf("vcf file %q does not end with .vcf or .vcf.gz", vcf)
+	}
+
+	in, cleanup, err := openVCF(vcf)
+	if err != nil {
+		return "", fmt.Errorf("open %q: %w", vcf, err)
+	}
+	defer cleanup()
+
+	rdr, err := vcfgo.NewReader(in, false)
+	if err != nil {
+		return "", fmt.Errorf("VCF header %q: %w", vcf, err)
+	}
+
+	outFile, err := os.Create(hardFilteredVcfPath)
+	if err != nil {
+		return "", fmt.Errorf("create %q: %w", hardFilteredVcfPath, err)
+	}
+	defer outFile.Close()
+
+	bgzfW := bgzf.NewWriter(outFile, runtime.GOMAXPROCS(0))
+
+	w, err := vcfgo.NewWriter(bgzfW, rdr.Header)
+	if err != nil {
+		bgzfW.Close()
+		return "", fmt.Errorf("VCF writer: %w", err)
+	}
+
+	ch := make(chan *vcfgo.Variant, 512)
+	readErr := make(chan error, 1)
+
+	go func() {
+		defer close(ch)
+		for {
+			v := rdr.Read()
+			if v == nil {
+				readErr <- rdr.Error() // nil on clean EOF, error otherwise
+				return
+			}
+			ch <- v
+		}
+	}()
+
+	for v := range ch {
+		alts := v.Alt()
+		if len(alts) == 0 || (len(alts) == 1 && (alts[0] == "<NON_REF>" || alts[0] == ".")) {
+			continue
+		}
+		if PassesHardFilter(v, cfg) {
+			w.WriteVariant(v)
+		}
+	}
+
+	if err := <-readErr; err != nil {
+		return "", fmt.Errorf("reading variants: %w", err)
+	}
+	if err := bgzfW.Close(); err != nil {
+		return "", fmt.Errorf("close bgzf: %w", err)
+	}
+	out, err := exec.Command("tabix", "-p", "vcf", hardFilteredVcfPath).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("tabix %q: %w\n%s", hardFilteredVcfPath, err, out)
+	}
+
+	return hardFilteredVcfPath, nil
+}
+
+// --------------------------------------- VC Pipeline ------------------------------------------------------------ //
 
 func getChromsAndContigs(dictFilePath string) ([]SeqInfo, []SeqInfo, error) {
 	dictFile, err := os.Open(dictFilePath)
@@ -359,166 +497,86 @@ func getChromsAndContigs(dictFilePath string) ([]SeqInfo, []SeqInfo, error) {
 	return chroms, contigs, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FindBamOrVcfs locates BAM/CRAM or gVCF files for a sample using glob.
-// ─────────────────────────────────────────────────────────────────────────────
+func VariantCalling(refFile string, bams []string, out string, species string, refVer string, threadsPerSample int, gatkLogLevel string, caller string, merger string, logFilePath string, dvVer string, modelType string, verbose bool, noMerging bool) (string, error) {
 
-func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer string, bamOrVcf string, chrom string) ([]string, error) {
-	var pattern string
-	switch bamOrVcf {
-	case "bams":
-		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*bqsr.cram",
-			dataDirAbs, strings.ToLower(species), sample, refVer)
-	case "gvcfs":
-		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/gvcfs/*%s.g.vcf.gz",
-			dataDirAbs, strings.ToLower(species), sample, refVer, chrom)
+	dictFilePath := refFile[:len(refFile)-len(filepath.Ext(refFile))] + ".dict"
+	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
+		return "", fmt.Errorf("reference dict file %s does not exist", dictFilePath)
 	}
 
-	matches, err := filepath.Glob(pattern)
+	chroms, contigs, err := getChromsAndContigs(dictFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("glob error: %w", err)
+		return "", fmt.Errorf("getting chroms and contigs from dict file: %w", err)
 	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no %s files found in %s", bamOrVcf, sample)
-	}
-	if len(matches) > 1 {
-		return matches, fmt.Errorf("multiple %s files found in %s", bamOrVcf, sample)
-	}
-	return matches, nil
-}
-
-func runDeepVariantContainer(bam, refFile, outputDir, gvcfName, vcfName, regions, dvVer, modelType string, verbose bool) error {
-	bamDir := filepath.Dir(bam)
-	bamName := filepath.Base(bam)
-	refDir := filepath.Dir(refFile)
-	refName := filepath.Base(refFile)
-
-	// Build the --regions argument.
-	// If `regions` is a file path it must live inside outputDir (mounted as
-	// /output) so the container can reach it.  We pass the container-side path.
-	var containerRegions string
-	if filepath.IsAbs(regions) || strings.ContainsRune(regions, '/') {
-		// It's a file path — translate host path to container path.
-		rel, err := filepath.Rel(outputDir, regions)
-		if err != nil {
-			return fmt.Errorf("interval list %s is not inside outputDir %s: %w", regions, outputDir, err)
-		}
-		containerRegions = "/output/" + rel
-	} else {
-		// Plain chromosome/contig ID — pass as-is.
-		containerRegions = regions
-	}
-
-	// Unique intermediate dir per (bam, region) prevents FileExistsError races
-	// when multiple containers write to the same /output mount.
-	safeRegion := strings.NewReplacer(
-		string(os.PathSeparator), "_",
-		".", "_",
-		"/", "_",
-	).Replace(regions)
-	intermediateName := fmt.Sprintf("tmp_%s_%s",
-		strings.TrimSuffix(bamName, filepath.Ext(bamName)),
-		safeRegion,
-	)
-
-	// Note: image tag is NOT quoted — docker does not accept quoted tags.
-	dvCmdStr := fmt.Sprintf(
-		`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
-			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
-			`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
-			`--intermediate_results_dir /output/%s`,
-		bamDir, refDir, outputDir, dvVer,
-		modelType, refName, bamName,
-		containerRegions, vcfName, gvcfName,
-		intermediateName,
-	)
-	fmt.Printf("\n%s\n\n", dvCmdStr)
-	return runCmd(dvCmdStr, verbose)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CreateGvcf runs either GATK HaplotypeCaller or DeepVariant (via docker) to
-// produce a single per-sample/per-region gVCF.
-// ─────────────────────────────────────────────────────────────────────────────
-
-func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, gatkLogLevel string, caller string, dvVer string, modelType string, verbose bool) (string, error) {
-	var regionArg string
 
 	switch strings.ToLower(caller) {
 	case "gatk":
-		if len(chroms) == 1 {
-			regionArg = chroms[0].ID
-		} else {
-			// Use a unique temp file per call to avoid races when multiple
-			// goroutines run CreateGvcf concurrently.
-			f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
-			if err != nil {
-				return "", fmt.Errorf("creating GATK interval list: %w", err)
+		fmt.Printf("Using GATK HaplotypeCaller with log level %s\n", gatkLogLevel)
+		//
+		for _, chrom := range chroms {
+			// ------------------------------------- Create Gvcfs --------------------------------------------------------- //
+			var gvcfs []string
+			for _, bam := range bams {
+				chromGVCF, err := CreateGvcfGATK(bam, refFile, []SeqInfo{chrom}, species, refVer, gatkLogLevel, verbose, out)
+				if err != nil {
+					return "", fmt.Errorf("creating gVCF for %s with GATK HaplotypeCaller: %w", chrom.ID, err)
+				}
+				fmt.Printf("Created gVCF: %s\n", chromGVCF)
+				gvcfs = append(gvcfs, chromGVCF)
 			}
-			defer os.Remove(f.Name())
-			defer f.Close()
-			for _, c := range chroms {
-				fmt.Fprintln(f, c.ID)
-			}
-			regionArg = f.Name()
-		}
 
-		hapCmdStr := fmt.Sprintf(
-			`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`,
-			refFile, bam, regionArg, theGVCF, gatkLogLevel,
-		)
-		fmt.Printf("\n%s\n\n", hapCmdStr)
-		return theGVCF, runCmd(hapCmdStr, verbose)
+			switch merger {
+			case "gatk":
+				theVCF, err := MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out)
+				if err != nil {
+					return "", fmt.Errorf("merging gVCFs with GATK: %w", err)
+				}
+				fmt.Printf("Merged gVCFs into joint VCF: %s\n", theVCF)
+			case "deepvariant":
+				theVCF, err := MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out)
+				if err != nil {
+					return "", fmt.Errorf("merging gVCFs with GLnexus: %w", err)
+				}
+				fmt.Printf("Merged gVCFs into joint VCF: %s\n", theVCF)
+			default:
+				return "", fmt.Errorf("unsupported merger: %s", merger)
+			}
+
+			contigsGVCF, err := CreateGvcfGATK(bam, refFile, contigs, species, refVer, gatkLogLevel, verbose, out)
+			if err != nil {
+				return "", fmt.Errorf("creating gVCF for contigs with GATK HaplotypeCaller: %w", err)
+			}
+			fmt.Printf("Created gVCF: %s\n", contigsGVCF)
+			gvcfs = append(gvcfs, contigsGVCF)
+		}
 
 	case "deepvariant":
-		gvcfDir := filepath.Dir(theGVCF)
-		gvcfName := filepath.Base(theGVCF)
-		vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
+		fmt.Printf("Using DeepVariant %s with model type %s\n", dvVer, modelType)
+		for _, bam := range bams {
+			for _, chrom := range chroms {
+				chromGVCF, err := CreateGvcfDV(bam, refFile, []SeqInfo{chrom}, species, refVer, dvVer, modelType, verbose, out)
+				if err != nil {
+					return "", fmt.Errorf("creating gVCF for %s with DeepVariant: %w", chrom.ID, err)
+				}
+				fmt.Printf("Created gVCF: %s\n", chromGVCF)
+				gvcfs = append(gvcfs, chromGVCF)
+			}
 
-		var regions string
-		if len(chroms) == 1 {
-			regions = chroms[0].ID
-		} else {
-			// Write a BED file into gvcfDir (which is mounted as /output) so
-			// the container can read it via its /output mount.
-			f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
+			contigsGVCF, err := CreateGvcfDV(bam, refFile, contigs, species, refVer, dvVer, modelType, verbose, out)
 			if err != nil {
-				return "", fmt.Errorf("creating DeepVariant interval list: %w", err)
+				return "", fmt.Errorf("creating gVCF for contigs with DeepVariant: %w", err)
 			}
-			defer os.Remove(f.Name())
-			defer f.Close()
-			for _, c := range chroms {
-				fmt.Fprintf(f, "%s\t0\t%d\n", c.ID, c.Len)
-			}
-			regions = f.Name() // absolute host path inside gvcfDir → translatable to /output/...
+			fmt.Printf("Created gVCF: %s\n", contigsGVCF)
+			gvcfs = append(gvcfs, contigsGVCF)
 		}
-
-		return theGVCF, runDeepVariantContainer(bam, refFile, gvcfDir, gvcfName, vcfName, regions, dvVer, modelType, verbose)
-
 	default:
-		return "", fmt.Errorf("unknown caller %q: must be \"gatk\" or \"deepvariant\"", caller)
-	}
-}
+		return "", fmt.Errorf("unsupported caller: %s", caller)
 
-func VariantCalling(refFile string, bams []string, out string, species string, threadsPerSample int, gatkLogLevel string, caller string, merger string, logFilePath string, dvVer string, modelType string, verbose bool, noMerging bool) (string, error) {
-
-	// --------------------------------------- open FASTA ---------------------------------------------------------- //
-	fmt.Println("Working on FASTA file ...")
-	fna, err := os.Open(refFile)
-	if err != nil {
-		return "", fmt.Errorf("opening FASTA file: %w", err)
 	}
-	defer fna.Close()
 
-	var reader io.Reader = fna
-	if strings.HasSuffix(refFile, ".gz") {
-		gzReader, err := gzip.NewReader(fna)
-		if err != nil {
-			return "", fmt.Errorf("creating gzip reader: %w", err)
-		}
-		defer gzReader.Close()
-		reader = gzReader
-	}
+	// ------------------------------------- Merge gvcfs ---------------------------------------------------------- //
+
+	// ----------------------------------------- Hard Filter vcfs ------------------------------------------------- //
 
 	// ----------------------------------------- open / create log file --------------------------------------------- //
 	fmt.Println("Opening log file ...", logFilePath)
@@ -977,6 +1035,189 @@ func VariantCalling(refFile string, bams []string, out string, species string, t
 	}
 
 	return finalVcf, nil
+}
+
+// FailedTask tracks which sample/chromosome combinations failed.
+type FailedTask struct {
+	Sample string
+	Chrom  string
+	Reason error
+}
+
+// SampleWork bundles per-sample data needed by the worker goroutine.
+type SampleWork struct {
+	Sample  string
+	Cram    string
+	CramDir string // parent of the "bams" directory; used to derive gvcf output path
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runCmd is a small helper that respects the verbose flag without repeating
+// the if/else everywhere.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func runCmd(cmdStr string, verbose bool) error {
+	if verbose {
+		return utils.RunBashCmdVerbose(cmdStr)
+	}
+	return utils.RunBashCmd(cmdStr)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HapCaller – thin wrapper kept for backwards-compat with other callers
+// ─────────────────────────────────────────────────────────────────────────────
+
+func HapCaller(ref string, bam string, verbose bool, vcfType string, vcf string) error {
+	cmdStrHap := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -O %s`, ref, bam, vcf)
+	fmt.Println(cmdStrHap)
+	slog.Info("HaplotypeCaller", "cmd", cmdStrHap)
+	return runCmd(cmdStrHap, verbose)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getChromsAndContigs reads a .dict file and splits sequences into the 21
+// longest chromosomes (plus MT/Pltd) and everything else (contigs).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FindBamOrVcfs locates BAM/CRAM or gVCF files for a sample using glob.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer string, bamOrVcf string, chrom string) ([]string, error) {
+	var pattern string
+	switch bamOrVcf {
+	case "bams":
+		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*bqsr.cram",
+			dataDirAbs, strings.ToLower(species), sample, refVer)
+	case "gvcfs":
+		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/gvcfs/*%s.g.vcf.gz",
+			dataDirAbs, strings.ToLower(species), sample, refVer, chrom)
+	}
+
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("glob error: %w", err)
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no %s files found in %s", bamOrVcf, sample)
+	}
+	if len(matches) > 1 {
+		return matches, fmt.Errorf("multiple %s files found in %s", bamOrVcf, sample)
+	}
+	return matches, nil
+}
+
+func runDeepVariantContainer(bam, refFile, outputDir, gvcfName, vcfName, regions, dvVer, modelType string, verbose bool) error {
+	bamDir := filepath.Dir(bam)
+	bamName := filepath.Base(bam)
+	refDir := filepath.Dir(refFile)
+	refName := filepath.Base(refFile)
+
+	// Build the --regions argument.
+	// If `regions` is a file path it must live inside outputDir (mounted as
+	// /output) so the container can reach it.  We pass the container-side path.
+	var containerRegions string
+	if filepath.IsAbs(regions) || strings.ContainsRune(regions, '/') {
+		// It's a file path — translate host path to container path.
+		rel, err := filepath.Rel(outputDir, regions)
+		if err != nil {
+			return fmt.Errorf("interval list %s is not inside outputDir %s: %w", regions, outputDir, err)
+		}
+		containerRegions = "/output/" + rel
+	} else {
+		// Plain chromosome/contig ID — pass as-is.
+		containerRegions = regions
+	}
+
+	// Unique intermediate dir per (bam, region) prevents FileExistsError races
+	// when multiple containers write to the same /output mount.
+	safeRegion := strings.NewReplacer(
+		string(os.PathSeparator), "_",
+		".", "_",
+		"/", "_",
+	).Replace(regions)
+	intermediateName := fmt.Sprintf("tmp_%s_%s",
+		strings.TrimSuffix(bamName, filepath.Ext(bamName)),
+		safeRegion,
+	)
+
+	// Note: image tag is NOT quoted — docker does not accept quoted tags.
+	dvCmdStr := fmt.Sprintf(
+		`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
+			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
+			`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
+			`--intermediate_results_dir /output/%s`,
+		bamDir, refDir, outputDir, dvVer,
+		modelType, refName, bamName,
+		containerRegions, vcfName, gvcfName,
+		intermediateName,
+	)
+	fmt.Printf("\n%s\n\n", dvCmdStr)
+	return runCmd(dvCmdStr, verbose)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CreateGvcf runs either GATK HaplotypeCaller or DeepVariant (via docker) to
+// produce a single per-sample/per-region gVCF.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, gatkLogLevel string, caller string, dvVer string, modelType string, verbose bool) (string, error) {
+	var regionArg string
+
+	switch strings.ToLower(caller) {
+	case "gatk":
+		if len(chroms) == 1 {
+			regionArg = chroms[0].ID
+		} else {
+			// Use a unique temp file per call to avoid races when multiple
+			// goroutines run CreateGvcf concurrently.
+			f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
+			if err != nil {
+				return "", fmt.Errorf("creating GATK interval list: %w", err)
+			}
+			defer os.Remove(f.Name())
+			defer f.Close()
+			for _, c := range chroms {
+				fmt.Fprintln(f, c.ID)
+			}
+			regionArg = f.Name()
+		}
+
+		hapCmdStr := fmt.Sprintf(
+			`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`,
+			refFile, bam, regionArg, theGVCF, gatkLogLevel,
+		)
+		fmt.Printf("\n%s\n\n", hapCmdStr)
+		return theGVCF, runCmd(hapCmdStr, verbose)
+
+	case "deepvariant":
+		gvcfDir := filepath.Dir(theGVCF)
+		gvcfName := filepath.Base(theGVCF)
+		vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
+
+		var regions string
+		if len(chroms) == 1 {
+			regions = chroms[0].ID
+		} else {
+			// Write a BED file into gvcfDir (which is mounted as /output) so
+			// the container can read it via its /output mount.
+			f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
+			if err != nil {
+				return "", fmt.Errorf("creating DeepVariant interval list: %w", err)
+			}
+			defer os.Remove(f.Name())
+			defer f.Close()
+			for _, c := range chroms {
+				fmt.Fprintf(f, "%s\t0\t%d\n", c.ID, c.Len)
+			}
+			regions = f.Name() // absolute host path inside gvcfDir → translatable to /output/...
+		}
+
+		return theGVCF, runDeepVariantContainer(bam, refFile, gvcfDir, gvcfName, vcfName, regions, dvVer, modelType, verbose)
+
+	default:
+		return "", fmt.Errorf("unknown caller %q: must be \"gatk\" or \"deepvariant\"", caller)
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

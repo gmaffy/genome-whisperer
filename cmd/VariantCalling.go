@@ -103,6 +103,35 @@ var VariantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting quick flag: %v", qErr)
 		}
 
+		minQD_SNP, _ := cmd.Flags().GetFloat64("min-QD-SNP")
+		minQUAL_SNP, _ := cmd.Flags().GetFloat64("min-QUAL-SNP")
+		minSOR_SNP, _ := cmd.Flags().GetFloat64("min-SOR-SNP")
+		minFS_SNP, _ := cmd.Flags().GetFloat64("min-FS-SNP")
+		minMQ_SNP, _ := cmd.Flags().GetFloat64("min-MQ-SNP")
+		minMQRank, _ := cmd.Flags().GetFloat64("min-MQRankSum-SNP")
+		minReadPosRank, _ := cmd.Flags().GetFloat64("min-ReadPosRankSum-SNP")
+
+		minQD_INDEL, _ := cmd.Flags().GetFloat64("min-QD-INDEL")
+		minQUAL_INDEL, _ := cmd.Flags().GetFloat64("min-QUAL-INDEL")
+		maxFS_INDEL, _ := cmd.Flags().GetFloat64("max-FS-INDEL")
+		minReadPosRank_INDEL, _ := cmd.Flags().GetFloat64("min-ReadPosRankSum-INDEL")
+		maxSOR_INDEL, _ := cmd.Flags().GetFloat64("max-SOR-INDEL")
+
+		cfg := HardFilterConfig{
+			SNP_QD_Min:               minQD_SNP,
+			SNP_QUAL_Min:             minQUAL_SNP,
+			SNP_SOR_Max:              minSOR_SNP,
+			SNP_FS_Max:               minFS_SNP,
+			SNP_MQ_Min:               minMQ_SNP,
+			SNP_MQRankSum_Min:        minMQRank,
+			SNP_ReadPosRankSum_Min:   minReadPosRank,
+			INDEL_QD_Min:             minQD_INDEL,
+			INDEL_QUAL_Min:           minQUAL_INDEL,
+			INDEL_FS_Max:             maxFS_INDEL,
+			INDEL_ReadPosRankSum_Min: minReadPosRank_INDEL,
+			INDEL_SOR_Max:            maxSOR_INDEL,
+		}
+
 		if speciesName == "" {
 			fmt.Println("Please provide species name with flag --species ")
 			return
@@ -234,7 +263,7 @@ var VariantCallingCmd = &cobra.Command{
 				verbose = false
 			}
 
-			_, err := variants.VariantCalling(refFile, bams, outDir, speciesName, threads, verbosity, caller, merger, logFilePath, dvVer, modelType, verbose, nomerging)
+			_, err := variants.VariantCalling(refFile, bams, outDir, speciesName, threads, verbosity, caller, merger, logFilePath, dvVer, modelType, verbose, nomerging, cfg)
 			if err != nil {
 				return
 			}
@@ -263,4 +292,18 @@ func init() {
 	VariantCallingCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
 	VariantCallingCmd.Flags().Bool("quick", false, "Quick verification")
 	VariantCallingCmd.Flags().StringP("genomes-dir", "g", "", "genomes-directory")
+	// ----------------------------------------------- Filtering ---------------------------------------------------- //
+	VariantCallingCmd.Flags().Float64("min-QD-SNP", 2.0, "QualByDepth SNPs") // SNP_QD_Min             float64 // default 2.0   – QualByDepth
+	VariantCallingCmd.Flags().Float64("min-QUAL-SNP", 30.0, "Variant quality SNPs")
+	VariantCallingCmd.Flags().Float64("min-SOR-SNP", 3.0, "StrandOddsRatio SNPs")
+	VariantCallingCmd.Flags().Float64("min-FS-SNP", 60.0, "FisherStrand SNPs")
+	VariantCallingCmd.Flags().Float64("min-MQ-SNP", 40.0, "RMSMappingQuality SNPs")
+	VariantCallingCmd.Flags().Float64("min-MQRankSum-SNP", -12.5, "MappingQualityRank SNPs")
+	VariantCallingCmd.Flags().Float64("min-ReadPosRankSum-SNP", -8.0, "ReadPosRank SNPs")
+
+	VariantCallingCmd.Flags().Float64("min-QD-INDEL", 2.0, "QualByDepth INDELs")               // INDEL_QD_Min             float64 // default 2.0   – QualByDepth
+	VariantCallingCmd.Flags().Float64("min-QUAL-INDEL", 30.0, "Variant quality INDELs")        //INDEL_QUAL_Min           float64 // default 30.0  – variant quality score
+	VariantCallingCmd.Flags().Float64("max-FS-INDEL", 200.0, "FisherStrand INDELs")            //INDEL_FS_Max             float64 // default 200.0 – FisherStrand
+	VariantCallingCmd.Flags().Float64("min-ReadPosRankSum-INDEL", -20.0, "ReadPosRank INDELs") //INDEL_ReadPosRankSum_Min float64 // default -20.0 – ReadPosRankSumTest
+	VariantCallingCmd.Flags().Float64("max-SOR-INDEL", 10.0, "StrandOddsRatio INDELs")
 }

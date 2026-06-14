@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/brentp/vcfgo"
 	"github.com/fatih/color"
 )
 
@@ -49,6 +50,21 @@ type Config struct {
 	GVCFsDir    string
 	CallerName  string
 	GVCFs       []string
+}
+
+type HardFilterConfig struct {
+	SNP_QD_Min               float64
+	SNP_QUAL_Min             float64
+	SNP_SOR_Max              float64
+	SNP_FS_Max               float64
+	SNP_MQ_Min               float64
+	SNP_MQRankSum_Min        float64
+	SNP_ReadPosRankSum_Min   float64
+	INDEL_QD_Min             float64
+	INDEL_QUAL_Min           float64
+	INDEL_FS_Max             float64
+	INDEL_ReadPosRankSum_Min float64
+	INDEL_SOR_Max            float64
 }
 
 func ReadConfig(configPath string) (Config, error) {
@@ -512,4 +528,21 @@ func ResolveRefFasta(refFasta, genomesDir, species, refVer string) (string, erro
 		}
 	}
 	return "", fmt.Errorf("species %q found but no assembly matching refVer %q in %s", species, refVer, genomesDir)
+}
+
+func GetFloat(v *vcfgo.Variant, key string) (float64, bool) {
+	raw, err := v.Info().Get(key)
+	if err != nil || raw == nil {
+		return 0, false
+	}
+	switch val := raw.(type) {
+	case float32:
+		return float64(val), true
+	case float64:
+		return val, true
+	case int:
+		return float64(val), true
+	default:
+		return 0, false
+	}
 }
