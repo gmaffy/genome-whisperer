@@ -497,7 +497,37 @@ func getChromsAndContigs(dictFilePath string) ([]SeqInfo, []SeqInfo, error) {
 	return chroms, contigs, nil
 }
 
-func VariantCalling(refFile string, bams []string, out string, species string, refVer string, threadsPerSample int, gatkLogLevel string, caller string, merger string, logFilePath string, dvVer string, modelType string, verbose bool, noMerging bool) (string, error) {
+func ConcatenateVcfs(vcfs []string, species string, refVer string, outDir string, verbose bool) (string, error) {
+	vcfListPath := filepath.Join(outDir, "vcfs.list")
+	f, err := os.Create(vcfListPath)
+	if err != nil {
+		return "", fmt.Errorf("creating %s: %w", vcfListPath, err)
+	}
+	defer f.Close()
+	for _, vcf := range vcfs {
+		fmt.Fprintf(f, "%s\n", vcf)
+	}
+
+	concatVcfName := fmt.Sprintf("%s.%s.all.vcf.gz", strings.ToUpper(species), strings.ToLower(refVer))
+	if len(vcfs) == 1 {
+		err = utils.CopyFile(vcfs[0], filepath.Join(outDir, concatVcfName))
+		if err != nil {
+			return "", fmt.Errorf("copying %s to %s: %w", vcfs[0], filepath.Join(outDir, concatVcfName), err)
+		}
+
+	} else {
+		cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, vcfListPath, filepath.Join(outDir, concatVcfName))
+		fmt.Println(cmd)
+		err = runCmd(cmd, verbose)
+
+		if err != nil {
+			return "", fmt.Errorf("gatk MergeVcfs error: %w\n%s", err)
+		}
+	}
+	return filepath.Join(outDir, concatVcfName), nil
+}
+
+func VariantCalling(refFile string, bams []string, out string, species string, refVer string, threadsPerSample int, gatkLogLevel string, caller string, merger string, logFilePath string, dvVer string, modelType string, verbose bool, noMerging bool, cfg utils.HardFilterConfig, noHardFilter bool) (string, error) {
 
 	dictFilePath := refFile[:len(refFile)-len(filepath.Ext(refFile))] + ".dict"
 	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
@@ -509,10 +539,12 @@ func VariantCalling(refFile string, bams []string, out string, species string, r
 		return "", fmt.Errorf("getting chroms and contigs from dict file: %w", err)
 	}
 
+	finalVCF := ""
 	switch strings.ToLower(caller) {
 	case "gatk":
 		fmt.Printf("Using GATK HaplotypeCaller with log level %s\n", gatkLogLevel)
-		//
+
+		jointVcfs := []string{}
 		for _, chrom := range chroms {
 			// ------------------------------------- Create Gvcfs --------------------------------------------------------- //
 			var gvcfs []string
@@ -525,6 +557,117 @@ func VariantCalling(refFile string, bams []string, out string, species string, r
 				gvcfs = append(gvcfs, chromGVCF)
 			}
 
+			if noMerging {
+				fmt.Println("Skipping merging of gVCFs")
+				continue
+			}
+
+			// ------------------------------------- Merge gvcfs ---------------------------------------------------------- //
+			var finalChromVcf string
+			var mergedChromVcf string
+			switch merger {
+			case "gatk":
+				mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out)
+				if err != nil {
+					return "", fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", chrom.ID, err)
+				}
+				fmt.Printf("Merged gVCFs for chromosome %s into joint VCF: %s\n", chrom.ID, mergedChromVcf)
+				finalChromVcf = mergedChromVcf
+			case "glnexus":
+				mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out)
+				finalChromVcf = mergedChromVcf
+				if err != nil {
+					return "", fmt.Errorf("merging gVCFs with GLnexus: %w", err)
+				}
+				fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedChromVcf)
+			default:
+				return "", fmt.Errorf("unsupported merger: %s", merger)
+			}
+
+			// ----------------------------------------- Hard filter vcf ------------------------------------------- //
+			if !noHardFilter {
+				hardFilteredVcf, err := HardFilterVcf(mergedChromVcf, cfg)
+				if err != nil {
+					return "", fmt.Errorf("hard filtering VCF: %w", err)
+				}
+				finalChromVcf = hardFilteredVcf
+			}
+			jointVcfs = append(jointVcfs, finalChromVcf)
+
+		}
+		if len(contigs) > 0 {
+			// ------------------------------------- Create Gvcfs --------------------------------------------------- //
+			contGvcfs := []string{}
+			for _, bam := range bams {
+				contigsGVCF, err := CreateGvcfGATK(bam, refFile, contigs, species, refVer, gatkLogLevel, verbose, out)
+				if err != nil {
+					return "", fmt.Errorf("creating gVCF for contigs with GATK HaplotypeCaller: %w", err)
+				}
+				fmt.Printf("Created gVCF: %s\n", contigsGVCF)
+				contGvcfs = append(contGvcfs, contigsGVCF)
+			}
+			// ------------------------------------- Merge gvcfs ----------------------------------------------------- //
+			var finalContigsVcf string
+			var mergedContigsVcf string
+			if !noMerging {
+				switch merger {
+				case "gatk":
+					mergedContigsVcf, err = MergeGvcfsGATK(contGvcfs, refFile, "contigs", species, refVer, verbose, gatkLogLevel, out)
+					if err != nil {
+						return "", fmt.Errorf("merging gVCFs with GATK: %w", err)
+					}
+					fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedContigsVcf)
+					finalContigsVcf = mergedContigsVcf
+				case "glnexus":
+					mergedContigsVcf, err = MergeGvcfsGlnexus(contGvcfs, "contigs", species, refVer, caller, verbose, out)
+					if err != nil {
+						return "", fmt.Errorf("merging gVCFs with GLnexus: %w", err)
+					}
+					fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedContigsVcf)
+					finalContigsVcf = mergedContigsVcf
+				default:
+					return "", fmt.Errorf("unsupported merger: %s", merger)
+				}
+			}
+
+			// ----------------------------------------- Hard filter vcf ------------------------------------------- //
+			if !noHardFilter {
+				hardFilteredVcf, err := HardFilterVcf(mergedContigsVcf, cfg)
+				if err != nil {
+					return "", fmt.Errorf("hard filtering VCF: %w", err)
+				}
+				finalContigsVcf = hardFilteredVcf
+			}
+			jointVcfs = append(jointVcfs, finalContigsVcf)
+		}
+
+		finalVCF, err = ConcatenateVcfs(jointVcfs, species, refVer, out, verbose)
+		if err != nil {
+			return "", fmt.Errorf("concatenating VCFs: %w", err)
+		}
+
+	case "deepvariant":
+		fmt.Printf("Using DeepVariant %s with model type %s\n", dvVer, modelType)
+		//
+		for _, chrom := range chroms {
+			// ------------------------------------- Create Gvcfs --------------------------------------------------------- //
+			var gvcfs []string
+			for _, bam := range bams {
+				chromGVCF, err := CreateGvcfDV(bam, refFile, []SeqInfo{chrom}, species, refVer, dvVer, modelType, verbose, out)
+				if err != nil {
+					return "", fmt.Errorf("creating gVCF for %s with GATK HaplotypeCaller: %w", chrom.ID, err)
+				}
+				fmt.Printf("Created gVCF: %s\n", chromGVCF)
+				gvcfs = append(gvcfs, chromGVCF)
+			}
+
+			if noMerging {
+				fmt.Println("Skipping merging of gVCFs")
+				continue
+			}
+
+			// ------------------------------------- Merge gvcfs ---------------------------------------------------------- //
+
 			switch merger {
 			case "gatk":
 				theVCF, err := MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out)
@@ -532,7 +675,7 @@ func VariantCalling(refFile string, bams []string, out string, species string, r
 					return "", fmt.Errorf("merging gVCFs with GATK: %w", err)
 				}
 				fmt.Printf("Merged gVCFs into joint VCF: %s\n", theVCF)
-			case "deepvariant":
+			case "glnexus":
 				theVCF, err := MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out)
 				if err != nil {
 					return "", fmt.Errorf("merging gVCFs with GLnexus: %w", err)
@@ -541,38 +684,45 @@ func VariantCalling(refFile string, bams []string, out string, species string, r
 			default:
 				return "", fmt.Errorf("unsupported merger: %s", merger)
 			}
-
-			contigsGVCF, err := CreateGvcfGATK(bam, refFile, contigs, species, refVer, gatkLogLevel, verbose, out)
-			if err != nil {
-				return "", fmt.Errorf("creating gVCF for contigs with GATK HaplotypeCaller: %w", err)
-			}
-			fmt.Printf("Created gVCF: %s\n", contigsGVCF)
-			gvcfs = append(gvcfs, contigsGVCF)
 		}
-
-	case "deepvariant":
-		fmt.Printf("Using DeepVariant %s with model type %s\n", dvVer, modelType)
-		for _, bam := range bams {
-			for _, chrom := range chroms {
-				chromGVCF, err := CreateGvcfDV(bam, refFile, []SeqInfo{chrom}, species, refVer, dvVer, modelType, verbose, out)
+		if len(contigs) > 0 {
+			// ------------------------------------- Create Gvcfs --------------------------------------------------- //
+			contGvcfs := []string{}
+			for _, bam := range bams {
+				contigsGVCF, err := CreateGvcfDV(bam, refFile, contigs, species, refVer, dvVer, modelType, verbose, out)
 				if err != nil {
-					return "", fmt.Errorf("creating gVCF for %s with DeepVariant: %w", chrom.ID, err)
+					return "", fmt.Errorf("creating gVCF for contigs with GATK HaplotypeCaller: %w", err)
 				}
-				fmt.Printf("Created gVCF: %s\n", chromGVCF)
-				gvcfs = append(gvcfs, chromGVCF)
+				fmt.Printf("Created gVCF: %s\n", contigsGVCF)
+				contGvcfs = append(contGvcfs, contigsGVCF)
 			}
-
-			contigsGVCF, err := CreateGvcfDV(bam, refFile, contigs, species, refVer, dvVer, modelType, verbose, out)
-			if err != nil {
-				return "", fmt.Errorf("creating gVCF for contigs with DeepVariant: %w", err)
+			// ------------------------------------- Merge gvcfs ----------------------------------------------------- //
+			if !noMerging {
+				switch merger {
+				case "gatk":
+					theVCF, err := MergeGvcfsGATK(contGvcfs, refFile, "contigs", species, refVer, verbose, gatkLogLevel, out)
+					if err != nil {
+						return "", fmt.Errorf("merging gVCFs with GATK: %w", err)
+					}
+					fmt.Printf("Merged gVCFs into joint VCF: %s\n", theVCF)
+				case "glnexus":
+					theVCF, err := MergeGvcfsGlnexus(contGvcfs, "contigs", species, refVer, caller, verbose, out)
+					if err != nil {
+						return "", fmt.Errorf("merging gVCFs with GLnexus: %w", err)
+					}
+					fmt.Printf("Merged gVCFs into joint VCF: %s\n", theVCF)
+				default:
+					return "", fmt.Errorf("unsupported merger: %s", merger)
+				}
 			}
-			fmt.Printf("Created gVCF: %s\n", contigsGVCF)
-			gvcfs = append(gvcfs, contigsGVCF)
 		}
+
 	default:
 		return "", fmt.Errorf("unsupported caller: %s", caller)
 
 	}
+	return finalVCF, nil
+}
 
 	// ------------------------------------- Merge gvcfs ---------------------------------------------------------- //
 
