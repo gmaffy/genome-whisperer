@@ -155,7 +155,7 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 	gvcfName := filepath.Base(gVCF)
 	vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
 
-	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_").Replace(regions)
+	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_", "/", "_").Replace(regions)
 	intermediateName := fmt.Sprintf("tmp_%s_%s", strings.TrimSuffix(bamName, filepath.Ext(bamName)), safeRegion)
 
 	//dvCmdStr := fmt.Sprintf(
@@ -217,10 +217,10 @@ func MergeGvcfsGATK(gvcfs []string, refFile string, chrom string, species string
 		chromDirName = strings.ReplaceAll(chrom, ".", "_")
 	}
 	chromDir := filepath.Join(outDir, chromDirName)
-	theDB := filepath.Join(chromDir, chrom+"DB")
-	tmpDir := filepath.Join(chromDir, "tmp")
-	tmpDir2 := filepath.Join(chromDir, "tmp2")
-	vcfDir := filepath.Join(chromDir, "VCFs")
+	theDB := filepath.Join(outDir, chromDir, chrom+"DB")
+	tmpDir := filepath.Join(outDir, chromDir, "tmp")
+	tmpDir2 := filepath.Join(outDir, chromDir, "tmp2")
+	vcfDir := filepath.Join(outDir, chromDir, "VCFs")
 
 	for _, dir := range []string{tmpDir, tmpDir2, vcfDir} {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -297,7 +297,7 @@ func MergeGvcfsGlnexus(gvcfs []string, chrom string, species string, refVer stri
 	}
 	chromDir := filepath.Join(outDir, chromDirName)
 
-	vcfDir := filepath.Join(chromDir, "VCFs")
+	vcfDir := filepath.Join(outDir, chromDir, "VCFs")
 	for _, dir := range []string{vcfDir} {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			if cErr := os.MkdirAll(dir, 0755); cErr != nil {
@@ -376,12 +376,6 @@ func MergeGvcfsGlnexus(gvcfs []string, chrom string, species string, refVer stri
 
 func classifyVariant(v *vcfgo.Variant) (isSNP bool, isIndel bool, isMNP bool) {
 	refLen := len(v.Ref())
-	alts := v.Alt()
-
-	if len(alts) == 0 {
-		return false, false, false
-	}
-
 	isSNP = true
 	isIndel = false
 	isMNP = true
@@ -390,7 +384,7 @@ func classifyVariant(v *vcfgo.Variant) (isSNP bool, isIndel bool, isMNP bool) {
 		isSNP = false
 	}
 
-	for _, alt := range alts {
+	for _, alt := range v.Alt() {
 		altLen := len(alt)
 		// If lengths differ, it's an Indel
 		if altLen != refLen {
@@ -637,15 +631,9 @@ func ConcatenateVcfs(vcfs []string, species string, refVer string, outDir string
 
 	concatVcfName := fmt.Sprintf("%s.%s.all.vcf.gz", strings.ToUpper(species), strings.ToLower(refVer))
 	if len(vcfs) == 1 {
-		dst := filepath.Join(outDir, concatVcfName)
-		err = utils.CopyFile(vcfs[0], dst)
+		err = utils.CopyFile(vcfs[0], filepath.Join(outDir, concatVcfName))
 		if err != nil {
-			return "", fmt.Errorf("copying %s to %s: %w", vcfs[0], dst, err)
-		}
-		if _, statErr := os.Stat(vcfs[0] + ".tbi"); statErr == nil {
-			if cErr := utils.CopyFile(vcfs[0]+".tbi", dst+".tbi"); cErr != nil {
-				return "", fmt.Errorf("copying index %s.tbi to %s.tbi: %w", vcfs[0], dst, cErr)
-			}
+			return "", fmt.Errorf("copying %s to %s: %w", vcfs[0], filepath.Join(outDir, concatVcfName), err)
 		}
 
 	} else {
@@ -738,7 +726,6 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 						jlog.Error("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						slog.Error("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						errChan <- fmt.Errorf("creating gVCF for %s with GATK HaplotypeCaller: %w", chrom.ID, err)
-						return
 					}
 					jlog.Info("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
 					slog.Info("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
@@ -762,21 +749,18 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", chrom.ID, err)
-						return
 					}
 					fmt.Printf("Merged gVCFs for chromosome %s into joint VCF: %s\n", chrom.ID, mergedChromVcf)
 					finalChromVcf = mergedChromVcf
 				case "glnexus":
 					mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out, logged, jlog)
+					finalChromVcf = mergedChromVcf
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs with GLnexus: %w", err)
-						return
 					}
-					finalChromVcf = mergedChromVcf
 					fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedChromVcf)
 				default:
 					errChan <- fmt.Errorf("unsupported merger: %s", merger)
-					return
 				}
 
 				// ----------------------------------------- Hard filter vcf ------------------------------------------- //
@@ -791,7 +775,6 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 							jlog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
 							slog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
 							errChan <- fmt.Errorf("hard filtering VCF: %w", hfErr)
-							return
 						}
 						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
@@ -952,7 +935,6 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 						jlog.Error("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						slog.Error("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						errChan <- fmt.Errorf("creating gVCF for %s with DeepVariant: %w", chrom.ID, err)
-						return
 					}
 					jlog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
 					slog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
@@ -963,7 +945,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 				if noMerging {
 					fmt.Println("Skipping merging of gVCFs")
-					return
+					//continue
 				}
 
 				// ------------------------------------- Merge gvcfs ---------------------------------------------------------- //
@@ -974,7 +956,6 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", chrom.ID, err)
-						return
 					}
 					fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedChromVcf)
 					finalChromVcf = mergedChromVcf
@@ -982,13 +963,11 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 					mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out, logged, jlog)
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs with GLnexus: %w", err)
-						return
 					}
 					fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedChromVcf)
 					finalChromVcf = mergedChromVcf
 				default:
 					errChan <- fmt.Errorf("unsupported merger: %s", merger)
-					return
 				}
 
 				// ----------------------------------------- Hard filter vcf ------------------------------------------- //
@@ -1003,7 +982,6 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 							jlog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
 							slog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
 							errChan <- fmt.Errorf("hard filtering VCF: %w", hfErr)
-							return
 						}
 						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
 						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
