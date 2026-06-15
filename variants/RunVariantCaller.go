@@ -133,7 +133,7 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 			}
 		}
 
-		gVCF = filepath.Join(gvcfDir, species+refVer+"."+"Contigs.g.vcf.gz")
+		gVCF = filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
 
 		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
 		if err != nil {
