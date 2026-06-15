@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
 	"strings"
 
 	"github.com/gmaffy/genome-whisperer/utils"
@@ -53,7 +52,7 @@ var VariantCallingCmd = &cobra.Command{
 			log.Fatalf("Error getting species flag: %v", sErr)
 		}
 
-		verbosity, vErr := cmd.Flags().GetString("verbosity")
+		gatkLogLevel, vErr := cmd.Flags().GetString("verbosity")
 		if vErr != nil {
 			log.Fatalf("Error getting verbosity flag: %v", vErr)
 		}
@@ -71,6 +70,11 @@ var VariantCallingCmd = &cobra.Command{
 		nomerging, nErr := cmd.Flags().GetBool("no-merging")
 		if nErr != nil {
 			log.Fatalf("Error getting no-merging flag: %v", nErr)
+		}
+
+		noHardFilter, hfErrr := cmd.Flags().GetBool("no-hard-filter")
+		if hfErrr != nil {
+			log.Fatalf("Error getting no-hard-filter flag: %v", hfErrr)
 		}
 
 		merger, mergerErr := cmd.Flags().GetString("merger")
@@ -117,7 +121,7 @@ var VariantCallingCmd = &cobra.Command{
 		minReadPosRank_INDEL, _ := cmd.Flags().GetFloat64("min-ReadPosRankSum-INDEL")
 		maxSOR_INDEL, _ := cmd.Flags().GetFloat64("max-SOR-INDEL")
 
-		cfg := HardFilterConfig{
+		cfg := utils.HardFilterConfig{
 			SNP_QD_Min:               minQD_SNP,
 			SNP_QUAL_Min:             minQUAL_SNP,
 			SNP_SOR_Max:              minSOR_SNP,
@@ -195,7 +199,11 @@ var VariantCallingCmd = &cobra.Command{
 
 			}
 
-			variants.VariantCallingConfig(configFile, speciesName, threads, verbosity, caller, merger, dvVer, modelType, verbose, nomerging)
+			finalVcf, err := variants.VariantCallingConfig(configFile, speciesName, refVer, gatkLogLevel, caller, merger, dvVer, modelType, verbose, nomerging, noHardFilter, cfg, threads)
+			if err != nil {
+				return
+			}
+			fmt.Printf("Final VCF: %s\n", finalVcf)
 
 		} else if dataDir != "" {
 			fmt.Printf("Running Variant Calling using Plennegy data directory structure: %s\n", color.BlueString(dataDir))
@@ -204,7 +212,7 @@ var VariantCallingCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			if dirErr := variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, verbosity, quick, threads); dirErr != nil {
+			if dirErr := variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, gatkLogLevel, quick, threads); dirErr != nil {
 				color.Red("VariantCallingDir failed: %v\n", dirErr)
 			}
 		} else {
@@ -263,7 +271,7 @@ var VariantCallingCmd = &cobra.Command{
 				verbose = false
 			}
 
-			_, err := variants.VariantCalling(refFile, bams, outDir, speciesName, threads, verbosity, caller, merger, logFilePath, dvVer, modelType, verbose, nomerging, cfg)
+			_, err := variants.VariantCalling(bams, refFile, speciesName, refVer, outDir, caller, merger, nomerging, noHardFilter, cfg, verbose, gatkLogLevel, threads, logFilePath, dvVer, modelType)
 			if err != nil {
 				return
 			}
@@ -278,7 +286,8 @@ func init() {
 	VariantCallingCmd.Flags().StringSliceP("bam", "b", []string{}, "Recalibrated bam file (Can specify multiple)")
 	VariantCallingCmd.Flags().StringP("out", "o", "", "Output directory")
 	VariantCallingCmd.Flags().StringP("species", "s", "", "Species name")
-	VariantCallingCmd.Flags().IntP("threads", "t", 4, "Number of threads per sample")
+	VariantCallingCmd.Flags().IntP("threads", "t", 4, "Number of threads per job")
+	VariantCallingCmd.Flags().IntP("jobs", "j", 2, "Maximum number of concurrent contigs/samples to process at the same time")
 	VariantCallingCmd.Flags().String("verbosity", "WARNING", "Verbosity level for GATK")
 	VariantCallingCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
 	VariantCallingCmd.Flags().StringP("config", "c", "", "Config file")
@@ -287,6 +296,7 @@ func init() {
 	VariantCallingCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or DeepVariant")
 	VariantCallingCmd.Flags().StringP("merger", "m", "gatk", "GVCF merger to use. Options: gatk or glnexus")
 	VariantCallingCmd.Flags().Bool("no-merging", false, "do not merge gvcfs.")
+	VariantCallingCmd.Flags().Bool("no-hard-filter", false, "do not apply hard filters")
 	VariantCallingCmd.Flags().String("deepvariant-version", "1.10.0", "DeepVariant version")
 	VariantCallingCmd.Flags().String("model-type", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
 	VariantCallingCmd.Flags().StringP("data-dir", "d", "", "Main data directory")

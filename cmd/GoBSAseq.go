@@ -156,6 +156,11 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting caller flag: %v", callerErr)
 		}
 
+		refVer, refvErr := cmd.Flags().GetString("refVer")
+		if refvErr != nil {
+			log.Fatalf("Error getting refVer flag: %v", refvErr)
+		}
+
 		//noMerging, noMergingErr := cmd.Flags().GetBool("noMerging")
 		//if noMergingErr != nil {
 		//	log.Fatalf("Error getting noMerging flag: %v", noMergingErr)
@@ -212,7 +217,7 @@ var GoBSAseqCmd = &cobra.Command{
 					log.Fatal("Please provide a species name")
 				}
 				fmt.Println("Running from config file")
-				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, noMerging, aligner, preset, dvVer, modelType, gatkLogLevel, verbose, alignmentFmt)
+				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, noMerging, aligner, preset, dvVer, modelType, gatkLogLevel, verbose, alignmentFmt, refVer)
 			} else {
 				if outputDir == "" {
 					fmt.Println("No output directory provided. Supply path to output directory with -o flag")
@@ -320,5 +325,7 @@ func init() {
 	GoBSAseqCmd.Flags().String("species", "", "number of threads")
 	GoBSAseqCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
 	GoBSAseqCmd.Flags().String("alignment-fmt", "bam", "bam or cram")
+	GoBSAseqCmd.Flags().Bool("noMerging", false, "no merging of gvcf files")
+	GoBSAseqCmd.Flags().String("refVer", "", "Ref version")
 
 }

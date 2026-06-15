@@ -40,7 +40,8 @@ func RunBsaSeqFromConfig(
 	modelType string,
 	gatkLogLevel string,
 	verbose bool,
-	alignmentFmt string) {
+	alignmentFmt string,
+	refVer string) {
 
 	fmt.Println("Reading config file ...")
 	cfg, err := utils.ReadConfig(configFile)
@@ -312,7 +313,8 @@ func RunBsaSeqFromConfig(
 		jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-		hardFilteredVCF, err := variants.VariantCalling(refFile, allBams, outDir, species, threads, gatkLogLevel, caller, merger, logFilePath, dvVer, modelType, verbose, noMerging)
+		hardFilteredVCF, err := variants.VariantCalling(allBams, refFile, species, refVer, outDir, caller, merger,
+			noMerging, false, utils.HardFilterConfig{}, verbose, gatkLogLevel, threads, logFilePath, dvVer, modelType)
 		if err != nil {
 			jlog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
 			slog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", err))

@@ -546,3 +546,29 @@ func GetFloat(v *vcfgo.Variant, key string) (float64, bool) {
 		return 0, false
 	}
 }
+
+func RunCmd(cmdStr string, verbose bool) error {
+	if verbose {
+		return RunBashCmdVerbose(cmdStr)
+	}
+	return RunBashCmd(cmdStr)
+}
+
+func CalculateGATKMemory(totalSystemRamGB int, maxWorkers int) string {
+	if maxWorkers <= 0 {
+		maxWorkers = 1
+	}
+
+	safeRam := totalSystemRamGB - 4
+	if safeRam < 4 {
+		safeRam = 4 // Absolute minimum floor
+	}
+
+	memPerWorker := safeRam / maxWorkers
+
+	if memPerWorker < 4 {
+		memPerWorker = 4
+	}
+
+	return fmt.Sprintf("-Xmx%dg -Xms%dg", memPerWorker, memPerWorker)
+}
