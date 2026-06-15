@@ -306,7 +306,6 @@ func MergeGvcfsGlnexus(gvcfs []string, chrom string, species string, refVer stri
 	jointBCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.bcf")
 	gvcfFiles := strings.Join(gvcfs, " ")
 
-	// ── GLnexus ──────────────────────────────────────────────────────────────
 	if !utils.StageHasCompleted(logged, stageGLNEXUS, "ALL", chrom) {
 		glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s %s > %s`, glnexusPreset, filepath.Join(vcfDir, "GLnexus.DB"), gvcfFiles, jointBCF)
 		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED", "CMD", glnexusCmd)
@@ -666,7 +665,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 	// ── resume check ─────────────────────────────────────────────────────────
 	logged := utils.ParseLogFile(logFilePath)
-	if !noMerging && utils.StageHasCompleted(logged, stageMergeVcfs, "ALL", "ALL") {
+	if utils.StageHasCompleted(logged, stageMergeVcfs, "ALL", "ALL") {
 		fmt.Println("All stages completed. Skipping.")
 		return filepath.Join(out, fmt.Sprintf("%s.%s.all.vcf.gz", strings.ToUpper(species), strings.ToLower(refVer))), nil
 	}
@@ -714,7 +713,6 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 					chromGVCF, err := CreateGvcfGATK(bam, refFile, []SeqInfo{chrom}, species, refVer, gatkLogLevel, verbose, out, threads)
 					if err != nil {
-						//errChan <- fmt.Errorf("failed on contig %s: %w", chrom.ID, err)
 						jlog.Error("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						slog.Error("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						errChan <- fmt.Errorf("creating gVCF for %s with GATK HaplotypeCaller: %w", chrom.ID, err)
@@ -728,6 +726,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 				if noMerging {
 					fmt.Println("Skipping merging of gVCFs")
+					return
 
 				}
 
@@ -736,6 +735,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 				var mergedChromVcf string
 				switch merger {
 				case "gatk":
+
 					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", chrom.ID, err)
@@ -798,10 +798,10 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 				if utils.StageHasCompleted(logged, stageHaplotypeCaller, bamName, "contigs") {
 					slog.Info(fmt.Sprintf("%s already completed for %s / contigs. Skipping.", stageHaplotypeCaller, bamName))
-					contigsGVCF, err := CreateGvcfGATK(bam, refFile, contigs, species, refVer, gatkLogLevel, verbose, out, threads)
-					if err != nil {
-						return "", fmt.Errorf("resolving existing gVCF path for %s / contigs: %w", bamName, err)
-					}
+					chromDir := filepath.Join(out, "contigs")
+					gvcfDir := filepath.Join(chromDir, "gvcfs")
+					contigsGVCF := filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
+
 					contGvcfs = append(contGvcfs, contigsGVCF)
 					continue
 				}
@@ -908,11 +908,12 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 					if utils.StageHasCompleted(logged, stageDeepVariant, bamName, chrom.ID) {
 						slog.Info(fmt.Sprintf("%s already completed for %s / %s. Skipping.", stageDeepVariant, bamName, chrom.ID))
-						chromGVCF, err := CreateGvcfDV(bam, refFile, []SeqInfo{chrom}, species, refVer, dvVer, modelType, verbose, out, threads)
-						if err != nil {
-							errChan <- fmt.Errorf("resolving existing gVCF path for %s / %s: %w", bamName, chrom.ID, err)
-						}
+						chromDirName := strings.ReplaceAll(c.ID, ".", "_")
+						chromDir := filepath.Join(out, chromDirName)
+						gvcfDir := filepath.Join(chromDir, "gvcfs")
+						chromGVCF := filepath.Join(gvcfDir, species+refVer+"."+c.ID+".g.vcf.gz")
 						gvcfs = append(gvcfs, chromGVCF)
+						//gvcfs = append(gvcfs, chromGVCF)
 						continue
 					}
 
@@ -1002,10 +1003,10 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 				if utils.StageHasCompleted(logged, stageDeepVariant, bamName, "contigs") {
 					slog.Info(fmt.Sprintf("%s already completed for %s / contigs. Skipping.", stageDeepVariant, bamName))
-					contigsGVCF, err := CreateGvcfDV(bam, refFile, contigs, species, refVer, dvVer, modelType, verbose, out, threads)
-					if err != nil {
-						return "", fmt.Errorf("resolving existing gVCF path for %s / contigs: %w", bamName, err)
-					}
+					chromDir := filepath.Join(out, "contigs")
+					gvcfDir := filepath.Join(chromDir, "gvcfs")
+					contigsGVCF := filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
+					//gvcfs = append(gvcfs, chromGVCF)
 					contGvcfs = append(contGvcfs, contigsGVCF)
 					continue
 				}
