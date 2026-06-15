@@ -52,7 +52,12 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		chromDirName := strings.ReplaceAll(regions, ".", "_")
 		chromDir := filepath.Join(out, chromDirName)
 		gvcfDir := filepath.Join(chromDir, "gvcfs")
-		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
+		bamName := filepath.Base(bam)
+		if strings.HasSuffix(bamName, ".bam") {
+			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
+		} else if strings.HasSuffix(bamName, ".cram") {
+			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "cram", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
+		}
 
 		// ---------------------- Create Dirs ------------------------------- //
 		for _, dir := range []string{chromDir, gvcfDir} {
@@ -118,7 +123,14 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 			}
 		}
 
-		gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
+		bamName := filepath.Base(bam)
+		if strings.HasSuffix(bamName, ".bam") {
+			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
+		} else if strings.HasSuffix(bamName, ".cram") {
+			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "cram", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
+		}
+
+		//gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
 	} else {
 
 		chromDir := filepath.Join(out, "contigs")
@@ -129,11 +141,14 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
 					return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
 				}
-				//fmt.Printf("Created directory: %s\n", dir)
 			}
 		}
-
-		gVCF = filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
+		bamName := filepath.Base(bam)
+		if strings.HasSuffix(bamName, ".bam") {
+			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "bam", "contigs.g.vcf.gz", 1))
+		} else if strings.HasSuffix(bamName, ".cram") {
+			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "cram", "contigs.g.vcf.gz", 1))
+		}
 
 		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
 		if err != nil {
@@ -158,16 +173,6 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_").Replace(regions)
 	intermediateName := fmt.Sprintf("tmp_%s_%s", strings.TrimSuffix(bamName, filepath.Ext(bamName)), safeRegion)
 
-	//dvCmdStr := fmt.Sprintf(
-	//	`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
-	//		`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
-	//		`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
-	//		`--intermediate_results_dir /output/%s`,
-	//	bamDir, refDir, out, dvVer,
-	//	modelType, refName, bamName,
-	//	regions, vcfName, gvcfName,
-	//	intermediateName,
-	//)
 	dvCmdStr := fmt.Sprintf(
 		`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
 			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
