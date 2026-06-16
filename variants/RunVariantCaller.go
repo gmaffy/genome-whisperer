@@ -14,12 +14,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/biogo/hts/bgzf"
 	"github.com/brentp/vcfgo"
 	"github.com/fatih/color"
-
 	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/lmittmann/tint"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,17 +48,21 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 
 	var regions string
 	var gVCF string
+	bamName := filepath.Base(bam)
+	var chromDir string
+	var gvcfDir string
+
 	if len(chroms) == 1 {
 		regions = chroms[0].ID
 		chromDirName := strings.ReplaceAll(regions, ".", "_")
-		chromDir := filepath.Join(out, chromDirName)
-		gvcfDir := filepath.Join(chromDir, "gvcfs")
-		bamName := filepath.Base(bam)
-		if strings.HasSuffix(bamName, ".bam") {
-			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
-		} else if strings.HasSuffix(bamName, ".cram") {
-			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "cram", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
-		}
+		chromDir = filepath.Join(out, chromDirName)
+		gvcfDir = filepath.Join(chromDir, "gvcfs")
+
+		// Build output name by replacing the extension explicitly to avoid accidental
+		// substring replacements inside the filename.
+		ext := filepath.Ext(bamName)
+		base := strings.TrimSuffix(bamName, ext)
+		gVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.%s.g.vcf.gz", base, chromDirName))
 
 		// ---------------------- Create Dirs ------------------------------- //
 		for _, dir := range []string{chromDir, gvcfDir} {
@@ -65,7 +70,6 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 				if cErr := os.MkdirAll(dir, 0755); cErr != nil {
 					return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
 				}
-				//fmt.Printf("Created directory: %s\n", dir)
 			}
 		}
 	} else {
@@ -80,8 +84,8 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		}
 		regions = f.Name()
 
-		chromDir := filepath.Join(out, "contigs")
-		gvcfDir := filepath.Join(chromDir, "gvcfs")
+		chromDir = filepath.Join(out, "contigs")
+		gvcfDir = filepath.Join(chromDir, "gvcfs")
 		// -------------------------- Create Directories ------------------------------------- //
 
 		for _, dir := range []string{chromDir, gvcfDir} {
@@ -91,14 +95,18 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 				}
 			}
 		}
-		gVCF = filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
+		// Build output name by replacing the extension explicitly to avoid accidental
+		// substring replacements inside the filename.
+		ext := filepath.Ext(bamName)
+		base := strings.TrimSuffix(bamName, ext)
+		gVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.contigs.g.vcf.gz", base))
 
 	}
 
 	hapCmdStr := fmt.Sprintf(
 		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s --native-pair-hmm-threads %d`, refFile, bam, regions, gVCF, logLevel, threadsPerJob,
 	)
-	fmt.Printf("\n%s\n\n", hapCmdStr)
+	//fmt.Printf("\n%s\n\n", hapCmdStr)
 	return gVCF, utils.RunCmd(hapCmdStr, verbose)
 
 }
@@ -107,12 +115,13 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 
 	var regions string
 	var gVCF string
-
+	var chromDir string
+	var gvcfDir string
 	if len(chroms) == 1 {
 		regions = chroms[0].ID
 		chromDirName := strings.ReplaceAll(regions, ".", "_")
-		chromDir := filepath.Join(out, chromDirName)
-		gvcfDir := filepath.Join(chromDir, "gvcfs")
+		chromDir = filepath.Join(out, chromDirName)
+		gvcfDir = filepath.Join(chromDir, "gvcfs")
 		// --------------------------------- Create directories -------------------------------- //
 		for _, dir := range []string{chromDir, gvcfDir} {
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -124,17 +133,16 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 		}
 
 		bamName := filepath.Base(bam)
-		if strings.HasSuffix(bamName, ".bam") {
-			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "bam", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
-		} else if strings.HasSuffix(bamName, ".cram") {
-			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "cram", fmt.Sprintf("%s.g.vcf.gz", chromDirName), 1))
-		}
+		// Build output name by replacing the extension explicitly.
+		ext := filepath.Ext(bamName)
+		base := strings.TrimSuffix(bamName, ext)
+		gVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.%s.g.vcf.gz", base, chromDirName))
 
 		//gVCF = filepath.Join(gvcfDir, species+refVer+"."+regions+".g.vcf.gz")
 	} else {
 
-		chromDir := filepath.Join(out, "contigs")
-		gvcfDir := filepath.Join(chromDir, "gvcfs")
+		chromDir = filepath.Join(out, "contigs")
+		gvcfDir = filepath.Join(chromDir, "gvcfs")
 
 		for _, dir := range []string{chromDir, gvcfDir} {
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -144,11 +152,10 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 			}
 		}
 		bamName := filepath.Base(bam)
-		if strings.HasSuffix(bamName, ".bam") {
-			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "bam", "contigs.g.vcf.gz", 1))
-		} else if strings.HasSuffix(bamName, ".cram") {
-			gVCF = filepath.Join(gvcfDir, strings.Replace(bamName, "cram", "contigs.g.vcf.gz", 1))
-		}
+		// Build output name by replacing the extension explicitly.
+		ext := filepath.Ext(bamName)
+		base := strings.TrimSuffix(bamName, ext)
+		gVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.contigs.g.vcf.gz", base))
 
 		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
 		if err != nil {
@@ -162,7 +169,8 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 		regions = f.Name()
 
 	}
-
+	//chromDir := filepath.Join(out, "contigs")
+	//gvcfDir := filepath.Join(chromDir, "gvcfs")
 	bamDir := filepath.Dir(bam)
 	bamName := filepath.Base(bam)
 	refDir := filepath.Dir(refFile)
@@ -178,17 +186,17 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer,
 			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
 			`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
 			`--num_shards=%d --intermediate_results_dir /output/%s`,
-		bamDir, refDir, out, dvVer,
+		bamDir, refDir, gvcfDir, dvVer,
 		modelType, refName, bamName,
 		regions, vcfName, gvcfName,
 		threadsPerJob, intermediateName,
 	)
-	fmt.Printf("\n%s\n\n", dvCmdStr)
+	//fmt.Printf("\n%s\n\n", dvCmdStr)
 	return gVCF, utils.RunCmd(dvCmdStr, verbose)
 }
 
-func CreateSampleMap(gvcfs []string, outDir string) (string, error) {
-	f, err := os.Create(filepath.Join(outDir, "sample_map.txt"))
+func CreateSampleMap(gvcfs []string, gvcfsDir string) (string, error) {
+	f, err := os.Create(filepath.Join(gvcfsDir, "sample_map.txt"))
 	if err != nil {
 		return "", fmt.Errorf("creating sample map: %w", err)
 	}
@@ -243,7 +251,7 @@ func MergeGvcfsGATK(gvcfs []string, refFile string, chrom string, species string
 			return "", fmt.Errorf("removing %s: %w", theDB, rErr)
 		}
 
-		sampleMap, err := CreateSampleMap(gvcfs, outDir)
+		sampleMap, err := CreateSampleMap(gvcfs, filepath.Join(chromDir, "gvcfs"))
 		if err != nil {
 			return "", fmt.Errorf("creating sample map: %w", err)
 		}
@@ -517,7 +525,7 @@ func HardFilterVcf(vcf string, cfg utils.HardFilterConfig) (string, error) {
 	}
 	defer cleanup()
 
-	rdr, err := vcfgo.NewReader(in, false)
+	rdr, err := vcfgo.NewReader(in, true)
 	if err != nil {
 		return "", fmt.Errorf("VCF header %q: %w", vcf, err)
 	}
@@ -666,6 +674,11 @@ func ConcatenateVcfs(vcfs []string, species string, refVer string, outDir string
 }
 
 func VariantCalling(bams []string, refFile string, species string, refVer string, out string, caller string, merger string, noMerging bool, noHardFilter bool, cfg utils.HardFilterConfig, verbose bool, gatkLogLevel string, threads int, logFilePath string, dvVer string, modelType string) (string, error) {
+	// Validate threads early to avoid division-by-zero panics later.
+	if threads <= 0 {
+		// Default to 1 thread per job when an invalid value is provided.
+		threads = 1
+	}
 
 	dictFilePath := refFile[:len(refFile)-len(filepath.Ext(refFile))] + ".dict"
 	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
@@ -686,6 +699,12 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 	defer logFile.Close()
 
 	jlog := slog.New(slog.NewJSONHandler(logFile, nil))
+
+	tintHandler := tint.NewHandler(os.Stdout, &tint.Options{
+		Level:      slog.LevelInfo, // Set to Debug if you want to see everything
+		TimeFormat: time.TimeOnly,  // Keeps timestamps compact (e.g., 14:05:01)
+	})
+	slog.SetDefault(slog.New(tintHandler))
 
 	jlog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 	slog.Info("VARIANT CALLING", "PROGRAM", "INITIALISE", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
@@ -720,17 +739,22 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 			go func(c SeqInfo) {
 				defer wg.Done()
 				defer func() { <-semaphore }()
-				// ------------------------------------- Create Gvcfs --------------------------------------------------------- //
+				// ------------------------------------- Create Gvcfs ----------------------------------------------- //
 				var gvcfs []string
 				for _, bam := range bams {
 					bamName := filepath.Base(bam)
 
 					if utils.StageHasCompleted(logged, stageHaplotypeCaller, bamName, c.ID) {
-						slog.Info(fmt.Sprintf("%s already completed for %s / %s. Skipping.", stageHaplotypeCaller, bamName, chrom.ID))
+						slog.Info(fmt.Sprintf("%s already completed for %s / %s. Skipping.", stageHaplotypeCaller, bamName, c.ID))
 						chromDirName := strings.ReplaceAll(c.ID, ".", "_")
 						chromDir := filepath.Join(out, chromDirName)
 						gvcfDir := filepath.Join(chromDir, "gvcfs")
-						chromGVCF := filepath.Join(gvcfDir, species+refVer+"."+c.ID+".g.vcf.gz")
+						var chromGVCF string
+						// Build output name by replacing the extension explicitly.
+						ext := filepath.Ext(bamName)
+						base := strings.TrimSuffix(bamName, ext)
+						chromGVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.%s.g.vcf.gz", base, chromDirName))
+
 						gvcfs = append(gvcfs, chromGVCF)
 						continue
 					}
@@ -738,7 +762,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 					jlog.Info("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", "STARTED")
 					slog.Info("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", "STARTED")
 
-					chromGVCF, err := CreateGvcfGATK(bam, refFile, []SeqInfo{chrom}, species, refVer, gatkLogLevel, verbose, out, threads)
+					chromGVCF, err := CreateGvcfGATK(bam, refFile, []SeqInfo{c}, species, refVer, gatkLogLevel, verbose, out, threads)
 					if err != nil {
 						jlog.Error("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						slog.Error("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
@@ -764,15 +788,16 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 				switch merger {
 				case "gatk":
 
-					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
+					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, c.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
 					if err != nil {
-						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", chrom.ID, err)
+						color.Red("Merging gVCFs for %s FAILED: %s\n", c.ID, err)
+						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", c.ID, err)
 						return
 					}
-					fmt.Printf("Merged gVCFs for chromosome %s into joint VCF: %s\n", chrom.ID, mergedChromVcf)
+					fmt.Printf("Merged gVCFs for chromosome %s into joint VCF: %s\n", c.ID, mergedChromVcf)
 					finalChromVcf = mergedChromVcf
 				case "glnexus":
-					mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out, logged, jlog)
+					mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, c.ID, species, refVer, caller, verbose, out, logged, jlog)
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs with GLnexus: %w", err)
 						return
@@ -787,23 +812,23 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 				// ----------------------------------------- Hard filter vcf ------------------------------------------- //
 				if !noHardFilter {
 					hardFilteredVcf := strings.TrimSuffix(mergedChromVcf, ".vcf.gz") + ".hard_filtered.vcf.gz"
-					if !utils.StageHasCompleted(logged, stageHardFilter, "ALL", chrom.ID) {
-						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "STARTED")
-						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "STARTED")
+					if !utils.StageHasCompleted(logged, stageHardFilter, "ALL", c.ID) {
+						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "STARTED")
+						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "STARTED")
 
 						hfVcf, hfErr := HardFilterVcf(mergedChromVcf, cfg)
 						if hfErr != nil {
-							jlog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
-							slog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
+							jlog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
+							slog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
 							errChan <- fmt.Errorf("hard filtering VCF: %w", hfErr)
 							return
 						}
-						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
-						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
+						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
+						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
 						fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
 						hardFilteredVcf = hfVcf
 					} else {
-						slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageHardFilter, chrom.ID))
+						slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageHardFilter, c.ID))
 					}
 					finalChromVcf = hardFilteredVcf
 				}
@@ -828,15 +853,19 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 			for _, bam := range bams {
 				bamName := filepath.Base(bam)
 
-				if utils.StageHasCompleted(logged, stageHaplotypeCaller, bamName, "contigs") {
-					slog.Info(fmt.Sprintf("%s already completed for %s / contigs. Skipping.", stageHaplotypeCaller, bamName))
-					chromDir := filepath.Join(out, "contigs")
-					gvcfDir := filepath.Join(chromDir, "gvcfs")
-					contigsGVCF := filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
+					if utils.StageHasCompleted(logged, stageHaplotypeCaller, bamName, "contigs") {
+						slog.Info(fmt.Sprintf("%s already completed for %s / contigs. Skipping.", stageHaplotypeCaller, bamName))
+						chromDir := filepath.Join(out, "contigs")
+						gvcfDir := filepath.Join(chromDir, "gvcfs")
+						contigsGVCF := ""
+						// Build output name by replacing the extension explicitly.
+						ext := filepath.Ext(bamName)
+						base := strings.TrimSuffix(bamName, ext)
+						contigsGVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.contigs.g.vcf.gz", base))
 
-					contGvcfs = append(contGvcfs, contigsGVCF)
-					continue
-				}
+						contGvcfs = append(contGvcfs, contigsGVCF)
+						continue
+					}
 
 				jlog.Info("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", "contigs", "STATUS", "STARTED")
 				slog.Info("VARIANT CALLING", "PROGRAM", stageHaplotypeCaller, "SAMPLE", bamName, "CHROMOSOME", "contigs", "STATUS", "STARTED")
@@ -915,7 +944,10 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 
 	case "deepvariant":
 		fmt.Printf("Using DeepVariant %s with model type %s\n", dvVer, modelType)
-		maxWorkers := threads
+
+		totalThreads := runtime.NumCPU()
+		color.Cyan("# Avalilable threads: %v\n# Jobs run (with %v threads per job): %v\n", totalThreads, threads*2, totalThreads/(threads*2))
+		maxWorkers := runtime.NumCPU() / (threads * 2)
 		if maxWorkers < 1 {
 			maxWorkers = 2 // Fallback default
 		}
@@ -938,12 +970,17 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 				for _, bam := range bams {
 					bamName := filepath.Base(bam)
 
-					if utils.StageHasCompleted(logged, stageDeepVariant, bamName, chrom.ID) {
-						slog.Info(fmt.Sprintf("%s already completed for %s / %s. Skipping.", stageDeepVariant, bamName, chrom.ID))
+					if utils.StageHasCompleted(logged, stageDeepVariant, bamName, c.ID) {
+						slog.Info(fmt.Sprintf("%s already completed for %s / %s. Skipping.", stageDeepVariant, bamName, c.ID))
 						chromDirName := strings.ReplaceAll(c.ID, ".", "_")
 						chromDir := filepath.Join(out, chromDirName)
 						gvcfDir := filepath.Join(chromDir, "gvcfs")
-						chromGVCF := filepath.Join(gvcfDir, species+refVer+"."+c.ID+".g.vcf.gz")
+						chromGVCF := ""
+						// Build output name by replacing the extension explicitly.
+						ext := filepath.Ext(bamName)
+						base := strings.TrimSuffix(bamName, ext)
+						chromGVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.%s.g.vcf.gz", base, chromDirName))
+
 						gvcfs = append(gvcfs, chromGVCF)
 						//gvcfs = append(gvcfs, chromGVCF)
 						continue
@@ -952,7 +989,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 					jlog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", "STARTED")
 					slog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", "STARTED")
 
-					chromGVCF, err := CreateGvcfDV(bam, refFile, []SeqInfo{chrom}, species, refVer, dvVer, modelType, verbose, out, threads)
+					chromGVCF, err := CreateGvcfDV(bam, refFile, []SeqInfo{c}, species, refVer, dvVer, modelType, verbose, out, threads)
 					if err != nil {
 						jlog.Error("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
 						slog.Error("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", err))
@@ -960,7 +997,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 						return
 					}
 					jlog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
-					slog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
+					slog.Info("VARIANT CALLING", "PROGRAM", stageDeepVariant, "SAMPLE", bamName, "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
 					fmt.Printf("Created gVCF: %s\n", chromGVCF)
 					fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
 					gvcfs = append(gvcfs, chromGVCF)
@@ -976,15 +1013,15 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 				var mergedChromVcf string
 				switch merger {
 				case "gatk":
-					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, chrom.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
+					mergedChromVcf, err = MergeGvcfsGATK(gvcfs, refFile, c.ID, species, refVer, verbose, gatkLogLevel, out, logged, jlog)
 					if err != nil {
-						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", chrom.ID, err)
+						errChan <- fmt.Errorf("merging gVCFs for chrom %s with GATK: %w", c.ID, err)
 						return
 					}
 					fmt.Printf("Merged gVCFs into joint VCF: %s\n", mergedChromVcf)
 					finalChromVcf = mergedChromVcf
 				case "glnexus":
-					mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, chrom.ID, species, refVer, caller, verbose, out, logged, jlog)
+					mergedChromVcf, err = MergeGvcfsGlnexus(gvcfs, c.ID, species, refVer, caller, verbose, out, logged, jlog)
 					if err != nil {
 						errChan <- fmt.Errorf("merging gVCFs with GLnexus: %w", err)
 						return
@@ -999,23 +1036,23 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 				// ----------------------------------------- Hard filter vcf ------------------------------------------- //
 				if !noHardFilter {
 					hardFilteredVcf := strings.TrimSuffix(mergedChromVcf, ".vcf.gz") + ".hard_filtered.vcf.gz"
-					if !utils.StageHasCompleted(logged, stageHardFilter, "ALL", chrom.ID) {
-						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "STARTED")
-						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "STARTED")
+					if !utils.StageHasCompleted(logged, stageHardFilter, "ALL", c.ID) {
+						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "STARTED")
+						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "STARTED")
 
 						hfVcf, hfErr := HardFilterVcf(mergedChromVcf, cfg)
 						if hfErr != nil {
-							jlog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
-							slog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
+							jlog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
+							slog.Error("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", fmt.Sprintf("FAILED: %v", hfErr))
 							errChan <- fmt.Errorf("hard filtering VCF: %w", hfErr)
 							return
 						}
-						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
-						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", chrom.ID, "STATUS", "COMPLETED")
+						jlog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
+						slog.Info("VARIANT CALLING", "PROGRAM", stageHardFilter, "SAMPLE", "ALL", "CHROMOSOME", c.ID, "STATUS", "COMPLETED")
 						fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
 						hardFilteredVcf = hfVcf
 					} else {
-						slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageHardFilter, chrom.ID))
+						slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageHardFilter, c.ID))
 					}
 					finalChromVcf = hardFilteredVcf
 				}
@@ -1042,7 +1079,12 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 					slog.Info(fmt.Sprintf("%s already completed for %s / contigs. Skipping.", stageDeepVariant, bamName))
 					chromDir := filepath.Join(out, "contigs")
 					gvcfDir := filepath.Join(chromDir, "gvcfs")
-					contigsGVCF := filepath.Join(gvcfDir, species+refVer+".Contigs.g.vcf.gz")
+					contigsGVCF := ""
+					// Build output name by replacing the extension explicitly.
+					ext := filepath.Ext(bamName)
+					base := strings.TrimSuffix(bamName, ext)
+					contigsGVCF = filepath.Join(gvcfDir, fmt.Sprintf("%s.contigs.g.vcf.gz", base))
+
 					//gvcfs = append(gvcfs, chromGVCF)
 					contGvcfs = append(contGvcfs, contigsGVCF)
 					continue

@@ -151,7 +151,7 @@ var VariantCallingCmd = &cobra.Command{
 		//-------------------------------------------- Check dependencies ------------------------------------------ //
 		switch caller {
 		case "gatk":
-			gatkErr := utils.CheckDeps([]string{"gatk"})
+			gatkErr := utils.CheckDeps([]string{"gatk", "bcftools"})
 			if gatkErr != nil {
 				fmt.Println("Dependency check failed ... ", gatkErr)
 				return

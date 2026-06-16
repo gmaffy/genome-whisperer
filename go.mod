@@ -3,12 +3,12 @@ module github.com/gmaffy/genome-whisperer
 go 1.26.0
 
 require (
-	github.com/biogo/biogo v1.0.4
 	github.com/biogo/hts v1.1.0
 	github.com/brentp/vcfgo v0.0.0-20250902214554-a31336cef488
 	github.com/fatih/color v1.18.0
 	github.com/go-echarts/go-echarts/v2 v2.6.7
 	github.com/go-gota/gota v0.12.0
+	github.com/lmittmann/tint v1.1.3
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/spf13/cobra v1.10.2
 	github.com/xuri/excelize/v2 v2.10.1
