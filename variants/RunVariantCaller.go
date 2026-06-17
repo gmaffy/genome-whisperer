@@ -984,14 +984,13 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 						chromDirName := strings.ReplaceAll(c.ID, ".", "_")
 						chromDir := filepath.Join(out, chromDirName)
 						gvcfDir := filepath.Join(chromDir, "gvcfs")
-						//chromGVCF := ""
-						// Build output name by replacing the extension explicitly.
+
 						ext := filepath.Ext(bamName)
 						base := strings.TrimSuffix(bamName, ext)
 						chromGVCF := filepath.Join(gvcfDir, fmt.Sprintf("%s.%s.g.vcf.gz", base, chromDirName))
 
 						gvcfs = append(gvcfs, chromGVCF)
-						//gvcfs = append(gvcfs, chromGVCF)
+						
 						continue
 					}
 
