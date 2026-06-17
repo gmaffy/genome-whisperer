@@ -955,8 +955,8 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 		fmt.Printf("Using DeepVariant %s with model type %s\n", dvVer, modelType)
 
 		totalThreads := runtime.NumCPU()
-		color.Cyan("# Avalilable threads: %v\n# Jobs run (with %v threads per job): %v\n", totalThreads, threads*2, totalThreads/(threads*2))
-		maxWorkers := runtime.NumCPU() / (threads * 2)
+		color.Cyan("# Avalilable threads: %v\n# Jobs run (with %v threads per job): %v\n", totalThreads, threads*2, totalThreads/threads) //(threads*2))
+		maxWorkers := runtime.NumCPU() / threads                                                                                          //(threads * 2)
 		if maxWorkers < 1 {
 			maxWorkers = 2 // Fallback default
 		}
@@ -990,7 +990,7 @@ func VariantCalling(bams []string, refFile string, species string, refVer string
 						chromGVCF := filepath.Join(gvcfDir, fmt.Sprintf("%s.%s.g.vcf.gz", base, chromDirName))
 
 						gvcfs = append(gvcfs, chromGVCF)
-						
+
 						continue
 					}
 
