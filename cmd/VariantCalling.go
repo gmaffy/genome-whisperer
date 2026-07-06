@@ -106,7 +106,7 @@ var VariantCallingCmd = &cobra.Command{
 		if qErr != nil {
 			log.Fatalf("Error getting quick flag: %v", qErr)
 		}
-
+		lightFilter, _ := cmd.Flags().GetBool("light-filtering")
 		minQD_SNP, _ := cmd.Flags().GetFloat64("min-QD-SNP")
 		minQUAL_SNP, _ := cmd.Flags().GetFloat64("min-QUAL-SNP")
 		minSOR_SNP, _ := cmd.Flags().GetFloat64("min-SOR-SNP")
@@ -122,6 +122,7 @@ var VariantCallingCmd = &cobra.Command{
 		maxSOR_INDEL, _ := cmd.Flags().GetFloat64("max-SOR-INDEL")
 
 		cfg := utils.HardFilterConfig{
+			LightFiltering:           lightFilter,
 			SNP_QD_Min:               minQD_SNP,
 			SNP_QUAL_Min:             minQUAL_SNP,
 			SNP_SOR_Max:              minSOR_SNP,
@@ -303,6 +304,7 @@ func init() {
 	VariantCallingCmd.Flags().Bool("quick", false, "Quick verification")
 	VariantCallingCmd.Flags().StringP("genomes-dir", "g", "", "genomes-directory")
 	// ----------------------------------------------- Filtering ---------------------------------------------------- //
+	VariantCallingCmd.Flags().Bool("light-filtering", false, "Light filtering")
 	VariantCallingCmd.Flags().Float64("min-QD-SNP", 2.0, "QualByDepth SNPs") // SNP_QD_Min             float64 // default 2.0   – QualByDepth
 	VariantCallingCmd.Flags().Float64("min-QUAL-SNP", 30.0, "Variant quality SNPs")
 	VariantCallingCmd.Flags().Float64("min-SOR-SNP", 3.0, "StrandOddsRatio SNPs")
