@@ -122,7 +122,7 @@ var VariantCallingCmd = &cobra.Command{
 		maxSOR_INDEL, _ := cmd.Flags().GetFloat64("max-SOR-INDEL")
 
 		cfg := utils.HardFilterConfig{
-			LightFiltering:           lightFilter,
+			LightFilter:              lightFilter,
 			SNP_QD_Min:               minQD_SNP,
 			SNP_QUAL_Min:             minQUAL_SNP,
 			SNP_SOR_Max:              minSOR_SNP,
