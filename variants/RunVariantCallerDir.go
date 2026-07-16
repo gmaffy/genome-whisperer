@@ -60,8 +60,6 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 		if len(chroms) == 1 {
 			regionArg = chroms[0].ID
 		} else {
-			// Use a unique temp file per call to avoid races when multiple
-			// goroutines run CreateGvcf concurrently.
 			f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
 			if err != nil {
 				return "", fmt.Errorf("creating GATK interval list: %w", err)
@@ -123,7 +121,21 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 			intermediateName,
 		)
 		fmt.Printf("\n%s\n\n", dvCmdStr)
-		return theGVCF, runCmd(dvCmdStr, verbose)
+		err := runCmd(dvCmdStr, verbose)
+		if err != nil {
+			return "", err
+		}
+
+		tabixStr := fmt.Sprintf(`tabix -p vcf %s`, theGVCF)
+		err = runCmd(tabixStr, verbose)
+
+		color.Cyan("Cleaning up DeepVariant intermediate results ...")
+		pattern := filepath.Join(gvcfDir, "tmp_*")
+		matches, _ := filepath.Glob(pattern)
+		for _, m := range matches {
+			os.RemoveAll(m)
+		}
+		return theGVCF, err
 
 	default:
 		return "", fmt.Errorf("unknown caller %q: must be \"gatk\" or \"deepvariant\"", caller)
@@ -316,11 +328,18 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					gvcfName = strings.Replace(cramName, ".cram", fmt.Sprintf(".%s.g.vcf.gz", label), 1)
 					gvcfName = strings.Replace(gvcfName, ".bam", fmt.Sprintf(".%s.g.vcf.gz", label), 1)
 				}
-				gvcfPath := filepath.Join(sw.CramDir, refVer, "gvcfs", gvcfName)
+				var gvcfDir, gvcfPath string
+				if strings.ToLower(caller) == "gatk" {
+					gvcfDir = filepath.Join(sw.CramDir, refVer, "gatk_gvcfs")
+					gvcfPath = filepath.Join(gvcfDir, gvcfName)
+				} else {
+					gvcfDir = filepath.Join(sw.CramDir, refVer, "dv_gvcfs")
+					gvcfPath = filepath.Join(gvcfDir, gvcfName)
+				}
 
 				// Create the gvcfs directory if it doesn't exist
-				if err := os.MkdirAll(filepath.Dir(gvcfPath), 0755); err != nil {
-					color.Red("[Worker %d] [%s] Error creating directory for %s: %v\n\n", workerID, sw.Sample, label, err)
+				if err := os.MkdirAll(gvcfDir, 0755); err != nil {
+					color.Red("[Worker %d] [%s] Error creating directory %s for %s: %v\n\n", workerID, sw.Sample, gvcfDir, label, err)
 					failedMu.Lock()
 					failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: err})
 					failedMu.Unlock()
@@ -338,6 +357,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 
 				switch len(vcfFiles) {
 				case 0:
+
 					color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating …\n\n", workerID, sw.Sample, label)
 					if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 						color.Red("[Worker %d] [%s] Error creating gVCF for %s: %v\n\n", workerID, sw.Sample, label, err)
@@ -393,18 +413,18 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 	wg2.Wait()
 
 	// ── remove deepvariant intermediate directories ───────────────────────────
-	if strings.ToLower(caller) == "deepvariant" {
-		color.Cyan("Cleaning up DeepVariant intermediate results ...")
-		for _, sw := range validSamples {
-			// DeepVariant intermediate results are in sw.CramDir/refVer/gvcfs/tmp_*
-			gvcfDir := filepath.Join(sw.CramDir, refVer, "gvcfs")
-			pattern := filepath.Join(gvcfDir, "tmp_*")
-			matches, _ := filepath.Glob(pattern)
-			for _, m := range matches {
-				os.RemoveAll(m)
-			}
-		}
-	}
+	//if strings.ToLower(caller) == "deepvariant" {
+	//	color.Cyan("Cleaning up DeepVariant intermediate results ...")
+	//	for _, sw := range validSamples {
+	//		// DeepVariant intermediate results are in sw.CramDir/refVer/gvcfs/tmp_*
+	//		gvcfDir := filepath.Join(sw.CramDir, refVer, "gvcfs")
+	//		pattern := filepath.Join(gvcfDir, "tmp_*")
+	//		matches, _ := filepath.Glob(pattern)
+	//		for _, m := range matches {
+	//			os.RemoveAll(m)
+	//		}
+	//	}
+	//}
 
 	// ── summary ───────────────────────────────────────────────────────────────
 	fmt.Printf("\n%s FINAL SUMMARY %s\n", strings.Repeat("=", 29), strings.Repeat("=", 29))
@@ -430,21 +450,20 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 
 			var gvcfs []string
 			for _, sw := range validSamples {
-				gvcfDir := filepath.Join(sw.CramDir, refVer, "gvcfs")
-				matches, _ := filepath.Glob(filepath.Join(gvcfDir, "*.g.vcf.gz"))
-				gvcfs = append(gvcfs, matches...)
+				gvcfDir := filepath.Join(sw.CramDir, refVer, "gatk_gvcfs")
+				if strings.ToLower(caller) != "gatk" {
+					gvcfDir = filepath.Join(sw.CramDir, refVer, "dv_gvcfs")
+				}
+				gmatches, _ := filepath.Glob(filepath.Join(gvcfDir, "*.g.vcf.gz"))
+				gvcfs = append(gvcfs, gmatches...)
 			}
 
 			if len(gvcfs) > 0 {
 				color.Cyan("Merging %d gVCFs ...\n", len(gvcfs))
-				// We need a common output directory for merged results.
-				// Using dataDir/species/refVer/VCFs
+
 				outDir := filepath.Join(dataDirAbs, species, refVer, "VCFs")
 				os.MkdirAll(outDir, 0755)
 
-				// For now, we can call VariantCalling but it might be overkill as it re-runs gVCF creation.
-				// Ideally we'd call the merge functions directly.
-				// This is a placeholder for actual merging logic.
 				color.Yellow("Direct merging of discovered gVCFs is not yet fully implemented in VariantCallingDir.")
 			}
 		} else {
