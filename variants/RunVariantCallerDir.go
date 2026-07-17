@@ -32,6 +32,7 @@ func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer stri
 	var pattern string
 	switch bamOrVcf {
 	case "bams":
+		
 		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*bqsr.cram",
 			dataDirAbs, strings.ToLower(species), sample, refVer)
 	case "gvcfs":
@@ -328,12 +329,14 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					gvcfName = strings.Replace(cramName, ".cram", fmt.Sprintf(".%s.g.vcf.gz", label), 1)
 					gvcfName = strings.Replace(gvcfName, ".bam", fmt.Sprintf(".%s.g.vcf.gz", label), 1)
 				}
-				var gvcfDir, gvcfPath string
+				var gvcfDir, gvcfPath, gvcfDirName string
 				if strings.ToLower(caller) == "gatk" {
-					gvcfDir = filepath.Join(sw.CramDir, refVer, "gatk_gvcfs")
+					gvcfDirName = "gatk_gvcfs"
+					gvcfDir = filepath.Join(sw.CramDir, refVer, gvcfDirName)
 					gvcfPath = filepath.Join(gvcfDir, gvcfName)
 				} else {
-					gvcfDir = filepath.Join(sw.CramDir, refVer, "dv_gvcfs")
+					gvcfDirName = "dv_gvcfs"
+					gvcfDir = filepath.Join(sw.CramDir, refVer, gvcfDirName)
 					gvcfPath = filepath.Join(gvcfDir, gvcfName)
 				}
 
@@ -352,7 +355,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 						vcfFiles = []string{gvcfPath}
 					}
 				} else {
-					vcfFiles, _ = FindBamOrVcfs(dataDirAbs, species, sw.Sample, refVer, "gvcfs", label)
+					vcfFiles, _ = FindBamOrVcfs(dataDirAbs, species, sw.Sample, refVer, gvcfDirName, label)
 				}
 
 				switch len(vcfFiles) {
