@@ -102,6 +102,11 @@ var VariantCallingCmd = &cobra.Command{
 			verbose = false
 		}
 
+		noBqsr, bqsrErr := cmd.Flags().GetBool("no-bqsr")
+		if bqsrErr != nil {
+			log.Fatalf("Error getting no bqsr flag: %v", bqsrErr)
+		}
+
 		quick, qErr := cmd.Flags().GetBool("quick")
 		if qErr != nil {
 			log.Fatalf("Error getting quick flag: %v", qErr)
@@ -213,7 +218,7 @@ var VariantCallingCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			if dirErr := variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, gatkLogLevel, quick, threads); dirErr != nil {
+			if dirErr := variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, gatkLogLevel, quick, threads, noBqsr); dirErr != nil {
 				color.Red("VariantCallingDir failed: %v\n", dirErr)
 			}
 		} else {
@@ -303,6 +308,7 @@ func init() {
 	VariantCallingCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
 	VariantCallingCmd.Flags().Bool("quick", false, "Quick verification")
 	VariantCallingCmd.Flags().StringP("genomes-dir", "g", "", "genomes-directory")
+	VariantCallingCmd.Flags().Bool("no-bqsr", false,  "Use RGMD bam/cram instead")
 	// ----------------------------------------------- Filtering ---------------------------------------------------- //
 	VariantCallingCmd.Flags().Bool("light-filtering", false, "Light filtering")
 	VariantCallingCmd.Flags().Float64("min-QD-SNP", 2.0, "QualByDepth SNPs") // SNP_QD_Min             float64 // default 2.0   – QualByDepth

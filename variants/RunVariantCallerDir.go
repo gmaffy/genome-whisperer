@@ -28,11 +28,87 @@ type SampleWork struct {
 	CramDir string // parent of the "bams" directory; used to derive gvcf output path
 }
 
+func FindBams(dataDirAbs string, species string, sample string, refVer string, noBqsr bool) ([]string, []string, error) {
+	cramPat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*.cram", dataDirAbs, strings.ToLower(species), sample, refVer)
+	bamPat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*.bam", dataDirAbs, strings.ToLower(species), sample, refVer)
+	cramMatches, err := filepath.Glob(cramPat)
+	if err != nil {
+		return nil, nil, fmt.Errorf("glob error: %w", err)
+	}
+	bamMatches, err := filepath.Glob(bamPat)
+	if err != nil {
+		return nil, nil, fmt.Errorf("glob error: %w", err)
+	}
+
+	if len(cramMatches) == 0 && len(bamMatches) == 0 {
+		return nil, nil, fmt.Errorf("no cram files or bams found in %s", cramPat)
+	}
+	//fmt.Printf("Found %d cram files\n", len(cramMatches))
+	//fmt.Printf("Found %d bam files\n", len(bamMatches))
+	var validCrams []string
+	var validBams []string
+	if len(cramMatches) > 0 {
+
+		for _, cramMatch := range cramMatches {
+			if noBqsr {
+				cramLower := strings.ToLower(cramMatch)
+				if strings.Contains(strings.ToLower(cramLower), "rgmd") {
+					validCrams = append(validCrams, cramMatch)
+				}
+			} else {
+				cramLower := strings.ToLower(cramMatch)
+				if !strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(cramLower), "bqsr") {
+					validCrams = append(validCrams, cramMatch)
+				} else if strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(cramLower), "rgmd") {
+					validCrams = append(validCrams, cramMatch)
+				}
+			}
+		}
+	} else if len(bamMatches) > 0 {
+		for _, bamMatch := range bamMatches {
+			if noBqsr {
+				bamLower := strings.ToLower(bamMatch)
+				if strings.Contains(strings.ToLower(bamLower), "rgmd") {
+					validBams = append(validBams, bamMatch)
+				}
+			} else {
+				bamLower := strings.ToLower(bamMatch)
+				if !strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(bamLower), "bqsr") {
+					validBams = append(validBams, bamMatch)
+				} else if strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(bamLower), "rgmd") {
+					validBams = append(validBams, bamMatch)
+				}
+			}
+		}
+
+	}
+
+	return validCrams, validBams, nil
+
+}
+
+func FindGVCFs(dataDirAbs string, species string, sample string, refVer string, gvcfDirName string, chrom string) ([]string, error) {
+
+	pattern := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/%s/*%s.g.vcf.gz", dataDirAbs, strings.ToLower(species), sample, refVer, gvcfDirName, chrom)
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("glob error: %w", err)
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no %s files found in %s", gvcfDirName, sample)
+	}
+	if len(matches) > 1 {
+		return matches, fmt.Errorf("multiple %s files found in %s", gvcfDirName, sample)
+	}
+	return matches, nil
+
+}
+
 func FindBamOrVcfs(dataDirAbs string, species string, sample string, refVer string, bamOrVcf string, chrom string) ([]string, error) {
 	var pattern string
 	switch bamOrVcf {
 	case "bams":
-		
+
 		pattern = fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*bqsr.cram",
 			dataDirAbs, strings.ToLower(species), sample, refVer)
 	case "gvcfs":
@@ -143,9 +219,9 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 	}
 }
 
-func VariantCallingDir(dataDir string, species string, refVer string, genomesDir string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string, quick bool, threadsPerJob int) error {
+func VariantCallingDir(dataDir string, species string, refVer string, genomesDir string, refFasta string, caller string, merger string, dvVer string, modelType string, verbose bool, noMerging bool, gatkLogLevel string, quick bool, threadsPerJob int, noBqsr bool) error {
 
-	// ── validate paths ────────────────────────────────────────────────────────
+	// ============================================= Check paths ==================================================== //
 	fmt.Println("Checking paths ...")
 
 	dInfo, err := os.Stat(dataDir)
@@ -191,7 +267,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 
 	color.Cyan("All file paths valid\n…\n\n")
 
-	// ── discover samples ──────────────────────────────────────────────────────
+	// ========================================= Sample discovery ===================================================//
 	color.Cyan("================================== Discovering samples =================================\n\n")
 	pattern := filepath.Join(dataDir, species, "*", "*", "reference_genomes")
 	matches, err := filepath.Glob(pattern)
@@ -212,7 +288,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 	}
 	color.Cyan("\nFound %d sample(s) for %s\n%s\n\n", len(samples), species, strings.Repeat("=", 34))
 
-	// ── resolve valid samples ─────────────────────────────────────────────────
+	//============================================== Get B
 	fmt.Println("Looking for BAM files …")
 
 	var (
@@ -228,9 +304,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 		go func(sample string) {
 			defer wg1.Done()
 
-			pat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*bqsr.cram",
-				dataDirAbs, strings.ToLower(species), sample, refVer)
-			cramFiles, cErr := filepath.Glob(pat)
+			cramFiles, bamFiles, cErr := FindBams(dataDir, species, sample, refVer, noBqsr)
 			if cErr != nil {
 				color.Red("Error finding BAM files: %v\n", cErr)
 				mu.Lock()
@@ -239,15 +313,17 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 				return
 			}
 
-			switch len(cramFiles) {
-			case 0:
+			if len(cramFiles) == 0 && len(bamFiles) == 0 {
 				color.Red("[%s] bqsr.cram MISSING ❌\n", sample)
 				mu.Lock()
 				missingBams = append(missingBams, sample)
 				mu.Unlock()
-			case 1:
-				color.Green("[%s] bqsr.cram FOUND ✅: %s\n", sample, cramFiles[0])
-				color.Cyan("Validating BAM file …\n")
+			} else if len(cramFiles) > 1 && len(bamFiles) > 1 {
+				color.Red("[%s] Multiple bqsr.cram files found — skipping ❌\n", sample)
+				mu.Lock()
+				multipleBams = append(multipleBams, sample)
+				mu.Unlock()
+			} else if len(cramFiles) == 1 {
 				if valErr := utils.ValidateBam(cramFiles[0], resolvedFasta, verbose, quick); valErr != nil {
 					color.Red("[%s] bqsr.cram not valid: %v\n", sample, valErr)
 					mu.Lock()
@@ -263,12 +339,55 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					})
 					mu.Unlock()
 				}
-			default:
-				color.Red("[%s] Multiple bqsr.cram files found — skipping ❌\n", sample)
-				mu.Lock()
-				multipleBams = append(multipleBams, sample)
-				mu.Unlock()
+
+			} else if len(bamFiles) == 1 {
+				if valErr := utils.ValidateBam(bamFiles[0], resolvedFasta, verbose, quick); valErr != nil {
+					color.Red("[%s] bqsr.cram not valid: %v\n", sample, valErr)
+					mu.Lock()
+					missingBams = append(missingBams, sample)
+					mu.Unlock()
+				} else {
+					color.Green("[%s] bqsr.cram valid ✅\n", sample)
+					mu.Lock()
+					validSamples = append(validSamples, SampleWork{
+						Sample:  sample,
+						Cram:    bamFiles[0],
+						CramDir: filepath.Dir(filepath.Dir(filepath.Dir(bamFiles[0]))),
+					})
+					mu.Unlock()
+				}
 			}
+
+			//switch len(cramFiles) {
+			//case 0:
+			//	color.Red("[%s] bqsr.cram MISSING ❌\n", sample)
+			//	mu.Lock()
+			//	missingBams = append(missingBams, sample)
+			//	mu.Unlock()
+			//case 1:
+			//	color.Green("[%s] bqsr.cram FOUND ✅: %s\n", sample, cramFiles[0])
+			//	color.Cyan("Validating BAM file …\n")
+			//	if valErr := utils.ValidateBam(cramFiles[0], resolvedFasta, verbose, quick); valErr != nil {
+			//		color.Red("[%s] bqsr.cram not valid: %v\n", sample, valErr)
+			//		mu.Lock()
+			//		missingBams = append(missingBams, sample)
+			//		mu.Unlock()
+			//	} else {
+			//		color.Green("[%s] bqsr.cram valid ✅\n", sample)
+			//		mu.Lock()
+			//		validSamples = append(validSamples, SampleWork{
+			//			Sample:  sample,
+			//			Cram:    cramFiles[0],
+			//			CramDir: filepath.Dir(filepath.Dir(filepath.Dir(cramFiles[0]))),
+			//		})
+			//		mu.Unlock()
+			//	}
+			//default:
+			//	color.Red("[%s] Multiple bqsr.cram files found — skipping ❌\n", sample)
+			//	mu.Lock()
+			//	multipleBams = append(multipleBams, sample)
+			//	mu.Unlock()
+			//}
 		}(sample)
 	}
 	wg1.Wait()
@@ -294,10 +413,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 	if threadsPerJob <= 0 {
 		threadsPerJob = 4
 	}
-	maxParallelJobs := totalCores / threadsPerJob
-	if maxParallelJobs < 1 {
-		maxParallelJobs = 1
-	}
+	maxParallelJobs := max(totalCores/threadsPerJob, 1)
 	color.Cyan("Machine has %d cores. %d threads per job → max %d parallel jobs\n\n",
 		totalCores, threadsPerJob, maxParallelJobs)
 
@@ -355,7 +471,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 						vcfFiles = []string{gvcfPath}
 					}
 				} else {
-					vcfFiles, _ = FindBamOrVcfs(dataDirAbs, species, sw.Sample, refVer, gvcfDirName, label)
+					vcfFiles, _ = FindGVCFs(dataDirAbs, species, sw.Sample, refVer, gvcfDirName, label) //FindBamOrVcfs(dataDirAbs, species, sw.Sample, refVer, gvcfDirName, label)
 				}
 
 				switch len(vcfFiles) {
@@ -406,9 +522,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 		for _, chrom := range chroms {
 			workCh <- workItem{sw: sw, chroms: []SeqInfo{chrom}, label: chrom.ID}
 		}
-	}
-	if len(contigs) > 0 {
-		for _, sw := range validSamples {
+		if len(contigs) > 0 {
 			workCh <- workItem{sw: sw, chroms: contigs, label: "contigs", isContig: true}
 		}
 	}

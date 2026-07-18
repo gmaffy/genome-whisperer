@@ -1,5 +1,5 @@
 /*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
+Copyright © 2026 Godwin Mafireyi (mafireyi@gmail.com)
 */
 package cmd
 
@@ -121,7 +121,4 @@ func init() {
 	MergeGvcfsCmd.Flags().BoolP("quick", "q", false, "quick verification")
 	MergeGvcfsCmd.Flags().Bool("skip-verification", false, "skip verification")
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// MergeGvcfsCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
