@@ -44,7 +44,83 @@ type SeqInfo struct {
 	Len int
 }
 
-func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string, refVer string, logLevel string, verbose bool, out string, threadsPerJob int) (string, error) {
+func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, theGVCF string, gatkLogLevel string, verbose bool) (string, error) {
+	var regionArg string
+	if len(chroms) == 1 {
+		regionArg = chroms[0].ID
+	} else {
+		f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
+		if err != nil {
+			return "", fmt.Errorf("creating GATK interval list: %w", err)
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		for _, c := range chroms {
+			fmt.Fprintln(f, c.ID)
+		}
+		regionArg = f.Name()
+	}
+
+	hapCmdStr := fmt.Sprintf(
+		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`,
+		refFile, bam, regionArg, theGVCF, gatkLogLevel,
+	)
+	fmt.Printf("\n%s\n\n", hapCmdStr)
+	return theGVCF, runCmd(hapCmdStr, verbose)
+}
+
+func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, theGVCF string, dvVer string, modelType string, verbose bool, threadsPerJob int) (string, error) {
+	var regions string
+	bamDir := filepath.Dir(bam)
+	bamName := filepath.Base(bam)
+	refDir := filepath.Dir(refFile)
+	refName := filepath.Base(refFile)
+	gvcfName := filepath.Base(theGVCF)
+	gvcfDir := filepath.Dir(gvcfName)
+	vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
+	if len(chroms) == 1 {
+		regions = chroms[0].ID
+	} else {
+		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
+		if err != nil {
+			return "", fmt.Errorf("creating DeepVariant interval list: %w", err)
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		for _, c := range chroms {
+			fmt.Fprintf(f, "%s\t0\t%d\n", c.ID, c.Len)
+		}
+		regions = "/output/" + filepath.Base(f.Name()) // BED lives in gvcfDir, mounted as /output
+	}
+
+	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_").Replace(regions)
+	intermediateName := fmt.Sprintf("tmp_%s_%s", strings.TrimSuffix(bamName, filepath.Ext(bamName)), safeRegion)
+	intermediatePath := filepath.Join(gvcfDir, intermediateName)
+
+	// Remove intermediate directory if it exists to ensure a clean start for re-runs
+	if _, err := os.Stat(intermediatePath); err == nil {
+		slog.Info("Removing existing intermediate directory", "path", intermediatePath)
+		if err := os.RemoveAll(intermediatePath); err != nil {
+			return "", fmt.Errorf("removing existing intermediate directory %s: %w", intermediatePath, err)
+		}
+	}
+
+	dvCmdStr := fmt.Sprintf(
+		`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
+			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
+			`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
+			`--num_shards=%d --intermediate_results_dir /output/%s`,
+		bamDir, refDir, gvcfDir, dvVer,
+		modelType, refName, bamName,
+		regions, vcfName, gvcfName,
+		threadsPerJob, intermediateName,
+	)
+
+	//fmt.Printf("\n%s\n\n", dvCmdStr)
+	return theGVCF, utils.RunCmd(dvCmdStr, verbose)
+}
+
+func CreateGvcfGATKog(bam string, refFile string, chroms []SeqInfo, species string, refVer string, logLevel string, verbose bool, out string, threadsPerJob int) (string, error) {
 
 	var regions string
 	var gVCF string
@@ -56,7 +132,7 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		regions = chroms[0].ID
 		chromDirName := strings.ReplaceAll(regions, ".", "_")
 		chromDir = filepath.Join(out, chromDirName)
-		gvcfDir = filepath.Join(chromDir, "gvcfs")
+		gvcfDir = filepath.Join(chromDir, "gatk_gvcfs")
 
 		// Build output name by replacing the extension explicitly to avoid accidental
 		// substring replacements inside the filename.
@@ -85,7 +161,7 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 		regions = f.Name()
 
 		chromDir = filepath.Join(out, "contigs")
-		gvcfDir = filepath.Join(chromDir, "gvcfs")
+		gvcfDir = filepath.Join(chromDir, "gatk_gvcfs")
 		// -------------------------- Create Directories ------------------------------------- //
 
 		for _, dir := range []string{chromDir, gvcfDir} {
@@ -111,7 +187,7 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, species string
 
 }
 
-func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, species, refVer, dvVer string, modelType string, verbose bool, out string, threadsPerJob int) (string, error) {
+func CreateGvcfDVog(bam string, refFile string, chroms []SeqInfo, species, refVer, dvVer string, modelType string, verbose bool, out string, threadsPerJob int) (string, error) {
 
 	var regions string
 	var gVCF string

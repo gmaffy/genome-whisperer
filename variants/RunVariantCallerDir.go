@@ -176,7 +176,7 @@ func CreateGvcf(bam string, refFile string, chroms []SeqInfo, theGVCF string, ga
 			for _, c := range chroms {
 				fmt.Fprintf(f, "%s\t0\t%d\n", c.ID, c.Len)
 			}
-			regions = f.Name() // absolute host path inside gvcfDir → translatable to /output/...
+			regions = "/output/" + filepath.Base(f.Name()) // BED lives in gvcfDir, mounted as /output
 		}
 
 		bamDir := filepath.Dir(bam)
@@ -318,7 +318,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 				mu.Lock()
 				missingBams = append(missingBams, sample)
 				mu.Unlock()
-			} else if len(cramFiles) > 1 && len(bamFiles) > 1 {
+			} else if len(cramFiles) > 1 || len(bamFiles) > 1 {
 				color.Red("[%s] Multiple bqsr.cram files found — skipping ❌\n", sample)
 				mu.Lock()
 				multipleBams = append(multipleBams, sample)
@@ -478,7 +478,14 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 				case 0:
 
 					color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating …\n\n", workerID, sw.Sample, label)
-					if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+					var callerErr error
+					if caller == "gatk" {
+						_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, species, refVer, gatkLogLevel, verbose, gvcfPath, threadsPerJob)
+					} else {
+						_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, species, refVer, dvVer, modelType, verbose, gvcfPath, threadsPerJob)
+					}
+					if  callerErr != nil {
+						//, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 						color.Red("[Worker %d] [%s] Error creating gVCF for %s: %v\n\n", workerID, sw.Sample, label, err)
 						failedMu.Lock()
 						failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: err})
@@ -493,7 +500,14 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					fmt.Printf("[Worker %d] [%s] checking integrity of %s …\n", workerID, sw.Sample, color.BlueString(vcf))
 					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
 						color.Red("[Worker %d] [%s] gVCF %s corrupted (%v) — re-creating\n", workerID, sw.Sample, color.BlueString(vcf), vErr)
-						if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
+						var callerErr error
+						if caller == "gatk" {
+							_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, species, refVer, gatkLogLevel, verbose, gvcfPath, threadsPerJob)
+						} else {
+							_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, species, refVer, dvVer, modelType, verbose, gvcfPath, threadsPerJob)
+						}
+						if  callerErr != nil {
+							//if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
 							color.Red("[Worker %d] [%s] Error re-creating gVCF %s: %v\n", workerID, sw.Sample, color.BlueString(vcf), err)
 							failedMu.Lock()
 							failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: err})
