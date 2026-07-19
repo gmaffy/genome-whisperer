@@ -480,15 +480,14 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating …\n\n", workerID, sw.Sample, label)
 					var callerErr error
 					if caller == "gatk" {
-						_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, species, refVer, gatkLogLevel, verbose, gvcfPath, threadsPerJob)
+						_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, verbose)
 					} else {
-						_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, species, refVer, dvVer, modelType, verbose, gvcfPath, threadsPerJob)
+						_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, modelType, verbose, threadsPerJob)
 					}
-					if  callerErr != nil {
-						//, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
-						color.Red("[Worker %d] [%s] Error creating gVCF for %s: %v\n\n", workerID, sw.Sample, label, err)
+					if callerErr != nil {
+						color.Red("[Worker %d] [%s] Error creating gVCF for %s: %v\n\n", workerID, sw.Sample, label, callerErr)
 						failedMu.Lock()
-						failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: err})
+						failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: callerErr})
 						failedMu.Unlock()
 					} else {
 						color.Green("[Worker %d] [%s] gVCF for %s created successfully\n\n", workerID, sw.Sample, label)
@@ -502,15 +501,14 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 						color.Red("[Worker %d] [%s] gVCF %s corrupted (%v) — re-creating\n", workerID, sw.Sample, color.BlueString(vcf), vErr)
 						var callerErr error
 						if caller == "gatk" {
-							_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, species, refVer, gatkLogLevel, verbose, gvcfPath, threadsPerJob)
+							_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, verbose)
 						} else {
-							_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, species, refVer, dvVer, modelType, verbose, gvcfPath, threadsPerJob)
+							_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, modelType, verbose, threadsPerJob)
 						}
-						if  callerErr != nil {
-							//if _, err := CreateGvcf(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, caller, dvVer, modelType, verbose); err != nil {
-							color.Red("[Worker %d] [%s] Error re-creating gVCF %s: %v\n", workerID, sw.Sample, color.BlueString(vcf), err)
+						if callerErr != nil {
+							color.Red("[Worker %d] [%s] Error re-creating gVCF %s: %v\n", workerID, sw.Sample, color.BlueString(vcf), callerErr)
 							failedMu.Lock()
-							failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: err})
+							failedTasks = append(failedTasks, FailedTask{Sample: sw.Sample, Chrom: label, Reason: callerErr})
 							failedMu.Unlock()
 						} else {
 							color.Green("[Worker %d] [%s] gVCF %s re-created successfully\n", workerID, sw.Sample, color.BlueString(vcf))
