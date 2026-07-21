@@ -96,7 +96,7 @@ var MergeGvcfsCmd = &cobra.Command{
 
 		//--------------------------------------------- Run merge gvcfs ---------------------------------------------------------- //
 		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, merger: %v, log file: %s \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger, logFile)
-		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger, verbose, quick, skipVerification)
+		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, "gatk", merger, verbose, quick, skipVerification)
 
 	},
 }

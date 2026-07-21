@@ -10,6 +10,26 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
+//func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
+//	lines := []string{
+//		"cd ~/", "rm -r GLnexus.DB",
+//		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
+//		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
+//	}
+//	return strings.Join(lines, "\n")
+//}
+
+func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
+	lines := []string{
+		"set -euo pipefail",
+		"cd ~/",
+		"rm -rf GLnexus.DB",
+		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
+		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
+	}
+	return strings.Join(lines, " && \\\n")
+}
+
 func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, caller string, merger string, verbose bool, quick bool, skipVerification bool) {
 	fmt.Println("Merging GVCFs ...")
 	if config != "" {
@@ -116,6 +136,11 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	}
 
 	// ============================================= Check & validate chrom gVCFs ================================ //
+	//
+	// For every (sample × chrom) pair, mirror VariantCallingDir's logic:
+	//   0 files  → record as missing
+	//   1 file   → validate; record as missing if corrupt
+	//   2+ files → record as ambiguous (multiple)
 
 	color.Green("Checking gVCF presence and integrity for all samples × chroms ...\n\n")
 
@@ -125,10 +150,11 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		reason string // "missing", "corrupted", "multiple"
 	}
 
-	badChromsMap := make(map[string][]missingEntry)
-	for _, chrom := range chroms {
-		var missingGvcfs []missingEntry
-		for _, sample := range samples {
+	var missingGvcfs []missingEntry
+
+	// Build the per-(sample,chrom) gvcf path the same way VariantCallingDir does, using FindBamOrVcfs.
+	for _, sample := range samples {
+		for _, chrom := range chroms {
 			var vcfFiles []string
 			if caller == "gatk" {
 				vcfFiles, _ = FindGVCFs(dataDirAbs, species, sample, refVer, "gatk_gvcfs", chrom.ID)
@@ -161,38 +187,22 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 				missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "multiple"})
 			}
 		}
-		if len(missingGvcfs) > 0 {
-			badChromsMap[chrom.ID] = missingGvcfs
-		}
 	}
 
 	// ============================================= Bail if anything is missing ================================= //
 
-	if len(badChromsMap) > 0 {
-		color.Cyan("========================== Skipping the following chromosomes with missing sample gvcfs: %v\n=============================\n ")
-		for c, entries := range badChromsMap {
-			var missingSamples []string
-			for _, entry := range entries {
-				missingSamples = append(missingSamples, entry.sample)
-			}
-			color.Yellow("Samples with missing/corrupted gvcfs for chromosome [%s]:\n ", c)
-			color.Yellow("%s\n---------------------------------------------------------------------\n\n", missingSamples)
-
+	if len(missingGvcfs) > 0 {
+		color.Red("\n\nCannot proceed with merging. The following gVCFs are missing or invalid:\n")
+		color.Red("%-30s %-20s %s\n", "SAMPLE", "CHROM", "REASON")
+		color.Red("%s\n", strings.Repeat("-", 60))
+		for _, m := range missingGvcfs {
+			color.Red("%-30s %-20s %s\n", m.sample, m.chrom, m.reason)
 		}
+		fmt.Printf("\nTotal issues: %d\n", len(missingGvcfs))
+		return
 	}
 
-	//if len(missingGvcfs) > 0 {
-	//	color.Red("\n\nCannot proceed with merging. The following gVCFs are missing or invalid:\n")
-	//	color.Red("%-30s %-20s %s\n", "SAMPLE", "CHROM", "REASON")
-	//	color.Red("%s\n", strings.Repeat("-", 60))
-	//	for _, m := range missingGvcfs {
-	//		color.Red("%-30s %-20s %s\n", m.sample, m.chrom, m.reason)
-	//	}
-	//	fmt.Printf("\nTotal issues: %d\n", len(missingGvcfs))
-	//	return
-	//}
-	//
-	//color.Green("\nAll gVCFs present and valid. Proceeding with merge ...\n\n")
+	color.Green("\nAll gVCFs present and valid. Proceeding with merge ...\n\n")
 
 	// ============================================= Merge ======================================================= //
 	//TODO:
