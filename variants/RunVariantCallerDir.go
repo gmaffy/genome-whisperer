@@ -477,12 +477,21 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 				switch len(vcfFiles) {
 				case 0:
 
-					color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating …\n\n", workerID, sw.Sample, label)
+
 					var callerErr error
 					if caller == "gatk" {
+						color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating %s with GATK …\n\n", workerID, sw.Sample, label, gvcfPath)
 						_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, verbose)
 					} else {
-						_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, modelType, verbose, threadsPerJob)
+
+						if strings.HasSuffix(strings.ToLower(sw.Sample), "lr") {
+							color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating %s with DeepVariant with model type PACBIO …\n\n", workerID, sw.Sample, label, gvcfPath)
+							_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, "PACBIO", verbose, threadsPerJob)
+						} else {
+							color.Cyan("[Worker %d] [%s] gVCF not found for %s — creating %s with DeepVariant with model type WGS …\n\n", workerID, sw.Sample, label, gvcfPath)
+							_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, "WGS", verbose, threadsPerJob)
+						}
+
 					}
 					if callerErr != nil {
 						color.Red("[Worker %d] [%s] Error creating gVCF for %s: %v\n\n", workerID, sw.Sample, label, callerErr)
@@ -498,12 +507,19 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 					color.Green("[Worker %d] [%s] gVCF for %s exists: %s\n\n", workerID, sw.Sample, label, vcf)
 					fmt.Printf("[Worker %d] [%s] checking integrity of %s …\n", workerID, sw.Sample, color.BlueString(vcf))
 					if vErr := utils.ValidateGvcf(vcf, verbose, quick); vErr != nil {
-						color.Red("[Worker %d] [%s] gVCF %s corrupted (%v) — re-creating\n", workerID, sw.Sample, color.BlueString(vcf), vErr)
+
 						var callerErr error
 						if caller == "gatk" {
+							color.Red("[Worker %d] [%s] gVCF %s corrupted (%v) — re-creating with GATK\n", workerID, sw.Sample, color.BlueString(vcf), vErr)
 							_, callerErr = CreateGvcfGATK(sw.Cram, resolvedFasta, item.chroms, gvcfPath, gatkLogLevel, verbose)
 						} else {
-							_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, modelType, verbose, threadsPerJob)
+							if strings.HasSuffix(strings.ToLower(sw.Sample), "lr") {
+								color.Yellow("[Worker %d] [%s] gVCF %s corrupted (%v) — re-creating with DeepVariant with modelType PACBIO \n", workerID, sw.Sample, color.BlueString(vcf), vErr)
+								_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, "PACBIO", verbose, threadsPerJob)
+							} else {
+								color.Yellow("[Worker %d] [%s] gVCF %s corrupted (%v) — re-creating with DeepVariant with modelType WGS \n", workerID, sw.Sample, color.BlueString(vcf), vErr)
+								_, callerErr = CreateGvcfDV(sw.Cram, resolvedFasta, item.chroms, gvcfPath, dvVer, "WGS", verbose, threadsPerJob)
+							}
 						}
 						if callerErr != nil {
 							color.Red("[Worker %d] [%s] Error re-creating gVCF %s: %v\n", workerID, sw.Sample, color.BlueString(vcf), callerErr)
@@ -541,19 +557,7 @@ func VariantCallingDir(dataDir string, species string, refVer string, genomesDir
 	close(workCh)
 	wg2.Wait()
 
-	// ── remove deepvariant intermediate directories ───────────────────────────
-	//if strings.ToLower(caller) == "deepvariant" {
-	//	color.Cyan("Cleaning up DeepVariant intermediate results ...")
-	//	for _, sw := range validSamples {
-	//		// DeepVariant intermediate results are in sw.CramDir/refVer/gvcfs/tmp_*
-	//		gvcfDir := filepath.Join(sw.CramDir, refVer, "gvcfs")
-	//		pattern := filepath.Join(gvcfDir, "tmp_*")
-	//		matches, _ := filepath.Glob(pattern)
-	//		for _, m := range matches {
-	//			os.RemoveAll(m)
-	//		}
-	//	}
-	//}
+
 
 	// ── summary ───────────────────────────────────────────────────────────────
 	fmt.Printf("\n%s FINAL SUMMARY %s\n", strings.Repeat("=", 29), strings.Repeat("=", 29))

@@ -30,7 +30,7 @@ func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
 	return strings.Join(lines, " && \\\n")
 }
 
-func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, merger string, verbose bool, quick bool, skipVerification bool) {
+func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, caller string, merger string, verbose bool, quick bool, skipVerification bool) {
 	fmt.Println("Merging GVCFs ...")
 	if config != "" {
 		fmt.Println("Using config file: ", config)
@@ -155,7 +155,12 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	// Build the per-(sample,chrom) gvcf path the same way VariantCallingDir does, using FindBamOrVcfs.
 	for _, sample := range samples {
 		for _, chrom := range chroms {
-			vcfFiles, _ := FindBamOrVcfs(dataDirAbs, species, sample, refVer, "gvcfs", chrom.ID)
+			var vcfFiles []string
+			if caller == "gatk" {
+				vcfFiles, _ = FindGVCFs(dataDirAbs, species, sample, refVer, "gatk_gvcfs", chrom.ID)
+			} else {
+				vcfFiles, _ = FindGVCFs(dataDirAbs, species, sample, refVer, "dv_gvcfs", chrom.ID)
+			}
 
 			switch len(vcfFiles) {
 			case 0:
@@ -200,6 +205,14 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	color.Green("\nAll gVCFs present and valid. Proceeding with merge ...\n\n")
 
 	// ============================================= Merge ======================================================= //
+	//TODO:
+	// a) verify missing gvcfs for each sample, continue for samples that are complete but skip if r
+	//1. Check VCFs/<ver>/ directiory for latest ALL.vcf.gz file (from timestamped directory)
+	//2. Use bcftools to check the sample names (or vcfgo)
+	//3. check sample names of current scan and check if there are new samples
+	//4. If new samples create another time stamp
+	//5. If gatk caller merge with GATK
+	//6. If deepvariant merge with glnexus
 
 	switch merger {
 	case "gatk":
