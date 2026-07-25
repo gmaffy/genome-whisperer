@@ -4,109 +4,116 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7f44438d-fc8c-46c4-ae8e-2911a3744798" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/variants/mergeGVCFs.go" afterDir="false" />
+    <list default="true" id="0454ffc6-f3be-43ae-bab4-a1e8ca0ae930" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/genome-whisperer.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/genome-whisperer.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/RunVariantCaller.go.1" beforeDir="false" afterPath="$PROJECT_DIR$/old/RunVariantCaller.go.1" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/RunVariantCallerDir.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/RunVariantCallerDir.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/variants/mergeGvcfs.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/mergeGvcfs.go.1" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/mergeGVCFs.go" beforeDir="false" afterPath="$PROJECT_DIR$/variants/mergeGVCFs.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/variants/mergeGVCFs.go.workin" beforeDir="false" afterPath="$PROJECT_DIR$/variants/mergeGVCFs.go.1" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_/Users/godwinmafireyi/Developer/GitHub/PhD/genome-whisperer" value="3GtP6gIAVnnqeHHPkFr1KQDYAZp" />
+    </persistenceIdMap>
+  </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="176" />
+    <option name="cachedIndexableFilesCount" value="177" />
   </component>
-  <component name="FileTemplateManagerImpl">
-    <option name="RECENT_TEMPLATES">
-      <list>
-        <option value="Go File" />
-      </list>
-    </option>
-  </component>
-  <component name="GOROOT" url="file://$USER_HOME$/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.windows-amd64" />
+  <component name="GOROOT" url="file:///opt/homebrew/Cellar/go/1.26.5/libexec" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "gmaffy"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/gmaffy/genome-whisperer.git",
+    "accountId": "931e77e7-2873-4cd6-80f9-fb66442afba7"
+  }
+}]]></component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0000000154428075" />
-      <entry key="S30" value="1.008719917183026" />
-      <entry key="S60" value="1.3272804242772445" />
-      <entry key="M2" value="3.581069989856261" />
-      <entry key="M5" value="12.518908611692954" />
-      <entry key="M10" value="24.7043972205737" />
-      <entry key="M15" value="34.228879247504594" />
-      <entry key="M30" value="53.49212733523298" />
-      <entry key="H1" value="78.94345677984528" />
-      <entry key="H2" value="124.28860325492151" />
-      <entry key="H4" value="185.62506383616446" />
-      <entry key="D1" value="291.44799896396813" />
-      <entry key="W1" value="318.21412005947246" />
+      <entry key="MS100" value="8.096805680737325E-9" />
+      <entry key="MS500" value="0.02408034716255008" />
+      <entry key="S2" value="0.397048342528451" />
+      <entry key="S5" value="0.8639376916167556" />
+      <entry key="S10" value="1.5422127239685404" />
+      <entry key="S30" value="2.7901918315896124" />
+      <entry key="S60" value="3.3243913683122175" />
+      <entry key="M2" value="3.642261589868123" />
+      <entry key="M5" value="3.8517974126149057" />
+      <entry key="M10" value="3.92501902286827" />
+      <entry key="M15" value="3.9498150287891947" />
+      <entry key="M30" value="3.974808140111841" />
+      <entry key="H1" value="3.9873793449776884" />
+      <entry key="H2" value="3.9953719646348436" />
+      <entry key="H4" value="4.159716167460941" />
+      <entry key="D1" value="13.041619511933188" />
+      <entry key="W1" value="22.600725547797857" />
     </decayedCancelled>
     <decayedSelected>
-      <entry key="MS100" value="0.0" />
-      <entry key="MS500" value="4.876220407754435E-198" />
-      <entry key="S2" value="4.815949246198333E-50" />
-      <entry key="S5" value="2.280580961540226E-20" />
-      <entry key="S10" value="2.0135550064990813E-10" />
-      <entry key="S30" value="9.168442219888465E-4" />
-      <entry key="S60" value="0.04274094085844672" />
-      <entry key="M2" value="0.29283899820978765" />
-      <entry key="M5" value="1.0499532078175016" />
-      <entry key="M10" value="2.145832957759973" />
-      <entry key="M15" value="3.0873346591920474" />
-      <entry key="M30" value="5.325664691077915" />
-      <entry key="H1" value="8.26838088245319" />
-      <entry key="H2" value="11.477875550435616" />
-      <entry key="H4" value="14.485325749432961" />
-      <entry key="D1" value="18.797964658312967" />
-      <entry key="W1" value="19.819157023533265" />
+      <entry key="MS100" value="1.0" />
+      <entry key="MS500" value="1.000002081420664" />
+      <entry key="S2" value="1.0379830613921173" />
+      <entry key="S5" value="1.2702937391435847" />
+      <entry key="S10" value="1.5198978160596415" />
+      <entry key="S30" value="1.8040924747285807" />
+      <entry key="S60" value="1.8967120355658111" />
+      <entry key="M2" value="1.946948803033095" />
+      <entry key="M5" value="1.9784318912714363" />
+      <entry key="M10" value="1.9891571620685138" />
+      <entry key="M15" value="1.9927583150118293" />
+      <entry key="M30" value="1.9963725784122268" />
+      <entry key="H1" value="1.9981846414991002" />
+      <entry key="H2" value="1.999099413903158" />
+      <entry key="H4" value="2.0022854672815322" />
+      <entry key="D1" value="2.37399033903535" />
+      <entry key="W1" value="2.8689348326867106" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.8350879194283694" />
-      <entry key="MS500" value="0.9645981845841383" />
-      <entry key="S2" value="0.9910295632640791" />
-      <entry key="S5" value="0.9964021225885421" />
-      <entry key="S10" value="0.998199455809062" />
-      <entry key="S30" value="1.0088644443651997" />
-      <entry key="S60" value="1.3649827647730057" />
-      <entry key="M2" value="3.8550916290060435" />
-      <entry key="M5" value="13.540735225314082" />
-      <entry key="M10" value="26.82350559294517" />
-      <entry key="M15" value="37.29101163933661" />
-      <entry key="M30" value="58.795211921484785" />
-      <entry key="H1" value="87.19326520983938" />
-      <entry key="H2" value="135.75331154130606" />
-      <entry key="H4" value="200.1021603129646" />
-      <entry key="D1" value="310.2442389377132" />
-      <entry key="W1" value="338.0330194545314" />
+      <entry key="MS100" value="0.01757903882326264" />
+      <entry key="MS500" value="0.445657783579252" />
+      <entry key="S2" value="0.8824522914839091" />
+      <entry key="S5" value="1.5714633387988293" />
+      <entry key="S10" value="2.6172182714546794" />
+      <entry key="S30" value="4.375501132599097" />
+      <entry key="S60" value="5.098787838774923" />
+      <entry key="M2" value="5.5243785678223665" />
+      <entry key="M5" value="5.803350310120786" />
+      <entry key="M10" value="5.900573240011127" />
+      <entry key="M15" value="5.933467953378779" />
+      <entry key="M30" value="5.966609532051921" />
+      <entry key="H1" value="5.983273749436838" />
+      <entry key="H2" value="5.993324931885373" />
+      <entry key="H4" value="6.161420023751303" />
+      <entry key="D1" value="15.415434064405234" />
+      <entry key="W1" value="25.46962288091255" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo"><![CDATA[{
   "customColor": "",
   "associatedIndex": 6
 }]]></component>
-  <component name="ProjectId" id="3GnuIcd8IdJHYs0mkjdoU7w6efw" />
+  <component name="ProjectId" id="3GtP6gIAVnnqeHHPkFr1KQDYAZp" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
-    "DefaultGoTemplateProperty": "Go File",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.GoLinterPluginOnboardingV2": "true",
     "RunOnceActivity.GoLinterPluginStorageMigration": "true",
@@ -120,31 +127,19 @@
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "copilot.chat.legacySessionMetadata.migrated": "true",
     "git-widget-placeholder": "main",
     "go.sdk.automatically.set": "true",
     "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "C:/Users/GodwinMafireyi",
+    "last_opened_file_path": "/Users/godwinmafireyi",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "run.configurations.included.in.services": "true",
     "to.speed.mode.migration.done": "true"
   }
 }]]></component>
-  <component name="RecentsManager">
-    <key name="MoveFile.RECENT_KEYS">
-      <recent name="E:\GitHub\PhD\genome-whisperer\old" />
-    </key>
-  </component>
-  <component name="RunDashboard">
-    <option name="configurationTypes">
-      <set>
-        <option value="GoApplicationRunConfiguration" />
-      </set>
-    </option>
-  </component>
-  <component name="RunManager" selected="Go Build.go build genome-whisperer/">
-    <configuration name="go build genome-whisperer/" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+  <component name="RunManager" selected="Go Build.go build github.com/gmaffy/genome-whisperer">
+    <configuration name="go build github.com/gmaffy/genome-whisperer" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
       <module name="genome-whisperer" />
       <working_directory value="$PROJECT_DIR$" />
       <kind value="PACKAGE" />
@@ -153,31 +148,13 @@
       <auto_managed_config_id value="$PROJECT_DIR$" />
       <method v="2" />
     </configuration>
-    <configuration name="go build publication/" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
+    <configuration name="go build github.com/gmaffy/genome-whisperer/old/publication" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
       <module name="genome-whisperer" />
       <working_directory value="$PROJECT_DIR$" />
       <kind value="PACKAGE" />
       <package value="github.com/gmaffy/genome-whisperer/old/publication" />
       <directory value="$PROJECT_DIR$" />
       <auto_managed_config_id value="$PROJECT_DIR$/old/publication" />
-      <method v="2" />
-    </configuration>
-    <configuration name="go build v1/" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
-      <module name="genome-whisperer" />
-      <working_directory value="$PROJECT_DIR$/old/v1" />
-      <kind value="PACKAGE" />
-      <package value="github.com/gmaffy/genome-whisperer" />
-      <directory value="$PROJECT_DIR$" />
-      <auto_managed_config_id value="$PROJECT_DIR$/old/v1" />
-      <method v="2" />
-    </configuration>
-    <configuration name="go build v2/" type="GoApplicationRunConfiguration" factoryName="Go Application" nameIsGenerated="true">
-      <module name="genome-whisperer" />
-      <working_directory value="$PROJECT_DIR$/old/v2" />
-      <kind value="PACKAGE" />
-      <package value="github.com/gmaffy/genome-whisperer" />
-      <directory value="$PROJECT_DIR$" />
-      <auto_managed_config_id value="$PROJECT_DIR$/old/v2" />
       <method v="2" />
     </configuration>
   </component>
@@ -191,26 +168,15 @@
   </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
-      <changelist id="7f44438d-fc8c-46c4-ae8e-2911a3744798" name="Changes" comment="" />
-      <created>1784619575973</created>
+      <changelist id="0454ffc6-f3be-43ae-bab4-a1e8ca0ae930" name="Changes" comment="" />
+      <created>1784787719004</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
-      <updated>1784619575973</updated>
+      <updated>1784787719004</updated>
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="DlvLineBreakpoint">
-          <url>file://$PROJECT_DIR$/variants/RunVariantCallerDir.go</url>
-          <line>89</line>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
   </component>
 </project>

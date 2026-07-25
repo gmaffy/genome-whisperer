@@ -10,24 +10,175 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
-//func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
-//	lines := []string{
-//		"cd ~/", "rm -r GLnexus.DB",
-//		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
-//		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
-//	}
-//	return strings.Join(lines, "\n")
-//}
-
-func glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper string) string {
-	lines := []string{
-		"set -euo pipefail",
-		"cd ~/",
-		"rm -rf GLnexus.DB",
-		fmt.Sprintf("glnexus_cli --config gatk %s/*/*/reference_genomes/%s/gvcfs/*%s.g.vcf.gz > %s/%s.%s.joint.bcf", speciesDir, refVer, sID, outDir, speciesUpper, sID),
-		fmt.Sprintf("bcftools view %s/%s.%s.joint.bcf | bgzip -@ 4 -c > %s/%s.%s.joint.vcf.gz", outDir, speciesUpper, sID, outDir, speciesUpper, sID),
+func MergeGvcfsGATKDir(gvcfs []string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string, outDir string, logged []utils.LogEntry, jlog *slog.Logger) (string, error) {
+	chromDirName := "contigs"
+	if chrom != "contigs" {
+		chromDirName = strings.ReplaceAll(chrom, ".", "_")
 	}
-	return strings.Join(lines, " && \\\n")
+	chromDir := filepath.Join(outDir, chromDirName)
+	theDB := filepath.Join(chromDir, chrom+"DB")
+	tmpDir := filepath.Join(chromDir, "tmp")
+	tmpDir2 := filepath.Join(chromDir, "tmp2")
+	vcfDir := filepath.Join(chromDir, "VCFs")
+
+	for _, dir := range []string{tmpDir, tmpDir2, vcfDir} {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+				return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+			}
+		}
+	}
+
+	jointVCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.vcf.gz")
+
+	_, vcfErr := os.Stat(vcfDir)
+	if vcfErr == nil {
+		fmt.Printf("VCF directory %s already exists. Skipping creation.\n", vcfDir)
+	}
+
+	// ── GenomicsDBImport ────────────────────────────────────────────────────
+	if !utils.StageHasCompleted(logged, stageGenomicsDBImport, "ALL", chrom) {
+		if rErr := os.RemoveAll(theDB); rErr != nil {
+			return "", fmt.Errorf("removing %s: %w", theDB, rErr)
+		}
+
+		if len(gvcfs) == 0 {
+			return "", fmt.Errorf("no gVCFs to merge for %s", chrom)
+		}
+		// Write the sample map alongside the gVCFs. Their directory is caller-specific
+		// (gatk_gvcfs / dv_gvcfs), so derive it from the gVCF paths rather than assuming.
+		sampleMap, err := CreateSampleMap(gvcfs, filepath.Dir(gvcfs[0]))
+		if err != nil {
+			return "", fmt.Errorf("creating sample map: %w", err)
+		}
+
+		gDBCmd := fmt.Sprintf(
+			`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport --sample-name-map %s `+
+				`--genomicsdb-workspace-path %s --tmp-dir %s -L %s `+
+				`--genomicsdb-shared-posixfs-optimizations true --batch-size 50 `+
+				`--bypass-feature-reader --verbosity %s`,
+			sampleMap, theDB, tmpDir, chrom, logLevel,
+		)
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGenomicsDBImport, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED", "CMD", gDBCmd)
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGenomicsDBImport, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED")
+
+		if err := utils.RunCmd(gDBCmd, verbose); err != nil {
+			jlog.Error("VARIANT CALLING", "PROGRAM", stageGenomicsDBImport, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			slog.Error("VARIANT CALLING", "PROGRAM", stageGenomicsDBImport, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			return "", fmt.Errorf("gatk GenomicsDBImport: %w", err)
+		}
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGenomicsDBImport, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGenomicsDBImport, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
+	} else {
+		slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageGenomicsDBImport, chrom))
+	}
+
+	// ── GenotypeGVCFs ───────────────────────────────────────────────────────
+	if !utils.StageHasCompleted(logged, stageGenotypeGVCFs, "ALL", chrom) {
+		genoCmd := fmt.Sprintf(
+			`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s --verbosity %s`,
+			refFile, theDB, jointVCF, tmpDir2, logLevel,
+		)
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGenotypeGVCFs, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED", "CMD", genoCmd)
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGenotypeGVCFs, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED")
+
+		if err := utils.RunCmd(genoCmd, verbose); err != nil {
+			jlog.Error("VARIANT CALLING", "PROGRAM", stageGenotypeGVCFs, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			slog.Error("VARIANT CALLING", "PROGRAM", stageGenotypeGVCFs, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			return "", fmt.Errorf("gatk GenotypeGVCFs: %w", err)
+		}
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGenotypeGVCFs, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGenotypeGVCFs, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
+	} else {
+		slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageGenotypeGVCFs, chrom))
+	}
+
+	return jointVCF, nil
+}
+
+func MergeGvcfsGlnexusDir(gvcfs []string, chrom string, species string, refVer string, caller string, verbose bool, outDir string, logged []utils.LogEntry, jlog *slog.Logger) (string, error) {
+
+	chromDirName := "contigs"
+	if chrom != "contigs" {
+		chromDirName = strings.ReplaceAll(chrom, ".", "_")
+	}
+	chromDir := filepath.Join(outDir, chromDirName)
+
+	vcfDir := filepath.Join(chromDir, "VCFs")
+	for _, dir := range []string{vcfDir} {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if cErr := os.MkdirAll(dir, 0755); cErr != nil {
+				return "", fmt.Errorf("creating directory %s: %w", dir, cErr)
+			}
+			//fmt.Printf("Created directory: %s\n", dir)
+		}
+	}
+	var glnexusPreset string
+	if caller == "gatk" {
+		glnexusPreset = "gatk"
+	} else {
+		glnexusPreset = "DeepVariant"
+	}
+	jointVCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.vcf.gz")
+	jointBCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.bcf")
+	gvcfFiles := strings.Join(gvcfs, " ")
+
+	if !utils.StageHasCompleted(logged, stageGLNEXUS, "ALL", chrom) {
+		glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s %s > %s`, glnexusPreset, filepath.Join(vcfDir, "GLnexus.DB"), gvcfFiles, jointBCF)
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED", "CMD", glnexusCmd)
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED")
+
+		if err := utils.RunCmd(glnexusCmd, verbose); err != nil {
+			jlog.Error("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			slog.Error("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			return "", fmt.Errorf("glnexus_cli: %w", err)
+		}
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
+	} else {
+		slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageGLNEXUS, chrom))
+	}
+
+	// ── bcftools view | bgzip ──────────────────────────────────────────────────
+	if !utils.StageHasCompleted(logged, stageGLNEXUSBCFTOOLS, "ALL", chrom) {
+		bcfCmd := fmt.Sprintf("bcftools view %s | bgzip -@ 4 -c > %s", jointBCF, jointVCF)
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSBCFTOOLS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED", "CMD", bcfCmd)
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSBCFTOOLS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED")
+
+		if err := utils.RunCmd(bcfCmd, verbose); err != nil {
+			jlog.Error("VARIANT CALLING", "PROGRAM", stageGLNEXUSBCFTOOLS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			slog.Error("VARIANT CALLING", "PROGRAM", stageGLNEXUSBCFTOOLS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			return "", fmt.Errorf("bcftools view: %w", err)
+		}
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSBCFTOOLS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSBCFTOOLS, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
+	} else {
+		slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageGLNEXUSBCFTOOLS, chrom))
+	}
+
+	// ── tabix index ──────────────────────────────────────────────────────────
+	if !utils.StageHasCompleted(logged, stageGLNEXUSIndex, "ALL", chrom) {
+		indexCmd := fmt.Sprintf(`tabix -p vcf %s`, jointVCF)
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSIndex, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED", "CMD", indexCmd)
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSIndex, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "STARTED")
+
+		if err := utils.RunCmd(indexCmd, verbose); err != nil {
+			jlog.Error("VARIANT CALLING", "PROGRAM", stageGLNEXUSIndex, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			slog.Error("VARIANT CALLING", "PROGRAM", stageGLNEXUSIndex, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", fmt.Sprintf("FAILED: %v", err))
+			return "", fmt.Errorf("indexing joint VCF with tabix: %w", err)
+		}
+		jlog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSIndex, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		slog.Info("VARIANT CALLING", "PROGRAM", stageGLNEXUSIndex, "SAMPLE", "ALL", "CHROMOSOME", chrom, "STATUS", "COMPLETED")
+		fmt.Printf("\n\n%s\n\n", strings.Repeat("-", 90))
+	} else {
+		slog.Info(fmt.Sprintf("%s already completed for %s. Skipping.", stageGLNEXUSIndex, chrom))
+	}
+
+	return jointVCF, nil
 }
 
 func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, refVer string, refFasta string, outDir string, caller string, merger string, verbose bool, quick bool, skipVerification bool) {
@@ -136,11 +287,6 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	}
 
 	// ============================================= Check & validate chrom gVCFs ================================ //
-	//
-	// For every (sample × chrom) pair, mirror VariantCallingDir's logic:
-	//   0 files  → record as missing
-	//   1 file   → validate; record as missing if corrupt
-	//   2+ files → record as ambiguous (multiple)
 
 	color.Green("Checking gVCF presence and integrity for all samples × chroms ...\n\n")
 
@@ -150,11 +296,10 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		reason string // "missing", "corrupted", "multiple"
 	}
 
-	var missingGvcfs []missingEntry
-
-	// Build the per-(sample,chrom) gvcf path the same way VariantCallingDir does, using FindBamOrVcfs.
-	for _, sample := range samples {
-		for _, chrom := range chroms {
+	badChromsMap := make(map[string][]missingEntry)
+	for _, chrom := range chroms {
+		var missingGvcfs []missingEntry
+		for _, sample := range samples {
 			var vcfFiles []string
 			if caller == "gatk" {
 				vcfFiles, _ = FindGVCFs(dataDirAbs, species, sample, refVer, "gatk_gvcfs", chrom.ID)
@@ -187,22 +332,50 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 				missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "multiple"})
 			}
 		}
+		if len(missingGvcfs) > 0 {
+			badChromsMap[chrom.ID] = missingGvcfs
+		}
 	}
 
 	// ============================================= Bail if anything is missing ================================= //
 
-	if len(missingGvcfs) > 0 {
-		color.Red("\n\nCannot proceed with merging. The following gVCFs are missing or invalid:\n")
-		color.Red("%-30s %-20s %s\n", "SAMPLE", "CHROM", "REASON")
-		color.Red("%s\n", strings.Repeat("-", 60))
-		for _, m := range missingGvcfs {
-			color.Red("%-30s %-20s %s\n", m.sample, m.chrom, m.reason)
+	if len(badChromsMap) > 0 {
+		color.Cyan("========================== Skipping the following chromosomes with missing sample gvcfs: %v\n=============================\n ")
+		for c, entries := range badChromsMap {
+			var missingSamples []string
+			for _, entry := range entries {
+				missingSamples = append(missingSamples, entry.sample)
+			}
+			color.Yellow("Samples with missing/corrupted gvcfs for chromosome [%s]:\n ", c)
+			color.Yellow("%s\n---------------------------------------------------------------------\n\n", missingSamples)
+
 		}
-		fmt.Printf("\nTotal issues: %d\n", len(missingGvcfs))
-		return
 	}
 
-	color.Green("\nAll gVCFs present and valid. Proceeding with merge ...\n\n")
+	for _, chrom := range chroms {
+		if entries, ok := badChromsMap[chrom.ID]; ok {
+			color.Red("Skipping chromosome %s due to missing/corrupted gVCFs for samples: %v\n", chrom.ID, entries)
+			continue
+		}
+		switch merger {
+		case "gatk":
+
+		}
+
+	}
+
+	//if len(missingGvcfs) > 0 {
+	//	color.Red("\n\nCannot proceed with merging. The following gVCFs are missing or invalid:\n")
+	//	color.Red("%-30s %-20s %s\n", "SAMPLE", "CHROM", "REASON")
+	//	color.Red("%s\n", strings.Repeat("-", 60))
+	//	for _, m := range missingGvcfs {
+	//		color.Red("%-30s %-20s %s\n", m.sample, m.chrom, m.reason)
+	//	}
+	//	fmt.Printf("\nTotal issues: %d\n", len(missingGvcfs))
+	//	return
+	//}
+	//
+	//color.Green("\nAll gVCFs present and valid. Proceeding with merge ...\n\n")
 
 	// ============================================= Merge ======================================================= //
 	//TODO:
@@ -214,38 +387,38 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	//5. If gatk caller merge with GATK
 	//6. If deepvariant merge with glnexus
 
-	switch merger {
-	case "gatk":
-		fmt.Println("Using GATK MergeVcfs")
-		// TODO: implement GATK merging
+	// switch merger {
+	// case "gatk":
+	// 	fmt.Println("Using GATK MergeVcfs")
+	// 	// TODO: implement GATK merging
 
-	case "glnexus":
-		fmt.Println("Using GLnexus merge")
+	// case "glnexus":
+	// 	fmt.Println("Using GLnexus merge")
 
-		for _, chrom := range chroms {
-			sID := chrom.ID
+	// 	for _, chrom := range chroms {
+	// 		sID := chrom.ID
 
-			speciesDir := filepath.Join(dataDirAbs, strings.ToLower(species))
-			speciesUpper := strings.ToUpper(species)
-			glnexusCmdStr := glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper)
+	// 		speciesDir := filepath.Join(dataDirAbs, strings.ToLower(species))
+	// 		speciesUpper := strings.ToUpper(species)
+	// 		glnexusCmdStr := glnexusSript(speciesDir, refVer, sID, outDir, speciesUpper)
 
-			var glErr error
-			if verbose {
-				glErr = utils.RunBashCmdVerbose(glnexusCmdStr)
-			} else {
-				glErr = utils.RunBashCmd(glnexusCmdStr)
-			}
+	// 		var glErr error
+	// 		if verbose {
+	// 			glErr = utils.RunBashCmdVerbose(glnexusCmdStr)
+	// 		} else {
+	// 			glErr = utils.RunBashCmd(glnexusCmdStr)
+	// 		}
 
-			if glErr != nil {
-				color.Red("GLnexus FAILED for chrom %s: %v\n", sID, glErr)
-				return
-			}
+	// 		if glErr != nil {
+	// 			color.Red("GLnexus FAILED for chrom %s: %v\n", sID, glErr)
+	// 			return
+	// 		}
 
-			color.Green("GLnexus completed for chrom %s\n", sID)
-			fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
-		}
+	// 		color.Green("GLnexus completed for chrom %s\n", sID)
+	// 		fmt.Printf("\n\n-------------------------------------------------------------------------------------------\n\n")
+	// 	}
 
-	default:
-		fmt.Println("Please provide a valid merger: either gatk or glnexus")
-	}
+	// default:
+	// 	fmt.Println("Please provide a valid merger: either gatk or glnexus")
+	// }
 }
