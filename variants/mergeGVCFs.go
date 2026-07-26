@@ -1,7 +1,9 @@
 package variants
 
 import (
+	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +12,53 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
-func MergeGvcfsGATKDir(gvcfs []string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string, outDir string, logged []utils.LogEntry, jlog *slog.Logger) (string, error) {
+func gvcfSampleName(gvcf string) ([]string, error) {
+	in, cleanup, err := openVCF(gvcf)
+	if err != nil {
+		return nil, fmt.Errorf("open %q: %w", gvcf, err)
+	}
+	defer cleanup()
+
+	scanner := bufio.NewScanner(in)
+	// header lines can be long when there are many samples; grow the buffer
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#CHROM") {
+			fields := strings.Split(line, "\t")
+			if len(fields) <= 9 {
+				return []string{}, fmt.Errorf("No sample columns") // sites-only VCF, no sample columns
+			}
+			return fields[9:], nil
+		}
+		if !strings.HasPrefix(line, "#") {
+			break // hit variant records without ever seeing #CHROM
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scanning %s: %w", gvcf, err)
+	}
+	return nil, fmt.Errorf("%s: no #CHROM header line found", gvcf)
+
+}
+
+func allGvcfSampleNames(gvcfs []string) ([]string, error) {
+	var allNames []string
+	for _, gvcf := range gvcfs {
+		names, err := gvcfSampleName(gvcf)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			allNames = append(allNames, name)
+		}
+
+	}
+	return allNames, nil
+}
+
+func MergeGvcfsGATKDir(gvcfs []string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string, outDir string, quick bool) (string, error) {
 	chromDirName := "contigs"
 	if chrom != "contigs" {
 		chromDirName = strings.ReplaceAll(chrom, ".", "_")
@@ -31,9 +79,15 @@ func MergeGvcfsGATKDir(gvcfs []string, refFile string, chrom string, species str
 
 	jointVCF := filepath.Join(vcfDir, species+refVer+"."+chrom+".joint.vcf.gz")
 
-	_, vcfErr := os.Stat(vcfDir)
+	_, vcfErr := os.Stat(jointVCF)
 	if vcfErr == nil {
-		fmt.Printf("VCF directory %s already exists. Skipping creation.\n", vcfDir)
+		fmt.Printf("merged VCF %s already exists. Validating ...\n", vcfDir)
+		vErr := utils.ValidateGvcf(jointVCF, verbose, quick)
+		if vErr != nil {
+			color.Yellow("merged VCF %s is corrupted: %v", jointVCF, vErr)
+			color.Yellow("re-merging ...")
+		}
+
 	}
 
 	// ── GenomicsDBImport ────────────────────────────────────────────────────
@@ -351,6 +405,8 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 
 		}
 	}
+
+	// ==================================== Get
 
 	for _, chrom := range chroms {
 		if entries, ok := badChromsMap[chrom.ID]; ok {
