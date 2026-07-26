@@ -6,11 +6,52 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
 )
+
+func CreateTimestampedVCFDir(parentDir string) (string, error) {
+
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		return "", fmt.Errorf("creating VCFs directory: %w", err)
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	dirPath := filepath.Join(parentDir, timestamp)
+
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		return "", fmt.Errorf("creating timestamped directory: %w", err)
+	}
+
+	return dirPath, nil
+}
+
+func LatestVCFDir(parentDir string) (string, error) {
+
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return "", fmt.Errorf("reading VCFs directory: %w", err)
+	}
+
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+
+	if len(dirs) == 0 {
+		return "", fmt.Errorf("no timestamped directories found in %s", parentDir)
+	}
+
+	sort.Strings(dirs)
+
+	return filepath.Join(parentDir, dirs[len(dirs)-1]), nil
+}
 
 func gvcfSampleName(gvcf string) ([]string, error) {
 	in, cleanup, err := openVCF(gvcf)
@@ -406,7 +447,7 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		}
 	}
 
-	// ==================================== Get
+	// ==================================== Check most recent vcf directory ====================================== //
 
 	for _, chrom := range chroms {
 		if entries, ok := badChromsMap[chrom.ID]; ok {
