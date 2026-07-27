@@ -392,8 +392,10 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	}
 
 	badChromsMap := make(map[string][]missingEntry)
+	validChromsMap := make(map[string][]string)
 	for _, chrom := range chroms {
 		var missingGvcfs []missingEntry
+		var validGvcfs []string
 		for _, sample := range samples {
 			var vcfFiles []string
 			if caller == "gatk" {
@@ -419,6 +421,8 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 						missingGvcfs = append(missingGvcfs, missingEntry{sample: sample, chrom: chrom.ID, reason: "corrupted"})
 					} else {
 						color.Green("[%s] gVCF %s is valid!!\n\n", sample, vcf)
+						validGvcfs = append(validGvcfs, vcf)
+
 					}
 				}
 
@@ -429,6 +433,8 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		}
 		if len(missingGvcfs) > 0 {
 			badChromsMap[chrom.ID] = missingGvcfs
+		} else {
+			validChromsMap[chrom.ID] = validGvcfs
 		}
 	}
 
@@ -448,15 +454,32 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 	}
 
 	// ==================================== Check most recent vcf directory ====================================== //
+	latestDir, err := LatestVCFDir(outDir)
+	if err != nil {
+		color.Red("Error getting latest VCF directory: %v", err)
+		latestDir, err = CreateTimestampedVCFDir(outDir)
+		if err != nil {
+			color.Red("Error creating timestamped VCF directory: %v", err)
+			return
+		}
+	}
+	color.Green("Latest VCF directory: %s\n", latestDir)
+
+	// ==================================== Check current merged vcf against gvcfs ====================================== //
+	if len(validChromsMap) == 0 {
+		color.Red("No valid gVCFs found. Cannot proceed with merging.")
+		return
+	}
+
+	for chromID, validGvcfs := range validChromsMap {
+		color.Green("Valid gVCFs for chromosome %s: %v\n", chromID, validGvcfs)
+
+	}
 
 	for _, chrom := range chroms {
 		if entries, ok := badChromsMap[chrom.ID]; ok {
 			color.Red("Skipping chromosome %s due to missing/corrupted gVCFs for samples: %v\n", chrom.ID, entries)
 			continue
-		}
-		switch merger {
-		case "gatk":
-
 		}
 
 	}
