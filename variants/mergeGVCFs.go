@@ -459,82 +459,81 @@ func MergeGvcfs(config string, gvcfs []string, dataDir string, species string, r
 		return
 	}
 
-	// ==================================== Check most recent vcf directory ====================================== //
+	// ==================================== Check gvcfs in the most recent vcf directory ====================================== //
 	latestDir, err := LatestVCFDir(outDir)
 	//var newVcfDir string
+	var outdatedJointVCFs []string
+	var validJointVCFs []string
+	noVcfDir := false
 	if err != nil {
 		color.Red("Error getting latest VCF directory: %v", err)
-		// newVcfDir, err = CreateTimestampedVCFDir(outDir)
-		// if err != nil {
-		// 	color.Red("Error creating timestamped VCF directory: %v", err)
-		// 	return
-		// }
+		noVcfDir = true
 	} else {
 		// Compare gvcfs samples against the joint VCFs in the latest directory
 		color.Green("Latest VCF directory: %s\n", latestDir)
-		var outdatedJointVCFs []string
-		var validJointVCFs []string
+
 		for chromID, validGvcfs := range validChromsMap {
 			color.Green("Valid gVCFs for chromosome %s: %v\n", chromID, validGvcfs)
 			gvcfSampleNames, err := allGvcfSampleNames(validGvcfs)
+			jointVCF := filepath.Join(latestDir, species+refVer+"."+chromID+".joint.vcf.gz")
 			if err != nil {
 				color.Red("Error extracting sample names: %v", err)
-
-			}
-			color.Green("Sample names from gVCFs: %v\n", gvcfSampleNames)
-			jointVCF := filepath.Join(latestDir, species+refVer+"."+chromID+".joint.vcf.gz")
-
-			_, vcfErr := os.Stat(jointVCF)
-			if vcfErr == nil {
-				fmt.Printf("merged VCF %s already exists. Validating ...\n", jointVCF)
-				vErr := utils.ValidateGvcf(jointVCF, verbose, quick)
-				if vErr != nil {
-					color.Yellow("merged VCF %s is corrupted: %v", jointVCF, vErr)
-					outdatedJointVCFs = append(outdatedJointVCFs, jointVCF)
-					color.Yellow("re-merging ...")
-				} else {
-					color.Green("merged VCF %s is valid", jointVCF)
-					jointVcfSampleNames, jerr := gvcfSampleName(jointVCF)
-					if jerr != nil {
-						color.Red("Error extracting sample names from merged VCF: %v", jerr)
-
-					} else if slices.Equal(gvcfSampleNames, jointVcfSampleNames) {
-						color.Green("sample names match")
-						validJointVCFs = append(validJointVCFs, jointVCF)
-					} else {
-						color.Yellow("sample names do not match")
-						outdatedJointVCFs = append(outdatedJointVCFs, jointVCF)
-					}
-				}
-
-			} else {
-				color.Yellow("re-merging ...")
 				outdatedJointVCFs = append(outdatedJointVCFs, jointVCF)
-			}
-		}
-
-		if len(outdatedJointVCFs) == 0 {
-			color.Green("No outdated joint VCFs found in %s. Will not re-merge.", latestDir)
-			concatenatedVCF := filepath.Join(latestDir, species+refVer+".ALL.joint.vcf.gz")
-			_, cErr := os.Stat(concatenatedVCF)
-			if cErr == nil {
-				color.Green("Concatenated VCF %s exists. Will not re-merge.", concatenatedVCF)
-				vErr := utils.ValidateGvcf(concatenatedVCF, verbose, quick)
-				if vErr != nil {
-					color.Yellow("Concatenated VCF %s is invalid: %v. re-concatenating ...", concatenatedVCF, vErr)
-				} else {
-					color.Green("Concatenated VCF %s is valid.", concatenatedVCF)
-				}
 			} else {
-				color.Yellow("No concatenated VCF found %s. Concatenating gvcfs in %s", concatenatedVCF, latestDir)
+				color.Green("Sample names from gVCFs: %v\n", gvcfSampleNames)
+				_, vcfErr := os.Stat(jointVCF)
+				if vcfErr == nil {
+					fmt.Printf("merged VCF %s already exists. Validating ...\n", jointVCF)
+					vErr := utils.ValidateGvcf(jointVCF, verbose, quick)
+					if vErr != nil {
+						color.Yellow("merged VCF %s is corrupted: %v", jointVCF, vErr)
+						outdatedJointVCFs = append(outdatedJointVCFs, jointVCF)
+						color.Yellow("re-merging ...")
+					} else {
+						color.Green("merged VCF %s is valid", jointVCF)
+						jointVcfSampleNames, jerr := gvcfSampleName(jointVCF)
+						if jerr != nil {
+							color.Red("Error extracting sample names from merged VCF: %v", jerr)
+
+						} else if slices.Equal(gvcfSampleNames, jointVcfSampleNames) {
+							color.Green("sample names match")
+							validJointVCFs = append(validJointVCFs, jointVCF)
+						} else {
+							color.Yellow("sample names do not match")
+							outdatedJointVCFs = append(outdatedJointVCFs, jointVCF)
+						}
+					}
+
+				} else {
+					color.Yellow("re-merging ...")
+					outdatedJointVCFs = append(outdatedJointVCFs, jointVCF)
+				}
+
 			}
-		} else {
-			color.Yellow("%v outdated joint VCFs found in %s", len(outdatedJointVCFs), latestDir)
-			color.Cyan("")
+
 		}
 
 	}
 	color.Green("Latest VCF directory: %s\n", latestDir)
+	if len(outdatedJointVCFs) == 0 || !noVcfDir {
+		color.Green("No outdated joint VCFs found in %s. Will not re-merge.", latestDir)
+		concatenatedVCF := filepath.Join(latestDir, species+refVer+".ALL.joint.vcf.gz")
+		_, cErr := os.Stat(concatenatedVCF)
+		if cErr == nil {
+			color.Green("Concatenated VCF %s exists. Will not re-merge.", concatenatedVCF)
+			vErr := utils.ValidateGvcf(concatenatedVCF, verbose, quick)
+			if vErr != nil {
+				color.Yellow("Concatenated VCF %s is invalid: %v. re-concatenating ...", concatenatedVCF, vErr)
+			} else {
+				color.Green("Concatenated VCF %s is valid.", concatenatedVCF)
+			}
+		} else {
+			color.Yellow("No concatenated VCF found %s. Concatenating gvcfs in %s", concatenatedVCF, latestDir)
+		}
+	} else {
+		color.Yellow("%v outdated joint VCFs found in %s", len(outdatedJointVCFs), latestDir)
+		color.Cyan("")
+	}
 
 	// ==================================== Check current merged vcf against gvcfs ====================================== //
 
