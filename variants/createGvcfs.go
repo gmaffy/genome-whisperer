@@ -1,5 +1,6 @@
-ignore
+//go:build ignore
 
-package p
+package variants
+
 func createGvcfsGATK(bamFile string, reference string, regions []string) {
 }
