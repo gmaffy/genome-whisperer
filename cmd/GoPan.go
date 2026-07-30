@@ -29,6 +29,11 @@ var GoPanCmd = &cobra.Command{
 		if cErr != nil {
 			log.Fatalf("Error getting config flag: %v", cErr)
 		}
+		// --config is a persistent flag on the root command, so it cannot be marked
+		// required at init time; check it here instead.
+		if configFile == "" {
+			log.Fatal("GoPan requires a config file: pass --config")
+		}
 
 		assembler, aErr := cmd.Flags().GetString("assembler")
 		if aErr != nil {
@@ -57,13 +62,6 @@ var GoPanCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(GoPanCmd)
-	GoPanCmd.Flags().StringP("assembler", "a", "mac", "masurca, megahit or mac")
-	GoPanCmd.Flags().StringP("config", "c", "", "Config file")
-	GoPanCmd.Flags().BoolP("verbose", "v", false, "verbosity")
-	GoPanCmd.Flags().StringP("gatk-log-level", "l", "INFO", "GATK log level (INFO, WARNING, ERROR)")
-	GoPanCmd.Flags().String("alignment-fmt", "bam", "bam or cram")
-	err := GoPanCmd.MarkFlagRequired("config")
-	if err != nil {
-		return
-	}
+	GoPanCmd.Flags().SortFlags = false
+	GoPanCmd.Flags().StringP("assembler", "a", "mac", "Assembler: masurca, megahit or mac")
 }

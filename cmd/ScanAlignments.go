@@ -75,20 +75,6 @@ to quickly create a Cobra application.`,
 
 func init() {
 	rootCmd.AddCommand(ScanAlignmentsCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// ScanAlignmentsCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	ScanAlignmentsCmd.Flags().StringP("reference", "r", "", "Path to reference genome")
-	ScanAlignmentsCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
-	ScanAlignmentsCmd.Flags().StringP("species", "S", "", "Species name")
-	ScanAlignmentsCmd.Flags().String("ref-version", "", "Reference genome version")
-	ScanAlignmentsCmd.Flags().Bool("quick", false, "Quick verification")
-	ScanAlignmentsCmd.Flags().StringP("genomes-dir", "g", "", "Skip verification")
-	ScanAlignmentsCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
+	ScanAlignmentsCmd.Flags().SortFlags = false
+	// Every flag this command reads is a persistent flag on the root command.
 }

@@ -74,10 +74,9 @@ var VariantAnnotationCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(VariantAnnotationCmd)
-
-	VariantAnnotationCmd.Flags().StringSliceP("variant", "V", []string{}, "Variant file ...")
-	VariantAnnotationCmd.Flags().StringP("database", "d", "", "database name")
-	VariantAnnotationCmd.Flags().Bool("bsaseq", false, "output bsaseq columns")
-	VariantAnnotationCmd.Flags().StringP("gene-description-tsv", "g", "", "Gene description file")
-	VariantAnnotationCmd.Flags().StringP("prg", "p", "", "PRG blast file")
+	VariantAnnotationCmd.Flags().SortFlags = false
+	VariantAnnotationCmd.Flags().StringSliceP("variant", "V", []string{}, "Path to a VCF/variant file (repeatable)")
+	if err := VariantAnnotationCmd.MarkFlagRequired("variant"); err != nil {
+		return
+	}
 }

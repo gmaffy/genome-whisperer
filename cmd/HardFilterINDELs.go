@@ -47,12 +47,9 @@ var HardFilterINDELsCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(HardFilterINDELsCmd)
-
-	HardFilterINDELsCmd.Flags().StringP("variant", "V", "", "INDEL VCF file")
-	HardFilterINDELsCmd.Flags().String("gatk-log-level", "INFO", "GATK log level")
-	HardFilterINDELsCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
-	err := HardFilterINDELsCmd.MarkFlagRequired("variant")
-	if err != nil {
+	HardFilterINDELsCmd.Flags().SortFlags = false
+	HardFilterINDELsCmd.Flags().StringP("variant", "V", "", "Path to a VCF/variant file")
+	if err := HardFilterINDELsCmd.MarkFlagRequired("variant"); err != nil {
 		return
 	}
 }

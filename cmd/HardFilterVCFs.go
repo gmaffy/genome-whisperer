@@ -70,21 +70,9 @@ var HardFilterVCFsCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(HardFilterVCFsCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// HardFilterVCFsCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// HardFilterVCFsCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	HardFilterVCFsCmd.Flags().StringP("variant", "V", "", "INDEL VCF file")
-	HardFilterVCFsCmd.Flags().String("gatk-log-level", "INFO", "GATK log level")
-	HardFilterVCFsCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
-	err := HardFilterVCFsCmd.MarkFlagRequired("variant")
-	if err != nil {
+	HardFilterVCFsCmd.Flags().SortFlags = false
+	HardFilterVCFsCmd.Flags().StringP("variant", "V", "", "Path to a VCF/variant file")
+	if err := HardFilterVCFsCmd.MarkFlagRequired("variant"); err != nil {
 		return
 	}
 }

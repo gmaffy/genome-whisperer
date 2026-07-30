@@ -56,9 +56,9 @@ var CreateSnpEffDBCmd = &cobra.Command{
 
 		}
 
-		version, vErr := cmd.Flags().GetString("version")
+		version, vErr := cmd.Flags().GetString("annotation-version")
 		if vErr != nil {
-			fmt.Println("Error getting version flag")
+			fmt.Println("Error getting annotation-version flag")
 			return
 		}
 
@@ -112,7 +112,7 @@ var CreateSnpEffDBCmd = &cobra.Command{
 			}
 
 			if version == "" {
-				fmt.Println("Please provide version")
+				fmt.Println("Please provide the annotation version with --annotation-version")
 				return
 			}
 
@@ -130,43 +130,8 @@ var CreateSnpEffDBCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(CreateSnpEffDBCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// CreateSnpEffDBCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// CreateSnpEffDBCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	CreateSnpEffDBCmd.Flags().String("protein", "", "Path to protein fasta file ...")
-	CreateSnpEffDBCmd.Flags().String("cds", "", "Path to cds fasta file ...")
-	CreateSnpEffDBCmd.Flags().String("gff", "", "Path to gff3 file ...")
-	CreateSnpEffDBCmd.Flags().StringP("species", "s", "", "Species name (no spaces or special characters) ...")
-	CreateSnpEffDBCmd.Flags().StringP("version", "v", "", "Reference annotation version ...")
-	CreateSnpEffDBCmd.Flags().StringP("reference", "r", "", "Path to reference genome fasta file ...")
-	CreateSnpEffDBCmd.Flags().StringP("config", "c", "", "Path to config file ...")
-
-	// Check if -c flag is provided via persistent flags
-	cFlag, _ := CreateSnpEffDBCmd.Flags().GetString("config")
-	if cFlag == "" {
-		// Mark flags as required only if -c is false
-		requiredFlags := []string{"protein", "cds", "species", "gff", "reference", "version"}
-		for _, flag := range requiredFlags {
-			err := CreateSnpEffDBCmd.MarkFlagRequired(flag)
-			if err != nil {
-				return
-			}
-		}
-	} else {
-		requiredFlags := []string{"version", "species"}
-		for _, flag := range requiredFlags {
-			err := CreateSnpEffDBCmd.MarkFlagRequired(flag)
-			if err != nil {
-				return
-			}
-		}
-
-	}
+	CreateSnpEffDBCmd.Flags().SortFlags = false
+	CreateSnpEffDBCmd.Flags().String("protein", "", "Path to the protein FASTA")
+	CreateSnpEffDBCmd.Flags().String("cds", "", "Path to the CDS FASTA")
+	CreateSnpEffDBCmd.Flags().String("annotation-version", "", "Reference annotation version")
 }

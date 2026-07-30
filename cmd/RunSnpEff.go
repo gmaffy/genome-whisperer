@@ -62,16 +62,9 @@ var RunSnpEffCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(RunSnpEffCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// RunSnpEffCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	RunSnpEffCmd.Flags().StringSliceP("variant", "V", []string{}, "Variant files (can supply multiple files)")
-	RunSnpEffCmd.Flags().StringP("database", "d", "", "Species name")
-	RunSnpEffCmd.Flags().Bool("bsaseq", false, "output bsaseq columns")
+	RunSnpEffCmd.Flags().SortFlags = false
+	RunSnpEffCmd.Flags().StringSliceP("variant", "V", []string{}, "Path to a VCF/variant file (repeatable)")
+	if err := RunSnpEffCmd.MarkFlagRequired("variant"); err != nil {
+		return
+	}
 }

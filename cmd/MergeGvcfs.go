@@ -22,7 +22,11 @@ var MergeGvcfsCmd = &cobra.Command{
 
 		merger, mErr := cmd.Flags().GetString("merger")
 		if mErr != nil {
-			log.Fatalf("Error getting config flag: %v", mErr)
+			log.Fatalf("Error getting merger flag: %v", mErr)
+		}
+		caller, callErr := cmd.Flags().GetString("caller")
+		if callErr != nil {
+			log.Fatalf("Error getting caller flag: %v", callErr)
 		}
 		configFile, cErr := cmd.Flags().GetString("config")
 		if cErr != nil {
@@ -46,7 +50,7 @@ var MergeGvcfsCmd = &cobra.Command{
 		if rErr != nil {
 			log.Fatalf("Error getting reference flag: %v", rErr)
 		}
-		refVer, vErr := cmd.Flags().GetString("ref-ver")
+		refVer, vErr := cmd.Flags().GetString("ref-version")
 		if vErr != nil {
 			log.Fatalf("Error getting reference version flag: %v", vErr)
 		}
@@ -60,9 +64,9 @@ var MergeGvcfsCmd = &cobra.Command{
 			log.Fatalf("Error getting log file flag: %v", lErr)
 		}
 
-		verbose, vErr := cmd.Flags().GetBool("verbose")
-		if vErr != nil {
-			log.Fatalf("Error getting verbose flag: %v", vErr)
+		verbose, vbErr := cmd.Flags().GetBool("verbose")
+		if vbErr != nil {
+			log.Fatalf("Error getting verbose flag: %v", vbErr)
 		}
 
 		quick, qErr := cmd.Flags().GetBool("quick")
@@ -70,9 +74,9 @@ var MergeGvcfsCmd = &cobra.Command{
 			log.Fatalf("Error getting quick flag: %v", qErr)
 		}
 
-		skipVerification, sErr := cmd.Flags().GetBool("skip-verification")
-		if sErr != nil {
-			log.Fatalf("Error getting skip-verification flag: %v", sErr)
+		skipVerification, svErr := cmd.Flags().GetBool("skip-verification")
+		if svErr != nil {
+			log.Fatalf("Error getting skip-verification flag: %v", svErr)
 		}
 
 		//---------------------------------------------- Check dependencies ------------------------------------------------------ //
@@ -95,30 +99,14 @@ var MergeGvcfsCmd = &cobra.Command{
 		}
 
 		//--------------------------------------------- Run merge gvcfs ---------------------------------------------------------- //
-		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, merger: %v, log file: %s \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, merger, logFile)
-		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, "gatk", merger, verbose, quick, skipVerification)
+		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, caller: %v, merger: %v, log file: %s \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, caller, merger, logFile)
+		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, caller, merger, verbose, quick, skipVerification)
 
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(MergeGvcfsCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	MergeGvcfsCmd.Flags().StringP("config", "c", "", "path to config file")
-	MergeGvcfsCmd.Flags().StringSliceP("gvcf", "g", []string{}, "path to gvcf file (must be more than 1)")
-	MergeGvcfsCmd.Flags().StringP("data-dir", "d", "", "path to data directory")
-	MergeGvcfsCmd.Flags().StringP("species", "s", "", "species name")
-	MergeGvcfsCmd.Flags().StringP("reference", "r", "", "reference genome name")
-	MergeGvcfsCmd.Flags().String("ref-ver", "", "reference version")
-	MergeGvcfsCmd.Flags().StringP("out-dir", "o", "", "Output directory, (only pass if not using standard data directory structure)")
-	MergeGvcfsCmd.Flags().StringP("merger", "m", "glnexus", "GVCF merger to use. Options: glnexus or gatk")
-	MergeGvcfsCmd.Flags().StringP("log", "l", "", "log file path")
-	MergeGvcfsCmd.Flags().BoolP("verbose", "v", false, "verbose output")
-	MergeGvcfsCmd.Flags().BoolP("quick", "q", false, "quick verification")
-	MergeGvcfsCmd.Flags().Bool("skip-verification", false, "skip verification")
-
+	MergeGvcfsCmd.Flags().SortFlags = false
+	MergeGvcfsCmd.Flags().StringSlice("gvcf", []string{}, "Path to a gVCF file (repeatable)")
 }

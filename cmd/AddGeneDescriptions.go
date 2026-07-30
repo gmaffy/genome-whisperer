@@ -35,7 +35,7 @@ var AddGeneDescriptionsCmd = &cobra.Command{
 		//fmt.Println(vcfs)
 		//fmt.Println(descFile)
 		if descFile == "" {
-			fmt.Println("Please provide gene-description-tsv name with flag -g ")
+			fmt.Println("Please provide a gene description TSV with --gene-description-tsv")
 			return
 		}
 		if len(vcfs) == 0 {
@@ -62,17 +62,9 @@ var AddGeneDescriptionsCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(AddGeneDescriptionsCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// AddGeneDescriptionsCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	AddGeneDescriptionsCmd.Flags().StringSliceP("variant", "V", []string{}, "snpEff tsv file ...")
-	AddGeneDescriptionsCmd.Flags().StringP("gene-description-tsv", "g", "", "gene description tsv file ...")
-	AddGeneDescriptionsCmd.Flags().Bool("bsaseq", false, "bsaseq output")
-
+	AddGeneDescriptionsCmd.Flags().SortFlags = false
+	AddGeneDescriptionsCmd.Flags().StringSliceP("variant", "V", []string{}, "Path to a VCF/variant file (repeatable)")
+	if err := AddGeneDescriptionsCmd.MarkFlagRequired("variant"); err != nil {
+		return
+	}
 }

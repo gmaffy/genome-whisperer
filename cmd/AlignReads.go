@@ -46,7 +46,7 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting reverse read flag: %v", revErr)
 		}
 
-		sePath, seErr := cmd.Flags().GetString("se")
+		sePath, seErr := cmd.Flags().GetString("single-end")
 		if seErr != nil {
 			log.Fatalf("Error getting single end read flag: %v", seErr)
 		}
@@ -71,7 +71,7 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting preset flag: %v", preErr)
 		}
 
-		outDir, oErr := cmd.Flags().GetString("output_dir")
+		outDir, oErr := cmd.Flags().GetString("out-dir")
 		if oErr != nil {
 			log.Fatalf("Error getting output dir flag: %v", oErr)
 		}
@@ -106,9 +106,9 @@ var AlignReadsCmd = &cobra.Command{
 			log.Fatalf("Error getting gatk-log-level flag: %v", glErr)
 		}
 
-		outputFmt, ofErr := cmd.Flags().GetString("output-fmt")
+		outputFmt, ofErr := cmd.Flags().GetString("alignment-fmt")
 		if ofErr != nil {
-			log.Fatalf("Error getting output format flag: %v", ofErr)
+			log.Fatalf("Error getting alignment format flag: %v", ofErr)
 		}
 
 		dataDir, dErr := cmd.Flags().GetString("data-dir")
@@ -128,12 +128,12 @@ var AlignReadsCmd = &cobra.Command{
 
 		quick, qErr := cmd.Flags().GetBool("quick")
 		if qErr != nil {
-			verbose = false
+			log.Fatalf("Error getting quick flag: %v", qErr)
 		}
 
-		skipVerification, sErr := cmd.Flags().GetBool("skip-verification")
-		if sErr != nil {
-			log.Fatalf("Error getting skip-verification flag: %v", sErr)
+		skipVerification, svErr := cmd.Flags().GetBool("skip-verification")
+		if svErr != nil {
+			log.Fatalf("Error getting skip-verification flag: %v", svErr)
 		}
 
 		genomesDir, gErr := cmd.Flags().GetString("genomes-dir")
@@ -229,11 +229,11 @@ var AlignReadsCmd = &cobra.Command{
 			}
 
 			if sampleName == "" {
-				fmt.Println("Please provide sample name is flag -s ")
+				fmt.Println("Please provide a sample name with --sample")
 				return
 			}
 			if libName == "" {
-				fmt.Println("Please provide library name is flag -l ")
+				fmt.Println("Please provide a library name with --library")
 				return
 			}
 			fmt.Printf("All paths PASSED...\n ")
@@ -286,28 +286,11 @@ var AlignReadsCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(AlignReadsCmd)
+	AlignReadsCmd.Flags().SortFlags = false
 	AlignReadsCmd.Flags().StringP("forward", "1", "", "Path to forward reads")
 	AlignReadsCmd.Flags().StringP("reverse", "2", "", "Path to reverse reads")
-	AlignReadsCmd.Flags().String("se", "", "Path to reverse reads")
-	AlignReadsCmd.Flags().StringP("sample", "s", "", "Sample name")
-	AlignReadsCmd.Flags().StringP("library", "l", "", "Library name")
-	AlignReadsCmd.Flags().StringP("output_dir", "o", "", "output directory")
-	AlignReadsCmd.Flags().IntP("threads", "t", 8, "number of threads")
-	AlignReadsCmd.Flags().Bool("bqsr", false, "perform BQSR")
-	AlignReadsCmd.Flags().Bool("verbose", false, "verbose mode")
-	AlignReadsCmd.Flags().String("aligner", "bwa-mem2", "bwa-mem,bwa-mem2, bowtie2 or pbmm2")
-	AlignReadsCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
-	AlignReadsCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
-	AlignReadsCmd.Flags().StringP("reference", "r", "", "Path to reference genome")
-	AlignReadsCmd.Flags().StringP("config", "c", "", "Path to config file")
-	AlignReadsCmd.Flags().String("preset", "HIFI", "pbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
-	AlignReadsCmd.Flags().String("gatk-log-level", "ERROR", "GATK log level. Options: ERROR, INFO, DEBUG, TRACE")
-	AlignReadsCmd.Flags().StringP("output-fmt", "O", "bam", "bam or cram")
-	AlignReadsCmd.Flags().StringP("data-dir", "d", "", "Main data directory")
-	AlignReadsCmd.Flags().StringP("species", "S", "", "Species name")
-	AlignReadsCmd.Flags().String("ref-version", "", "Reference genome version")
-	AlignReadsCmd.Flags().Bool("quick", false, "Quick verification")
-	AlignReadsCmd.Flags().Bool("skip-verification", false, "Skip verification")
-	AlignReadsCmd.Flags().StringP("genomes-dir", "g", "", "Skip verification")
-
+	AlignReadsCmd.Flags().String("single-end", "", "Path to single-end reads")
+	AlignReadsCmd.Flags().String("sample", "", "Sample name")
+	AlignReadsCmd.Flags().String("library", "", "Library name")
+	AlignReadsCmd.Flags().Bool("bqsr", false, "Run base quality score recalibration")
 }

@@ -18,82 +18,82 @@ var GoBSAseqCmd = &cobra.Command{
 	Use:   "GoBSAseq",
 	Short: "Performs BSAseq analysis to detect QTLs",
 	Long: `goBSAseq can detect QTLs given reads, bams or vcfs with the following samples:
-	1. Two bulks only: provide high_bulk (-A) and low_bulk (-B) without parents
-	2. Two bulks with one/two parents: provide high_parent (-H), low_parent (-L), high_bulk (-A), and low_bulk (-B)
-	3. One bulk with one/two parents: provide high_parent (-H), low_parent (-L), and bulk (-X)`,
+	1. Two bulks only: provide --high-bulk (-A) and --low-bulk (-B) without parents
+	2. Two bulks with one/two parents: provide --high-parent (-H), --low-parent (-L), --high-bulk (-A) and --low-bulk (-B)
+	3. One bulk with one/two parents: provide --high-parent (-H), --low-parent (-L) and one of --high-bulk / --low-bulk`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("GoBSAseq called")
 		fmt.Printf("Dependencies OK\n\n----------------------------------------------------------\n\n")
 
 		// Get all flag values and handle errors
-		variantFile, varErr := cmd.Flags().GetString("vcf")
+		variantFile, varErr := cmd.Flags().GetString("variant")
 		if varErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", varErr)
+			log.Fatalf("Error getting variant flag: %v", varErr)
 		}
 
-		outputDir, outErr := cmd.Flags().GetString("out")
+		outputDir, outErr := cmd.Flags().GetString("out-dir")
 		if outErr != nil {
-			log.Fatalf("Error getting vcf flag: %v", outErr)
+			log.Fatalf("Error getting out-dir flag: %v", outErr)
 		}
 
-		highParent, hpErr := cmd.Flags().GetString("high_parent")
+		highParent, hpErr := cmd.Flags().GetString("high-parent")
 		if hpErr != nil {
-			log.Fatalf("Error getting high_parent flag: %v", hpErr)
+			log.Fatalf("Error getting high-parent flag: %v", hpErr)
 		}
 
-		lowParent, lpErr := cmd.Flags().GetString("low_parent")
+		lowParent, lpErr := cmd.Flags().GetString("low-parent")
 		if lpErr != nil {
-			log.Fatalf("Error getting low_parent flag: %v", lpErr)
+			log.Fatalf("Error getting low-parent flag: %v", lpErr)
 		}
 
-		highBulk, hbErr := cmd.Flags().GetString("high_bulk")
+		highBulk, hbErr := cmd.Flags().GetString("high-bulk")
 		if hbErr != nil {
-			log.Fatalf("Error getting high_bulk flag: %v", hbErr)
+			log.Fatalf("Error getting high-bulk flag: %v", hbErr)
 		}
 
-		lowBulk, lbErr := cmd.Flags().GetString("low_bulk")
+		lowBulk, lbErr := cmd.Flags().GetString("low-bulk")
 		if lbErr != nil {
-			log.Fatalf("Error getting low_bulk flag: %v", lbErr)
+			log.Fatalf("Error getting low-bulk flag: %v", lbErr)
 		}
 
-		minHighParentDepth, mhpdErr := cmd.Flags().GetInt("min_high_parent_depth")
+		minHighParentDepth, mhpdErr := cmd.Flags().GetInt("min-high-parent-depth")
 		if mhpdErr != nil {
-			log.Fatalf("Error getting min_high_parent_depth flag: %v", mhpdErr)
+			log.Fatalf("Error getting min-high-parent-depth flag: %v", mhpdErr)
 		}
 
-		minLowParentDepth, mlpdErr := cmd.Flags().GetInt("min_low_parent_depth")
+		minLowParentDepth, mlpdErr := cmd.Flags().GetInt("min-low-parent-depth")
 		if mlpdErr != nil {
-			log.Fatalf("Error getting min_low_parent_depth flag: %v", mlpdErr)
+			log.Fatalf("Error getting min-low-parent-depth flag: %v", mlpdErr)
 		}
 
-		minHighBulkDepth, mhbErr := cmd.Flags().GetInt("min_high_bulk_depth")
+		minHighBulkDepth, mhbErr := cmd.Flags().GetInt("min-high-bulk-depth")
 		if mhbErr != nil {
-			log.Fatalf("Error getting min_high_bulk_depth flag: %v", mhbErr)
+			log.Fatalf("Error getting min-high-bulk-depth flag: %v", mhbErr)
 		}
 
-		minLowBulkDepth, mlbErr := cmd.Flags().GetInt("min_low_bulk_depth")
+		minLowBulkDepth, mlbErr := cmd.Flags().GetInt("min-low-bulk-depth")
 		if mlbErr != nil {
-			log.Fatalf("Error getting min_low_bulk_depth flag: %v", mlbErr)
+			log.Fatalf("Error getting min-low-bulk-depth flag: %v", mlbErr)
 		}
 
-		highBulkSize, hbsErr := cmd.Flags().GetInt("high_bulk_size")
+		highBulkSize, hbsErr := cmd.Flags().GetInt("high-bulk-size")
 		if hbsErr != nil {
-			log.Fatalf("Error getting high_bulk_size flag: %v", hbsErr)
+			log.Fatalf("Error getting high-bulk-size flag: %v", hbsErr)
 		}
 
-		lowBulkSize, lbsErr := cmd.Flags().GetInt("low_bulk_size")
+		lowBulkSize, lbsErr := cmd.Flags().GetInt("low-bulk-size")
 		if lbsErr != nil {
-			log.Fatalf("Error getting low_bulk_size flag: %v", lbsErr)
+			log.Fatalf("Error getting low-bulk-size flag: %v", lbsErr)
 		}
 
-		windowSize, wsErr := cmd.Flags().GetInt("window_size")
+		windowSize, wsErr := cmd.Flags().GetInt("window-size")
 		if wsErr != nil {
-			log.Fatalf("Error getting window_size flag: %v", wsErr)
+			log.Fatalf("Error getting window-size flag: %v", wsErr)
 		}
 
-		stepSize, ssErr := cmd.Flags().GetInt("window_step")
+		stepSize, ssErr := cmd.Flags().GetInt("window-step")
 		if ssErr != nil {
-			log.Fatalf("Error getting window_step flag: %v", ssErr)
+			log.Fatalf("Error getting window-step flag: %v", ssErr)
 		}
 
 		smoothing, smErr := cmd.Flags().GetBool("smooth")
@@ -108,12 +108,12 @@ var GoBSAseqCmd = &cobra.Command{
 
 		bootstrap, bootErr := cmd.Flags().GetBool("bootstrap")
 		if bootErr != nil {
-			log.Fatalf("Error getting bootstrap flag: %v", intErr)
+			log.Fatalf("Error getting bootstrap flag: %v", bootErr)
 		}
 
-		popStructure, popErr := cmd.Flags().GetString("pop_structure")
+		popStructure, popErr := cmd.Flags().GetString("pop-structure")
 		if popErr != nil {
-			log.Fatalf("Error getting pop_structure flag: %v", popErr)
+			log.Fatalf("Error getting pop-structure flag: %v", popErr)
 		}
 
 		configFile, cErr := cmd.Flags().GetString("config")
@@ -156,47 +156,44 @@ var GoBSAseqCmd = &cobra.Command{
 			log.Fatalf("Error getting caller flag: %v", callerErr)
 		}
 
-		refVer, refvErr := cmd.Flags().GetString("refVer")
+		refVer, refvErr := cmd.Flags().GetString("ref-version")
 		if refvErr != nil {
-			log.Fatalf("Error getting refVer flag: %v", refvErr)
+			log.Fatalf("Error getting ref-version flag: %v", refvErr)
 		}
 
-		//noMerging, noMergingErr := cmd.Flags().GetBool("noMerging")
-		//if noMergingErr != nil {
-		//	log.Fatalf("Error getting noMerging flag: %v", noMergingErr)
-		//}
-		noMerging := false
+		noMerging, noMergingErr := cmd.Flags().GetBool("no-merging")
+		if noMergingErr != nil {
+			log.Fatalf("Error getting no-merging flag: %v", noMergingErr)
+		}
 
 		merger, mergerErr := cmd.Flags().GetString("merger")
 		if mergerErr != nil {
 			log.Fatalf("Error getting merger flag: %v", mergerErr)
-
 		}
 
 		preset, preErr := cmd.Flags().GetString("preset")
 		if preErr != nil {
-			log.Fatalf("Error getting output dir flag: %v", preErr)
-
+			log.Fatalf("Error getting preset flag: %v", preErr)
 		}
-		dvVer, dvErr := cmd.Flags().GetString("dvVer")
+
+		dvVer, dvErr := cmd.Flags().GetString("deepvariant-version")
 		if dvErr != nil {
-			log.Fatalf("Error getting dvVer flag: %v", dvErr)
-
+			log.Fatalf("Error getting deepvariant-version flag: %v", dvErr)
 		}
-		modelType, modelErr := cmd.Flags().GetString("modelType")
+
+		modelType, modelErr := cmd.Flags().GetString("model-type")
 		if modelErr != nil {
-			log.Fatalf("Error getting modelType flag: %v", modelErr)
-
+			log.Fatalf("Error getting model-type flag: %v", modelErr)
 		}
 
-		gatkLogLevel, gatkErr := cmd.Flags().GetString("gatkLogLevel")
+		gatkLogLevel, gatkErr := cmd.Flags().GetString("gatk-log-level")
 		if gatkErr != nil {
-			log.Fatalf("Error getting gatkLogLevel flag: %v", gatkErr)
+			log.Fatalf("Error getting gatk-log-level flag: %v", gatkErr)
 		}
 
 		alignmentFmt, afErr := cmd.Flags().GetString("alignment-fmt")
 		if afErr != nil {
-			log.Fatalf("Error getting alignment fmt flag: %v", afErr)
+			log.Fatalf("Error getting alignment-fmt flag: %v", afErr)
 		}
 
 		if interactive {
@@ -220,7 +217,7 @@ var GoBSAseqCmd = &cobra.Command{
 				bsaseq.RunBsaSeqFromConfig(configFile, threads, species, minHighParentDepth, minLowParentDepth, minHighBulkDepth, minLowBulkDepth, highBulkSize, lowBulkSize, windowSize, stepSize, smoothing, popStructure, rep, bootstrap, bqsr, caller, merger, noMerging, aligner, preset, dvVer, modelType, gatkLogLevel, verbose, alignmentFmt, refVer)
 			} else {
 				if outputDir == "" {
-					fmt.Println("No output directory provided. Supply path to output directory with -o flag")
+					fmt.Println("No output directory provided. Supply one with --out-dir")
 					return
 				}
 				outInfo, outErr := os.Stat(outputDir)
@@ -262,9 +259,9 @@ var GoBSAseqCmd = &cobra.Command{
 
 				} else {
 					log.Fatal("Invalid parameters. Valid combinations are:\n" +
-						"1. Two bulks only: provide high_bulk (-A) and low_bulk (-B) without parents\n" +
-						"2. Two bulks with two parents: provide high_parent (-H), low_parent (-L), high_bulk (-A), and low_bulk (-B)\n" +
-						"3. One bulk with two parents: provide high_parent (-H), low_parent (-L), and bulk (-X)")
+						"1. Two bulks only: --high-bulk (-A) and --low-bulk (-B) without parents\n" +
+						"2. Two bulks with two parents: --high-parent (-H), --low-parent (-L), --high-bulk (-A) and --low-bulk (-B)\n" +
+						"3. One bulk with two parents: --high-parent (-H), --low-parent (-L) and one of --high-bulk / --low-bulk")
 				}
 			}
 		}
@@ -273,59 +270,35 @@ var GoBSAseqCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(GoBSAseqCmd)
+	GoBSAseqCmd.Flags().SortFlags = false
+	GoBSAseqCmd.Flags().StringP("variant", "V", "", "Path to a VCF/variant file")
 
-	GoBSAseqCmd.Flags().StringP("vcf", "V", "", "Path to target vcf file or vcf table")
-	GoBSAseqCmd.Flags().StringP("out", "o", "", "Output directory")
-	// ------------------------------------------ PARENTS & BULKS --------------------------------------------------- //
-	GoBSAseqCmd.Flags().StringP("high_parent", "H", "", "Name of high parent/resistant parent")
-	GoBSAseqCmd.Flags().StringP("low_parent", "L", "", "Name of low parent/susceptible parent")
-	GoBSAseqCmd.Flags().StringP("high_bulk", "A", "", "high bulk name (Resistance bulk)")
-	GoBSAseqCmd.Flags().StringP("low_bulk", "B", "", "low bulk name (Susceptible bulk)")
-	//GoBSAseqCmd.Flags().StringP("bulk", "X", "", "bulk name (if one bulk is used)")
+	// ----------------------------------- Parents and bulks ----------------------------------- //
+	GoBSAseqCmd.Flags().StringP("high-parent", "H", "", "Name of the high (resistant) parent")
+	GoBSAseqCmd.Flags().StringP("low-parent", "L", "", "Name of the low (susceptible) parent")
+	GoBSAseqCmd.Flags().StringP("high-bulk", "A", "", "Name of the high (resistant) bulk")
+	GoBSAseqCmd.Flags().StringP("low-bulk", "B", "", "Name of the low (susceptible) bulk")
 
-	// --------------------------------------------------- DEPTHS --------------------------------------------------- //
-	GoBSAseqCmd.Flags().IntP("min_high_parent_depth", "D", 5, "minimum depth for high parent")
-	GoBSAseqCmd.Flags().IntP("min_low_parent_depth", "d", 5, "minimum depth for low parent")
-	//GoBSAseqCmd.Flags().IntP("min_bulk_depth", "x", 40, "minimum depth for bulk (if one bulk is used)")
-	GoBSAseqCmd.Flags().IntP("min_high_bulk_depth", "a", 40, "minimum depth for high bulk")
-	GoBSAseqCmd.Flags().IntP("min_low_bulk_depth", "b", 40, "minimum depth for low bulk")
+	// ------------------------------------------ Depths ---------------------------------------- //
+	GoBSAseqCmd.Flags().Int("min-high-parent-depth", 5, "Minimum depth for the high parent")
+	GoBSAseqCmd.Flags().Int("min-low-parent-depth", 5, "Minimum depth for the low parent")
+	GoBSAseqCmd.Flags().Int("min-high-bulk-depth", 40, "Minimum depth for the high bulk")
+	GoBSAseqCmd.Flags().Int("min-low-bulk-depth", 40, "Minimum depth for the low bulk")
 
-	// ---------------------------------------------------- SIZES --------------------------------------------------- //
+	// ------------------------------------------- Sizes ---------------------------------------- //
+	GoBSAseqCmd.Flags().IntP("high-bulk-size", "n", 20, "Number of individuals in the high bulk")
+	GoBSAseqCmd.Flags().IntP("low-bulk-size", "m", 20, "Number of individuals in the low bulk")
 
-	GoBSAseqCmd.Flags().IntP("bulk_size", "N", 20, "number of individuals in the bulk, (if one bulk is used)")
-	GoBSAseqCmd.Flags().IntP("high_bulk_size", "n", 20, "number of individuals in the high bulk")
-	GoBSAseqCmd.Flags().IntP("low_bulk_size", "m", 20, "number of individuals in the low bulk")
+	// ---------------------------------------- Basic params ------------------------------------ //
+	GoBSAseqCmd.Flags().StringP("pop-structure", "p", "F2", "Population structure: F2, BC or RIL")
+	GoBSAseqCmd.Flags().Int("rep", 10000, "Replications for threshold calculation")
 
-	// -------------------------------------------- BASIC PARAMS ---------------------------------------------------- //
-	GoBSAseqCmd.Flags().StringP("pop_structure", "p", "F2", "F2, BC or RIL")
-	GoBSAseqCmd.Flags().Int("rep", 10000, "Replications for threshold calculations ..")
+	// ------------------------------------------ Plotting -------------------------------------- //
+	GoBSAseqCmd.Flags().IntP("window-size", "w", 2000000, "Plot window size")
+	GoBSAseqCmd.Flags().Int("window-step", 10000, "Plot window step size")
 
-	// -------------------------- Alignment and variant calling ----------------------------------------------------- //
-	GoBSAseqCmd.Flags().String("aligner", "bwa-mem2", "bwa-mem, bwa-mem2 bowtie2")
-	GoBSAseqCmd.Flags().String("preset", "HIFI", "Dpbmm2 preset. Options: SUBREAD, CSS, HIFI, ISOSEQ and UNROLLED")
-	GoBSAseqCmd.Flags().String("caller", "gatk", "Variant caller to use. Options: gatk or deepvariant")
-	GoBSAseqCmd.Flags().String("merger", "gatk", "GVCF merger to use. Options: gatk or glnexus")
-	GoBSAseqCmd.Flags().String("modelType", "WGS", "DeepVariant Model Type: WGS,WES,PACBIO,ONT_R104,HYBRID_PACBIO_ILLUMINA")
-	GoBSAseqCmd.Flags().String("dvVer", "1.9.0", "DeepVariant Version")
-	GoBSAseqCmd.Flags().String("gatkLogLevel", "INFO", "GATK log level")
-
-	// ------------------------------------------ PLOTTING PARAMS --------------------------------------------------- //
-	GoBSAseqCmd.Flags().IntP("window_size", "w", 2000000, "window size for plotting")
-	GoBSAseqCmd.Flags().IntP("window_step", "t", 10000, "step size for plotting")
-
-	// ------------------------------------------------ TOGGLES ----------------------------------------------------- //
-	GoBSAseqCmd.Flags().BoolP("smooth", "s", false, "smooth your plot")
-	GoBSAseqCmd.Flags().BoolP("interactive", "i", false, "interactive")
-	GoBSAseqCmd.Flags().Bool("bootstrap", false, "BSQR bootstrap")
-	GoBSAseqCmd.Flags().Bool("bqsr", false, "enable base quality score recalibration")
-
-	//----------------------------------------------- if config ----------------------------------------------------- //
-	GoBSAseqCmd.Flags().StringP("config", "c", "", "path to config file")
-	GoBSAseqCmd.Flags().Int("threads", 8, "number of threads")
-	GoBSAseqCmd.Flags().String("species", "", "number of threads")
-	GoBSAseqCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
-	GoBSAseqCmd.Flags().String("alignment-fmt", "bam", "bam or cram")
-	GoBSAseqCmd.Flags().Bool("noMerging", false, "no merging of gvcf files")
-	GoBSAseqCmd.Flags().String("refVer", "", "Ref version")
-
+	// ------------------------------------------ Toggles --------------------------------------- //
+	GoBSAseqCmd.Flags().Bool("smooth", false, "Smooth the plot")
+	GoBSAseqCmd.Flags().BoolP("interactive", "i", false, "Run in interactive mode")
+	GoBSAseqCmd.Flags().Bool("bqsr", false, "Run base quality score recalibration")
 }

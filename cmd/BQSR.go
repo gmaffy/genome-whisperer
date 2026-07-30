@@ -36,7 +36,7 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 
 		logFile, logErr := cmd.Flags().GetString("log")
 		if logErr != nil {
-			log.Fatalf("Error getting log flag: %v", cErr)
+			log.Fatalf("Error getting log flag: %v", logErr)
 		}
 
 		bootstrap, bErr := cmd.Flags().GetBool("bootstrap")
@@ -141,14 +141,6 @@ If no known-sites file is provided, a bootstrap method of generating one is run`
 
 func init() {
 	rootCmd.AddCommand(BQSRCmd)
-
-	BQSRCmd.Flags().StringSliceP("bam", "b", []string{}, "path to bam file (can specify multiple)")
-	BQSRCmd.Flags().StringSliceP("known-sites", "k", []string{}, "Path to known sites vcf (can specify multiple)")
-	BQSRCmd.Flags().Bool("bootstrap", false, "Bootstrap method")
-	BQSRCmd.Flags().IntP("threads", "t", 4, "Threads per sample")
-	BQSRCmd.Flags().String("log", "", "log file path")
-	BQSRCmd.Flags().String("config", "", "config file path")
-	BQSRCmd.Flags().StringP("reference", "r", "", "path to reference genome")
-	BQSRCmd.Flags().String("gatk-log-level", "INFO", "GATK verbosity level (DEBUG, INFO, WARNING, ERROR)")
-	BQSRCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
+	BQSRCmd.Flags().SortFlags = false
+	// Every flag this command reads is a persistent flag on the root command.
 }

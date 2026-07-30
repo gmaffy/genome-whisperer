@@ -43,16 +43,6 @@ var PrepareFastaFileCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(PrepareFastaFileCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// PrepareFastaFileCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	PrepareFastaFileCmd.Flags().StringP("reference", "r", "", "Reference fasta file ...")
-	PrepareFastaFileCmd.Flags().StringP("aligner", "a", "bwa-mem2", "bwa, bwa-mem2, bowtie2 or pbmm2 ...")
-	PrepareFastaFileCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
+	PrepareFastaFileCmd.Flags().SortFlags = false
+	// --reference, --aligner and --verbose are persistent flags on the root command.
 }

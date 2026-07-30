@@ -24,7 +24,7 @@ var GetVariantTypeCmd = &cobra.Command{
 			fmt.Println("Error getting variant flag")
 		}
 
-		variantType, tErr := cmd.Flags().GetString("type")
+		variantType, tErr := cmd.Flags().GetString("variant-type")
 		if tErr != nil {
 			fmt.Println("Error getting variant type flag")
 		}
@@ -54,10 +54,13 @@ var GetVariantTypeCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(GetVariantTypeCmd)
-
-	GetVariantTypeCmd.Flags().StringP("type", "t", "", "SNP, INDEL, MNP, etc.")
-	GetVariantTypeCmd.Flags().StringP("variant", "V", "", "VCF file")
-	GetVariantTypeCmd.Flags().StringP("gatk-log-level", "l", "INFO", "GATK log level")
-	GetVariantTypeCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
-
+	GetVariantTypeCmd.Flags().SortFlags = false
+	GetVariantTypeCmd.Flags().StringP("variant", "V", "", "Path to a VCF/variant file")
+	GetVariantTypeCmd.Flags().String("variant-type", "", "Variant type to select: SNP, INDEL, MNP, etc.")
+	if err := GetVariantTypeCmd.MarkFlagRequired("variant"); err != nil {
+		return
+	}
+	if err := GetVariantTypeCmd.MarkFlagRequired("variant-type"); err != nil {
+		return
+	}
 }

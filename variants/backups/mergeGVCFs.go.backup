@@ -100,7 +100,7 @@ func allGvcfSampleNames(gvcfs []string) ([]string, error) {
 	return allNames, nil
 }
 
-func MergeGvcfsGATKDir(gvcfs []string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string, outDir string, quick bool, logged []utils.LogEntry, jlog *slog.Logger) (string, error) {
+func MergeGvcfsGATKDir(gvcfs []string, refFile string, chrom string, species string, refVer string, verbose bool, logLevel string, outDir string, quick bool) (string, error) {
 	chromDirName := "contigs"
 	if chrom != "contigs" {
 		chromDirName = strings.ReplaceAll(chrom, ".", "_")
