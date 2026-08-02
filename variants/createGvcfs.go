@@ -1,11 +1,14 @@
 package variants
 
 import (
+	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -381,4 +384,223 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 		return nil, fmt.Errorf("no gVCFs were produced (%d task(s) failed)", len(failedTasks))
 	}
 	return gvcfs, nil
+}
+
+// ---------------------------------------------------------------------------
+// Absorbed from the retired RunVariantCaller.go / RunVariantCallerDir.go
+// ---------------------------------------------------------------------------
+
+type FailedTask struct {
+	Sample string
+	Chrom  string
+	Reason error
+}
+
+type SampleWork struct {
+	Sample  string
+	Cram    string
+	CramDir string // parent of the "bams" directory; used to derive gvcf output path
+}
+
+func FindBams(dataDirAbs string, species string, sample string, refVer string, noBqsr bool) ([]string, []string, error) {
+	cramPat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*.cram", dataDirAbs, strings.ToLower(species), sample, refVer)
+	bamPat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*.bam", dataDirAbs, strings.ToLower(species), sample, refVer)
+	cramMatches, err := filepath.Glob(cramPat)
+	if err != nil {
+		return nil, nil, fmt.Errorf("glob error: %w", err)
+	}
+	bamMatches, err := filepath.Glob(bamPat)
+	if err != nil {
+		return nil, nil, fmt.Errorf("glob error: %w", err)
+	}
+
+	if len(cramMatches) == 0 && len(bamMatches) == 0 {
+		return nil, nil, fmt.Errorf("no cram files or bams found in %s", cramPat)
+	}
+	//fmt.Printf("Found %d cram files\n", len(cramMatches))
+	//fmt.Printf("Found %d bam files\n", len(bamMatches))
+	var validCrams []string
+	var validBams []string
+	if len(cramMatches) > 0 {
+
+		for _, cramMatch := range cramMatches {
+			if noBqsr {
+				cramLower := strings.ToLower(cramMatch)
+				if strings.Contains(strings.ToLower(cramLower), "rgmd") {
+					validCrams = append(validCrams, cramMatch)
+				}
+			} else {
+				cramLower := strings.ToLower(cramMatch)
+				if !strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(cramLower), "bqsr") {
+					validCrams = append(validCrams, cramMatch)
+				} else if strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(cramLower), "rgmd") {
+					validCrams = append(validCrams, cramMatch)
+				}
+			}
+		}
+	} else if len(bamMatches) > 0 {
+		for _, bamMatch := range bamMatches {
+			if noBqsr {
+				bamLower := strings.ToLower(bamMatch)
+				if strings.Contains(strings.ToLower(bamLower), "rgmd") {
+					validBams = append(validBams, bamMatch)
+				}
+			} else {
+				bamLower := strings.ToLower(bamMatch)
+				if !strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(bamLower), "bqsr") {
+					validBams = append(validBams, bamMatch)
+				} else if strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(bamLower), "rgmd") {
+					validBams = append(validBams, bamMatch)
+				}
+			}
+		}
+
+	}
+
+	return validCrams, validBams, nil
+
+}
+
+type SeqInfo struct {
+	ID  string
+	Len int
+}
+
+func getChromsAndContigs(dictFilePath string) ([]SeqInfo, []SeqInfo, error) {
+	dictFile, err := os.Open(dictFilePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening reference dict file %s: %w", dictFilePath, err)
+	}
+	defer dictFile.Close()
+
+	scanner := bufio.NewScanner(dictFile)
+	var seqs []SeqInfo
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "@SQ") {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		seqID := strings.TrimPrefix(parts[1], "SN:")
+		seqLenStr := strings.TrimPrefix(parts[2], "LN:")
+		seqLen, aErr := strconv.Atoi(seqLenStr)
+		if aErr != nil {
+			return nil, nil, fmt.Errorf("parsing LN field for sequence %q in dict file: %w", seqID, aErr)
+		}
+		seqs = append(seqs, SeqInfo{ID: seqID, Len: seqLen})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, nil, fmt.Errorf("scanning dict file: %w", err)
+	}
+
+	// Sort by length descending so the biggest sequences become "chroms".
+	sort.Slice(seqs, func(i, j int) bool { return seqs[i].Len > seqs[j].Len })
+
+	var chroms, contigs []SeqInfo
+	if len(seqs) > 21 {
+		chroms = append(chroms, seqs[:21]...)
+		contigs = append(contigs, seqs[21:]...)
+	} else {
+		chroms = append(chroms, seqs...)
+	}
+
+	// Always promote MT and Pltd into the chroms group.
+	for i := 0; i < len(contigs); {
+		if contigs[i].ID == "MT" || contigs[i].ID == "Pltd" {
+			chroms = append(chroms, contigs[i])
+			contigs = append(contigs[:i], contigs[i+1:]...)
+		} else {
+			i++
+		}
+	}
+
+	return chroms, contigs, nil
+}
+
+func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, theGVCF string, gatkLogLevel string, verbose bool) (string, error) {
+	var regionArg string
+	if len(chroms) == 1 {
+		regionArg = chroms[0].ID
+	} else {
+		f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
+		if err != nil {
+			return "", fmt.Errorf("creating GATK interval list: %w", err)
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		for _, c := range chroms {
+			fmt.Fprintln(f, c.ID)
+		}
+		regionArg = f.Name()
+	}
+
+	hapCmdStr := fmt.Sprintf(
+		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`,
+		refFile, bam, regionArg, theGVCF, gatkLogLevel,
+	)
+	fmt.Printf("\n%s\n\n", hapCmdStr)
+	return theGVCF, utils.RunCmd(hapCmdStr, verbose)
+}
+
+func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, theGVCF string, dvVer string, modelType string, verbose bool, threadsPerJob int) (string, error) {
+	var regions string
+	bamDir := filepath.Dir(bam)
+	bamName := filepath.Base(bam)
+	refDir := filepath.Dir(refFile)
+	refName := filepath.Base(refFile)
+	gvcfName := filepath.Base(theGVCF)
+	gvcfDir := filepath.Dir(theGVCF)
+	vcfName := strings.Replace(gvcfName, ".g.vcf.gz", ".vcf.gz", 1)
+	if len(chroms) == 1 {
+		regions = chroms[0].ID
+	} else {
+		f, err := os.CreateTemp(gvcfDir, "deepvariant_intervals_*.bed")
+		if err != nil {
+			return "", fmt.Errorf("creating DeepVariant interval list: %w", err)
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		for _, c := range chroms {
+			fmt.Fprintf(f, "%s\t0\t%d\n", c.ID, c.Len)
+		}
+		regions = "/output/" + filepath.Base(f.Name()) // BED lives in gvcfDir, mounted as /output
+	}
+
+	safeRegion := strings.NewReplacer(string(os.PathSeparator), "_", ".", "_").Replace(regions)
+	intermediateName := fmt.Sprintf("tmp_%s_%s", strings.TrimSuffix(bamName, filepath.Ext(bamName)), safeRegion)
+	intermediatePath := filepath.Join(gvcfDir, intermediateName)
+
+	// Remove intermediate directory if it exists to ensure a clean start for re-runs
+	if _, err := os.Stat(intermediatePath); err == nil {
+		slog.Info("Removing existing intermediate directory", "path", intermediatePath)
+		if err := os.RemoveAll(intermediatePath); err != nil {
+			return "", fmt.Errorf("removing existing intermediate directory %s: %w", intermediatePath, err)
+		}
+	}
+
+	dvCmdStr := fmt.Sprintf(
+		`docker run -v "%s":/bam -v "%s":/ref -v "%s":/output google/deepvariant:%s `+
+			`/opt/deepvariant/bin/run_deepvariant --model_type=%s --ref=/ref/%s --reads=/bam/%s `+
+			`--regions "%s" --output_vcf=/output/%s --output_gvcf=/output/%s `+
+			`--num_shards=%d --intermediate_results_dir /output/%s`,
+		bamDir, refDir, gvcfDir, dvVer,
+		modelType, refName, bamName,
+		regions, vcfName, gvcfName,
+		threadsPerJob, intermediateName,
+	)
+
+	//fmt.Printf("\n%s\n\n", dvCmdStr)
+	if err := utils.RunCmd(dvCmdStr, verbose); err != nil {
+		return "", err
+	}
+
+	// Clean up this job's DeepVariant intermediate results. Only this job's
+	// directory is removed (not a tmp_* glob) so concurrent jobs writing to the
+	// same gvcf directory are not disturbed.
+	if rErr := os.RemoveAll(intermediatePath); rErr != nil {
+		slog.Warn("removing DeepVariant intermediate directory", "path", intermediatePath, "err", rErr)
+	}
+
+	return theGVCF, nil
 }

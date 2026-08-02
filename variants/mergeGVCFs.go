@@ -474,3 +474,43 @@ func allGvcfSampleNames(gvcfs []string) ([]string, error) {
 	}
 	return all, nil
 }
+
+// ---------------------------------------------------------------------------
+// Absorbed from the retired RunVariantCaller.go / RunVariantCallerDir.go
+// ---------------------------------------------------------------------------
+
+func ConcatenateVcfs(vcfs []string, species string, refVer string, outDir string, verbose bool) (string, error) {
+	vcfListPath := filepath.Join(outDir, "vcfs.list")
+	f, err := os.Create(vcfListPath)
+	if err != nil {
+		return "", fmt.Errorf("creating %s: %w", vcfListPath, err)
+	}
+	defer f.Close()
+	for _, vcf := range vcfs {
+		fmt.Fprintf(f, "%s\n", vcf)
+	}
+
+	concatVcfName := fmt.Sprintf("%s.%s.all.vcf.gz", strings.ToUpper(species), strings.ToLower(refVer))
+	if len(vcfs) == 1 {
+		dst := filepath.Join(outDir, concatVcfName)
+		err = utils.CopyFile(vcfs[0], dst)
+		if err != nil {
+			return "", fmt.Errorf("copying %s to %s: %w", vcfs[0], dst, err)
+		}
+		if _, statErr := os.Stat(vcfs[0] + ".tbi"); statErr == nil {
+			if cErr := utils.CopyFile(vcfs[0]+".tbi", dst+".tbi"); cErr != nil {
+				return "", fmt.Errorf("copying index %s.tbi to %s.tbi: %w", vcfs[0], dst, cErr)
+			}
+		}
+
+	} else {
+		cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, vcfListPath, filepath.Join(outDir, concatVcfName))
+		fmt.Println(cmd)
+		err = utils.RunCmd(cmd, verbose)
+
+		if err != nil {
+			return "", fmt.Errorf("gatk MergeVcfs error: %w", err)
+		}
+	}
+	return filepath.Join(outDir, concatVcfName), nil
+}

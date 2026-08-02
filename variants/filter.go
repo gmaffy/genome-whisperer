@@ -1,7 +1,9 @@
 package variants
 
 import (
+	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -145,4 +147,129 @@ func passesDeepVariant(v *vcfgo.Variant, cfg utils.HardFilterConfig, minGQ int) 
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Absorbed from the retired RunVariantCaller.go / RunVariantCallerDir.go
+// ---------------------------------------------------------------------------
+
+func openVCF(path string) (io.Reader, func(), error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { f.Close() }
+
+	if strings.HasSuffix(path, ".gz") {
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			f.Close()
+			return nil, nil, err
+		}
+		cleanup = func() { gz.Close(); f.Close() }
+		return gz, cleanup, nil
+	}
+	return f, cleanup, nil
+}
+
+func classifyVariant(v *vcfgo.Variant) (isSNP bool, isIndel bool, isMNP bool) {
+	refLen := len(v.Ref())
+	alts := v.Alt()
+
+	if len(alts) == 0 {
+		return false, false, false
+	}
+
+	isSNP = true
+	isIndel = false
+	isMNP = true
+
+	if refLen != 1 {
+		isSNP = false
+	}
+
+	for _, alt := range alts {
+		altLen := len(alt)
+		// If lengths differ, it's an Indel
+		if altLen != refLen {
+			isIndel = true
+			isMNP = false
+			isSNP = false
+		}
+	}
+
+	if isIndel {
+		isMNP = false
+		isSNP = false
+	}
+
+	if refLen == 1 {
+		isMNP = false
+	}
+
+	return isSNP, isIndel, isMNP
+}
+
+func PassesHardFilter(v *vcfgo.Variant, hfcfg utils.HardFilterConfig) bool {
+	isSNP, isIndel, isMNP := classifyVariant(v)
+
+	// Pre-fetch all commonly used INFO fields
+	qd, hasQD := utils.GetFloat(v, "QD")
+	fs, hasFS := utils.GetFloat(v, "FS")
+	sor, hasSOR := utils.GetFloat(v, "SOR")
+	mq, hasMQ := utils.GetFloat(v, "MQ")
+	mqRankSum, hasMQRankSum := utils.GetFloat(v, "MQRankSum")
+	readPosRankSum, hasReadPosRankSum := utils.GetFloat(v, "ReadPosRankSum")
+
+	// vcfgo stores Quality directly on the struct
+	qual := float64(v.Quality)
+
+	switch {
+	case isSNP:
+		if qual < hfcfg.SNP_QUAL_Min {
+			return false
+		}
+		if hasQD && qd < hfcfg.SNP_QD_Min {
+			return false
+		}
+		if hasFS && fs > hfcfg.SNP_FS_Max {
+			return false
+		}
+		if hasSOR && sor > hfcfg.SNP_SOR_Max {
+			return false
+		}
+		if hasMQ && mq < hfcfg.SNP_MQ_Min {
+			return false
+		}
+		if hasMQRankSum && mqRankSum < hfcfg.SNP_MQRankSum_Min {
+			return false
+		}
+		if hasReadPosRankSum && readPosRankSum < hfcfg.SNP_ReadPosRankSum_Min {
+			return false
+		}
+		return true
+
+	case isIndel, isMNP:
+		// We group MNPs with Indels here to hold them to the same robust standards.
+		if qual < hfcfg.INDEL_QUAL_Min {
+			return false
+		}
+		if hasQD && qd < hfcfg.INDEL_QD_Min {
+			return false
+		}
+		if hasFS && fs > hfcfg.INDEL_FS_Max {
+			return false
+		}
+		if hasSOR && sor > hfcfg.INDEL_SOR_Max {
+			return false
+		}
+		if hasReadPosRankSum && readPosRankSum < hfcfg.INDEL_ReadPosRankSum_Min {
+			return false
+		}
+		return true
+
+	default:
+		// these may be SVs. so we keep
+		return true
+	}
 }

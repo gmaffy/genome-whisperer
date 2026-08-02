@@ -313,8 +313,32 @@ func RunBsaSeqFromConfig(
 		jlog.Info("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-		hardFilteredVCF, err := variants.VariantCalling(allBams, refFile, species, refVer, outDir, caller, merger,
-			noMerging, false, utils.HardFilterConfig{}, verbose, gatkLogLevel, threads, logFilePath, dvVer, modelType)
+		// GATK best-practice defaults. The previous call passed a zero
+		// utils.HardFilterConfig with hard filtering enabled, which set every
+		// maximum threshold (FisherStrand, StrandOddsRatio) to 0 and therefore
+		// discarded almost every variant.
+		hardFilteredVCF, err := variants.RunPipeline(variants.Options{
+			Bams:         allBams,
+			OutDir:       outDir,
+			Species:      species,
+			RefVer:       refVer,
+			RefFasta:     refFile,
+			Caller:       caller,
+			Merger:       merger,
+			DVVer:        dvVer,
+			ModelType:    modelType,
+			GatkLogLevel: gatkLogLevel,
+			Threads:      threads,
+			Verbose:      verbose,
+			NoMerging:    noMerging,
+			MinGQ:        20,
+			HardFilter: utils.HardFilterConfig{
+				SNP_QD_Min: 2.0, SNP_QUAL_Min: 30.0, SNP_SOR_Max: 3.0, SNP_FS_Max: 60.0,
+				SNP_MQ_Min: 40.0, SNP_MQRankSum_Min: -12.5, SNP_ReadPosRankSum_Min: -8.0,
+				INDEL_QD_Min: 2.0, INDEL_QUAL_Min: 30.0, INDEL_FS_Max: 200.0,
+				INDEL_ReadPosRankSum_Min: -20.0, INDEL_SOR_Max: 10.0,
+			},
+		})
 		if err != nil {
 			jlog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED: %v", err))
 			slog.Error("BSASEQ", "PROGRAM", "BSASEQ_VARIANT_CALLING", "SAMPLE", "ALL", "CHROMOSOME", "ALL", "STATUS", fmt.Sprintf("FAILED - %s", err))
