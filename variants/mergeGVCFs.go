@@ -12,27 +12,61 @@ import (
 	"github.com/gmaffy/genome-whisperer/utils"
 )
 
-// JointVcfDir returns the directory joint-genotyped VCFs belong in.
+// JointVcfDir returns the directory joint-genotyped VCFs belong in. The last
+// component names the caller/merger combination that produced them:
+// gatk_gatk, gatk_glnexus or dv_glnexus.
 //
-// Data-dir mode:  <DataDir>/<species>/<refVer>/VCFs
-// Otherwise:      <OutDir>/VCFs
+// Data-dir mode:  <DataDir>/<species>/<refVer>/VCFs/<caller>_<merger>
+// Otherwise:      <OutDir>/VCFs/<caller>_<merger>
 //
 // Per-chromosome VCFs live directly in here with the chromosome in the filename,
 // alongside the final concatenated VCF, so there is one place to look.
+//
+// Giving each combination its own directory means running a second combination
+// cannot overwrite the first, the reuse checks never compare a joint VCF against
+// gVCFs from a different caller, and the scratch directories (work/, vcfs.list)
+// are per-combination too.
 func JointVcfDir(opts Options) string {
 	if opts.DataDir != "" {
-		return filepath.Join(opts.DataDir, strings.ToLower(opts.Species), opts.RefVer, "VCFs")
+		return filepath.Join(opts.DataDir, strings.ToLower(opts.Species), opts.RefVer, "VCFs", callerMergerTag(opts))
 	}
-	return filepath.Join(opts.OutDir, "VCFs")
+	return filepath.Join(opts.OutDir, "VCFs", callerMergerTag(opts))
 }
 
-// JointVcfPath returns the joint VCF path for one chromosome. This is the only
-// place the name is built, so nothing can look for a file under a name that was
-// never written.
+// callerMergerTag names the caller/merger combination: gatk_gatk, gatk_glnexus
+// or dv_glnexus. It appears both as the directory and inside every filename, so
+// a VCF copied out of its directory still says how it was produced.
+func callerMergerTag(opts Options) string {
+	// "dv" rather than "deepvariant", to match the dv_gvcfs directory name.
+	caller := "gatk"
+	if strings.ToLower(opts.Caller) != "gatk" {
+		caller = "dv"
+	}
+	return caller + "_" + strings.ToLower(opts.Merger)
+}
+
+// JointVcfPath returns the joint VCF path for one chromosome:
+//
+//	<SPECIES>.<refver>.<caller>_<merger>.<chrom>.joint.vcf.gz
+//
+// The combination sits before the chromosome so the trailing
+// ".<chrom>.joint.vcf.gz" stays intact — that tail is what suffix and glob
+// checks match on.
 func JointVcfPath(opts Options, chrom string) string {
 	label := strings.ReplaceAll(chrom, ".", "_")
-	name := fmt.Sprintf("%s.%s.%s.joint.vcf.gz",
-		strings.ToUpper(opts.Species), strings.ToLower(opts.RefVer), label)
+	name := fmt.Sprintf("%s.%s.%s.%s.joint.vcf.gz",
+		strings.ToUpper(opts.Species), strings.ToLower(opts.RefVer), callerMergerTag(opts), label)
+	return filepath.Join(JointVcfDir(opts), name)
+}
+
+// FinalVcfPath returns the concatenated multi-sample VCF path:
+//
+//	<SPECIES>.<refver>.<caller>_<merger>.all.vcf.gz
+//
+// Same ordering as JointVcfPath, so ".all.vcf.gz" remains the tail.
+func FinalVcfPath(opts Options) string {
+	name := fmt.Sprintf("%s.%s.%s.all.vcf.gz",
+		strings.ToUpper(opts.Species), strings.ToLower(opts.RefVer), callerMergerTag(opts))
 	return filepath.Join(JointVcfDir(opts), name)
 }
 
@@ -208,9 +242,46 @@ func FindExistingGvcfs(opts Options) (map[string][]string, error) {
 	return gvcfs, nil
 }
 
+// gatkIntervalArgs renders the -L value for a group of sequences, plus any extra
+// GenomicsDBImport arguments the group needs.
+//
+// A single chromosome goes straight into -L. The contigs group covers many
+// sequences and "contigs" is not a sequence name, so passing the label would make
+// GenomicsDBImport fail with "contig contigs not present in the sequence
+// dictionary"; an interval list is written into dir instead, the same way
+// CreateGvcfGATK does. --merge-input-intervals keeps hundreds of small contigs
+// from becoming hundreds of GenomicsDB partitions.
+//
+// Separate from mergeChromGATK so the interval handling can be tested without
+// GATK installed.
+func gatkIntervalArgs(dir string, seqs []SeqInfo) (regionArg, extraArgs string, err error) {
+	if len(seqs) == 0 {
+		return "", "", fmt.Errorf("no sequences given")
+	}
+	if len(seqs) == 1 {
+		return seqs[0].ID, "", nil
+	}
+
+	intervals := filepath.Join(dir, "intervals.list")
+	f, cErr := os.Create(intervals)
+	if cErr != nil {
+		return "", "", fmt.Errorf("creating %s: %w", intervals, cErr)
+	}
+	for _, s := range seqs {
+		if _, wErr := fmt.Fprintln(f, s.ID); wErr != nil {
+			f.Close()
+			return "", "", fmt.Errorf("writing %s: %w", intervals, wErr)
+		}
+	}
+	if clErr := f.Close(); clErr != nil {
+		return "", "", fmt.Errorf("closing %s: %w", intervals, clErr)
+	}
+	return intervals, " --merge-input-intervals", nil
+}
+
 // mergeChromGATK joint-genotypes one chromosome with GenomicsDBImport followed by
 // GenotypeGVCFs.
-func mergeChromGATK(opts Options, chrom string, gvcfs []string, jointVCF string) error {
+func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, jointVCF string) error {
 	workDir := filepath.Join(JointVcfDir(opts), "work", strings.ReplaceAll(chrom, ".", "_"))
 	theDB := filepath.Join(workDir, "db")
 	tmpDir := filepath.Join(workDir, "tmp")
@@ -228,12 +299,17 @@ func mergeChromGATK(opts Options, chrom string, gvcfs []string, jointVCF string)
 		return err
 	}
 
+	regionArg, extraArgs, err := gatkIntervalArgs(workDir, seqs)
+	if err != nil {
+		return fmt.Errorf("%s: %w", chrom, err)
+	}
+
 	gDBCmd := fmt.Sprintf(
 		`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport --sample-name-map %s `+
-			`--genomicsdb-workspace-path %s --tmp-dir %s -L %s `+
+			`--genomicsdb-workspace-path %s --tmp-dir %s -L %s%s `+
 			`--genomicsdb-shared-posixfs-optimizations true --batch-size 50 `+
 			`--bypass-feature-reader --verbosity %s`,
-		sampleMap, theDB, tmpDir, chrom, opts.GatkLogLevel,
+		sampleMap, theDB, tmpDir, regionArg, extraArgs, opts.GatkLogLevel,
 	)
 	if err := utils.RunCmd(gDBCmd, opts.Verbose); err != nil {
 		return fmt.Errorf("gatk GenomicsDBImport: %w", err)
@@ -320,6 +396,14 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 	if opts.RefFasta == "" {
 		return "", fmt.Errorf("reference fasta must not be empty")
 	}
+
+	// Same normalisation as CreateGvcfs, so a standalone MergeGvcfs looks in the
+	// same absolute locations the create stage wrote to.
+	var err error
+	if opts, err = absRoots(opts); err != nil {
+		return "", err
+	}
+
 	dictFilePath := opts.RefFasta[:len(opts.RefFasta)-len(filepath.Ext(opts.RefFasta))] + ".dict"
 	if _, dErr := os.Stat(dictFilePath); dErr != nil {
 		return "", fmt.Errorf("reference dict file %s does not exist", dictFilePath)
@@ -327,7 +411,6 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 
 	if gvcfs == nil {
 		color.Cyan("================================== Finding gVCFs ==================================\n\n")
-		var err error
 		if gvcfs, err = FindExistingGvcfs(opts); err != nil {
 			return "", err
 		}
@@ -355,6 +438,21 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 	order, err := dictOrder(dictFilePath)
 	if err != nil {
 		return "", err
+	}
+
+	// The sequences behind each label. GATK needs the real sequence list, not the
+	// label: "contigs" stands for every small sequence and is not itself a
+	// sequence name.
+	chroms, contigs, err := getChromsAndContigs(dictFilePath)
+	if err != nil {
+		return "", fmt.Errorf("getting chromosomes and contigs: %w", err)
+	}
+	seqsFor := make(map[string][]SeqInfo, len(chroms)+1)
+	for _, c := range chroms {
+		seqsFor[c.ID] = []SeqInfo{c}
+	}
+	if len(contigs) > 0 {
+		seqsFor["contigs"] = contigs
 	}
 
 	labels := make([]string, 0, len(gvcfs))
@@ -394,23 +492,33 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 
 		// ------------------------- reuse a valid, up-to-date joint VCF ------------------------- //
 		if _, sErr := os.Stat(jointVCF); sErr == nil {
-			reuse := false
-			if opts.SkipVerification {
-				reuse = true
-			} else if vErr := utils.ValidateGvcf(jointVCF, opts.Verbose, opts.Quick); vErr != nil {
-				color.Yellow("[%s] joint VCF is corrupt, re-merging: %v\n", label, vErr)
-			} else {
+			reuse := true
+
+			// --skip-verification skips the integrity check only.
+			if !opts.SkipVerification {
+				if vErr := utils.ValidateGvcf(jointVCF, opts.Verbose, opts.Quick); vErr != nil {
+					color.Yellow("[%s] joint VCF is corrupt, re-merging: %v\n", label, vErr)
+					reuse = false
+				}
+			}
+
+			// The sample-set check always runs, even under --skip-verification: it is
+			// only a header read, and skipping it means a newly added sample silently
+			// never reaches the output.
+			if reuse {
 				want, wErr := allGvcfSampleNames(gvcfs[label])
 				have, hErr := vcfSampleNames(jointVCF)
 				switch {
 				case wErr != nil || hErr != nil:
 					color.Yellow("[%s] could not compare sample names, re-merging\n", label)
-				case sampleNamesMatch(want, have):
-					reuse = true
-				default:
-					color.Yellow("[%s] sample set changed, re-merging\n", label)
+					reuse = false
+				case !sampleNamesMatch(want, have):
+					color.Yellow("[%s] sample set changed (%d gVCFs vs %d samples in the joint VCF), re-merging\n",
+						label, len(want), len(have))
+					reuse = false
 				}
 			}
+
 			if reuse {
 				color.Green("[%s] joint VCF is up to date, reusing: %s\n", label, jointVCF)
 				jointVcfs = append(jointVcfs, jointVCF)
@@ -420,10 +528,17 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 			os.Remove(jointVCF + ".tbi")
 		}
 
+		// An explicit --gvcf list arrives under a synthetic label ("all") that is not
+		// a sequence name, so fall back to the whole reference for it.
+		seqs := seqsFor[label]
+		if len(seqs) == 0 {
+			seqs = append(append([]SeqInfo{}, chroms...), contigs...)
+		}
+
 		color.Cyan("[%s] merging %d gVCFs ...\n\n", label, len(gvcfs[label]))
 		var mErr error
 		if merger == "gatk" {
-			mErr = mergeChromGATK(opts, label, gvcfs[label], jointVCF)
+			mErr = mergeChromGATK(opts, label, seqs, gvcfs[label], jointVCF)
 		} else {
 			mErr = mergeChromGlnexus(opts, label, gvcfs[label], jointVCF)
 		}
@@ -447,7 +562,7 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 
 	color.Cyan("=========================== Concatenating %d joint VCF(s) ===========================\n\n", len(jointVcfs))
 
-	finalVCF, err := ConcatenateVcfs(jointVcfs, opts.Species, opts.RefVer, vcfDir, opts.Verbose)
+	finalVCF, err := ConcatenateVcfs(jointVcfs, FinalVcfPath(opts), opts.Verbose)
 	if err != nil {
 		return "", fmt.Errorf("concatenating VCFs: %w", err)
 	}
@@ -479,38 +594,49 @@ func allGvcfSampleNames(gvcfs []string) ([]string, error) {
 // Absorbed from the retired RunVariantCaller.go / RunVariantCallerDir.go
 // ---------------------------------------------------------------------------
 
-func ConcatenateVcfs(vcfs []string, species string, refVer string, outDir string, verbose bool) (string, error) {
-	vcfListPath := filepath.Join(outDir, "vcfs.list")
+// ConcatenateVcfs writes vcfs into outVCF with gatk MergeVcfs, copying instead
+// when there is only one input. vcfs must already be in reference-dictionary
+// order; MergeVcfs will not reorder them.
+//
+// The destination is passed in rather than derived here, so every VCF name in the
+// package comes from JointVcfPath or FinalVcfPath and cannot drift.
+func ConcatenateVcfs(vcfs []string, outVCF string, verbose bool) (string, error) {
+	if len(vcfs) == 0 {
+		return "", fmt.Errorf("no VCFs to concatenate")
+	}
+
+	if len(vcfs) == 1 {
+		if err := utils.CopyFile(vcfs[0], outVCF); err != nil {
+			return "", fmt.Errorf("copying %s to %s: %w", vcfs[0], outVCF, err)
+		}
+		if _, statErr := os.Stat(vcfs[0] + ".tbi"); statErr == nil {
+			if cErr := utils.CopyFile(vcfs[0]+".tbi", outVCF+".tbi"); cErr != nil {
+				return "", fmt.Errorf("copying index %s.tbi to %s.tbi: %w", vcfs[0], outVCF, cErr)
+			}
+		}
+		return outVCF, nil
+	}
+
+	// The input list lives next to the output, so parallel runs of different
+	// caller/merger combinations cannot overwrite each other's list.
+	vcfListPath := strings.TrimSuffix(outVCF, ".vcf.gz") + ".vcfs.list"
 	f, err := os.Create(vcfListPath)
 	if err != nil {
 		return "", fmt.Errorf("creating %s: %w", vcfListPath, err)
 	}
-	defer f.Close()
 	for _, vcf := range vcfs {
-		fmt.Fprintf(f, "%s\n", vcf)
-	}
-
-	concatVcfName := fmt.Sprintf("%s.%s.all.vcf.gz", strings.ToUpper(species), strings.ToLower(refVer))
-	if len(vcfs) == 1 {
-		dst := filepath.Join(outDir, concatVcfName)
-		err = utils.CopyFile(vcfs[0], dst)
-		if err != nil {
-			return "", fmt.Errorf("copying %s to %s: %w", vcfs[0], dst, err)
-		}
-		if _, statErr := os.Stat(vcfs[0] + ".tbi"); statErr == nil {
-			if cErr := utils.CopyFile(vcfs[0]+".tbi", dst+".tbi"); cErr != nil {
-				return "", fmt.Errorf("copying index %s.tbi to %s.tbi: %w", vcfs[0], dst, cErr)
-			}
-		}
-
-	} else {
-		cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, vcfListPath, filepath.Join(outDir, concatVcfName))
-		fmt.Println(cmd)
-		err = utils.RunCmd(cmd, verbose)
-
-		if err != nil {
-			return "", fmt.Errorf("gatk MergeVcfs error: %w", err)
+		if _, wErr := fmt.Fprintf(f, "%s\n", vcf); wErr != nil {
+			f.Close()
+			return "", fmt.Errorf("writing %s: %w", vcfListPath, wErr)
 		}
 	}
-	return filepath.Join(outDir, concatVcfName), nil
+	if cErr := f.Close(); cErr != nil {
+		return "", fmt.Errorf("closing %s: %w", vcfListPath, cErr)
+	}
+
+	cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, vcfListPath, outVCF)
+	if err := utils.RunCmd(cmd, verbose); err != nil {
+		return "", fmt.Errorf("gatk MergeVcfs: %w", err)
+	}
+	return outVCF, nil
 }

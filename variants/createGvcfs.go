@@ -50,6 +50,30 @@ type Options struct {
 	SkipVerification bool
 }
 
+// absRoots resolves DataDir, OutDir and RefFasta to absolute paths. Every stage
+// calls it up front so the paths it prints, and the paths it passes to GATK,
+// DeepVariant and GLnexus, do not depend on the current working directory.
+func absRoots(opts Options) (Options, error) {
+	for _, p := range []struct {
+		name  string
+		field *string
+	}{
+		{"data directory", &opts.DataDir},
+		{"output directory", &opts.OutDir},
+		{"reference fasta", &opts.RefFasta},
+	} {
+		if *p.field == "" {
+			continue
+		}
+		abs, err := filepath.Abs(*p.field)
+		if err != nil {
+			return opts, fmt.Errorf("resolving %s %s: %w", p.name, *p.field, err)
+		}
+		*p.field = abs
+	}
+	return opts, nil
+}
+
 // GvcfPath returns where a sample's gVCF for one chromosome belongs.
 //
 // Data-dir mode:  <sample>/reference_genomes/<refVer>/{gatk_gvcfs|dv_gvcfs}/<sample>.<chrom>.g.vcf.gz
@@ -105,7 +129,10 @@ func FindGvcfSamples(opts Options) ([]SampleWork, []string, error) {
 		return nil, nil, fmt.Errorf("getting absolute path for data directory %s: %w", opts.DataDir, err)
 	}
 
-	pattern := filepath.Join(opts.DataDir, opts.Species, "*", "*", "reference_genomes")
+	// Lower-cased to match FindBams and JointVcfDir. On a case-sensitive
+	// filesystem, mixing the two spellings means sample discovery and BAM
+	// discovery look in different directories.
+	pattern := filepath.Join(opts.DataDir, strings.ToLower(opts.Species), "*", "*", "reference_genomes")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, nil, fmt.Errorf("finding samples in %s: %w", pattern, err)
@@ -201,6 +228,13 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 		opts.Threads = 4
 	}
 
+	// Make the roots absolute so every path logged or handed to GATK is a full
+	// path, whatever the caller passed and whatever the working directory is.
+	// opts is a value, so this only affects this call.
+	if opts, err = absRoots(opts); err != nil {
+		return nil, err
+	}
+
 	color.Green("All file paths valid\n....................................................\n\n")
 
 	// ================================== Chroms and contigs ==================================== //
@@ -282,6 +316,10 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 				}
 
 				// ------------------------- reuse an existing gVCF ------------------------- //
+				// recreate only selects the verb in the log line below, so one message
+				// says whether this is a first run or a repair.
+				recreate := false
+
 				if _, sErr := os.Stat(theGVCF); sErr == nil {
 					if opts.SkipVerification {
 						color.Yellow("[Worker %d] [%s] %s exists, skipping integrity check\n\n", workerID, j.sample.Sample, j.chrom)
@@ -301,15 +339,21 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 					}
 					// Remove the partial file and its index so a failed retry cannot
 					// leave something that looks complete.
-					color.Yellow("[Worker %d] [%s] gVCF for %s is corrupt, re-creating\n\n", workerID, j.sample.Sample, j.chrom)
 					os.Remove(theGVCF)
 					os.Remove(theGVCF + ".tbi")
+					recreate = true
 				}
 
 				// ------------------------------ create the gVCF ---------------------------- //
+				verb := "creating"
+				if recreate {
+					verb = "re-creating corrupt"
+				}
+
 				var cErr error
 				if caller == "gatk" {
-					color.Cyan("[Worker %d] [%s] creating %s with GATK ...\n\n", workerID, j.sample.Sample, j.chrom)
+					color.Cyan("[Worker %d] [%s] %s %s gvcf with GATK ... %s\n\n",
+						workerID, j.sample.Sample, verb, j.chrom, theGVCF)
 					_, cErr = CreateGvcfGATK(j.sample.Cram, opts.RefFasta, j.seqs, theGVCF, opts.GatkLogLevel, opts.Verbose)
 				} else {
 					// Honour --model-type when it is set. Only fall back to the data
@@ -322,7 +366,8 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 							modelType = "PACBIO"
 						}
 					}
-					color.Cyan("[Worker %d] [%s] creating %s with DeepVariant (%s) ...\n\n", workerID, j.sample.Sample, j.chrom, modelType)
+					color.Cyan("[Worker %d] [%s] %s %s gvcf with DeepVariant (%s) ... %s\n\n",
+						workerID, j.sample.Sample, verb, j.chrom, modelType, theGVCF)
 					_, cErr = CreateGvcfDV(j.sample.Cram, opts.RefFasta, j.seqs, theGVCF, opts.DVVer, modelType, opts.Verbose, opts.Threads)
 				}
 

@@ -16,12 +16,91 @@ import (
 var VariantCallingCmd = &cobra.Command{
 	Use:   "VariantCalling",
 	Short: "Creates a multi-sample VCF file from bam files using GATK best practices OR Deepvariant and GLNEXUS",
-	Long: `VariantCalling
-        - Calls and hard filters SNPs and Indels using GATK best practices from bams generated from short reads
-        - Calls and hard filters SNPs and Indels using Deepvariant from bams generated from long reads
-        - Can use glnexus or GATK to merge gvcfs
-        - Takes input from the standard data directory (--data-dir), a config file
-          (--config) or explicit bam paths (--bam)`,
+	Long: `VariantCalling runs the full pipeline: gVCF creation, joint genotyping,
+concatenation and hard filtering.
+
+  - Calls and hard filters SNPs and Indels using GATK best practices from bams generated from short reads
+  - Calls and hard filters SNPs and Indels using Deepvariant from bams generated from long reads
+  - Can use glnexus or GATK to merge gvcfs
+
+INPUT PATHS
+  Pick exactly one. Supplying more than one is an error.
+
+  1. Data directory  --data-dir
+     Discovers every sample under
+       <data-dir>/<species>/<project>/<sample>/reference_genomes/<ref-version>/bams/
+     and writes gVCFs beside each sample, in
+       .../reference_genomes/<ref-version>/{gatk_gvcfs|dv_gvcfs}/
+     VCFs go to
+       <data-dir>/<species>/<ref-version>/VCFs/<caller>_<merger>/
+
+       required: --data-dir --species --ref-version
+                 and --reference or --genomes-dir
+       --out-dir is ignored in this mode.
+
+  2. Config file  --config
+     Reads Reference, OutputDir and the bam: entries from the file. Anything also
+     given on the command line wins. Generate a template with:
+       genome-whisperer CreateTemplate
+
+       required: --config --species --ref-version
+                 plus Reference and OutputDir in the file (or --reference / --out-dir)
+
+  3. Inline  --bam
+     Every input on the command line. Repeat --bam once per sample.
+
+       required: --bam --reference --out-dir --species --ref-version
+
+  In modes 2 and 3 everything is written under --out-dir:
+    <out-dir>/<chrom>/{gatk_gvcfs|dv_gvcfs}/   gVCFs
+    <out-dir>/VCFs/<caller>_<merger>/          per-chromosome and final VCFs
+
+CALLER / MERGER
+  --caller gatk (default) may use --merger gatk or glnexus.
+  --caller deepvariant requires --merger glnexus.
+
+  Joint VCFs are kept in a subdirectory named for the combination that produced
+  them: gatk_gatk, gatk_glnexus or dv_glnexus. Running a second combination
+  therefore never overwrites the first, and both results stay side by side.
+
+STAGES
+  --no-merging      stop after gVCF creation
+  --no-hard-filter  stop after merging
+  Re-running skips any gVCF or joint VCF that already exists and is valid, so an
+  interrupted run resumes where it stopped.`,
+	Example: `  # 1. Standard data directory
+  genome-whisperer VariantCalling \
+      --data-dir /data/plennegy --species cotton --ref-version AD1.1 \
+      --genomes-dir /data/genomes --threads 8
+
+  # 2. Config file
+  genome-whisperer VariantCalling \
+      --config config.txt --species cotton --ref-version AD1.1
+
+  # 3. Inline bams
+  genome-whisperer VariantCalling \
+      --bam s1.bqsr.cram --bam s2.bqsr.cram \
+      --reference /data/genomes/cotton/AD1.1/ref.fa \
+      --out-dir ./vcfs --species cotton --ref-version AD1.1
+
+  # Long reads with DeepVariant (GLnexus is required as the merger)
+  genome-whisperer VariantCalling \
+      --data-dir /data/plennegy --species cotton --ref-version AD1.1 \
+      --caller deepvariant --merger glnexus --model-type PACBIO
+
+  # Use the RGMD alignment instead of the BQSR one
+  genome-whisperer VariantCalling --data-dir /data/plennegy \
+      --species cotton --ref-version AD1.1 --bqsr=false
+
+  # Stop early
+  genome-whisperer VariantCalling --data-dir /data/plennegy \
+      --species cotton --ref-version AD1.1 --no-merging
+
+  # Relax filtering, or tune one threshold
+  genome-whisperer VariantCalling --config config.txt --species cotton \
+      --ref-version AD1.1 --light-filtering
+  genome-whisperer VariantCalling --config config.txt --species cotton \
+      --ref-version AD1.1 --max-fs-snp 40 --min-qual-snp 50`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color.Green("VariantCalling called")
 

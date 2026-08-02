@@ -54,7 +54,8 @@ func FilterVcf(opts Options, vcf string) (string, error) {
 
 	keep := func(v *vcfgo.Variant) bool { return PassesHardFilter(v, cfg) }
 	profile := "GATK best practices"
-	if strings.ToLower(opts.Caller) == "deepvariant" {
+	needSamples := strings.ToLower(opts.Caller) == "deepvariant"
+	if needSamples {
 		keep = func(v *vcfgo.Variant) bool { return passesDeepVariant(v, cfg, minGQ) }
 		profile = fmt.Sprintf("DeepVariant (QUAL + GQ >= %d)", minGQ)
 	}
@@ -66,7 +67,11 @@ func FilterVcf(opts Options, vcf string) (string, error) {
 	}
 	defer cleanup()
 
-	rdr, err := vcfgo.NewReader(in, true)
+	// The second argument is lazySamples: when true, vcfgo leaves Variant.Samples
+	// empty until the caller parses them. The GATK profile only reads INFO fields,
+	// so lazy is right there, but the DeepVariant profile needs per-sample GQ and
+	// would otherwise see zero samples and fall back to filtering on QUAL alone.
+	rdr, err := vcfgo.NewReader(in, !needSamples)
 	if err != nil {
 		return "", fmt.Errorf("VCF header %q: %w", vcf, err)
 	}
