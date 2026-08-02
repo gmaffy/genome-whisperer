@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/biogo/hts/bgzf"
 	"github.com/brentp/vcfgo"
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
@@ -609,79 +608,12 @@ func openVCF(path string) (io.Reader, func(), error) {
 	return f, cleanup, nil
 }
 
+// HardFilterVcf hard filters a VCF with the GATK threshold profile.
+//
+// Retained for the original VariantCalling engine and its callers; the
+// implementation now lives in FilterVcf so there is a single streaming filter.
 func HardFilterVcf(vcf string, cfg utils.HardFilterConfig) (string, error) {
-
-	var hardFilteredVcfPath string
-	if strings.HasSuffix(vcf, ".vcf") {
-		hardFilteredVcfPath = strings.TrimSuffix(vcf, ".vcf") + ".hard_filtered.vcf.gz"
-	} else if strings.HasSuffix(vcf, ".vcf.gz") {
-		hardFilteredVcfPath = strings.TrimSuffix(vcf, ".vcf.gz") + ".hard_filtered.vcf.gz"
-	} else {
-		return "", fmt.Errorf("vcf file %q does not end with .vcf or .vcf.gz", vcf)
-	}
-
-	in, cleanup, err := openVCF(vcf)
-	if err != nil {
-		return "", fmt.Errorf("open %q: %w", vcf, err)
-	}
-	defer cleanup()
-
-	rdr, err := vcfgo.NewReader(in, true)
-	if err != nil {
-		return "", fmt.Errorf("VCF header %q: %w", vcf, err)
-	}
-
-	outFile, err := os.Create(hardFilteredVcfPath)
-	if err != nil {
-		return "", fmt.Errorf("create %q: %w", hardFilteredVcfPath, err)
-	}
-	defer outFile.Close()
-
-	bgzfW := bgzf.NewWriter(outFile, runtime.GOMAXPROCS(0))
-
-	w, err := vcfgo.NewWriter(bgzfW, rdr.Header)
-	if err != nil {
-		bgzfW.Close()
-		return "", fmt.Errorf("VCF writer: %w", err)
-	}
-
-	ch := make(chan *vcfgo.Variant, 512)
-	readErr := make(chan error, 1)
-
-	go func() {
-		defer close(ch)
-		for {
-			v := rdr.Read()
-			if v == nil {
-				readErr <- rdr.Error() // nil on clean EOF, error otherwise
-				return
-			}
-			ch <- v
-		}
-	}()
-
-	for v := range ch {
-		alts := v.Alt()
-		if len(alts) == 0 || (len(alts) == 1 && (alts[0] == "<NON_REF>" || alts[0] == ".")) {
-			continue
-		}
-		if PassesHardFilter(v, cfg) {
-			w.WriteVariant(v)
-		}
-	}
-
-	if err := <-readErr; err != nil {
-		return "", fmt.Errorf("reading variants: %w", err)
-	}
-	if err := bgzfW.Close(); err != nil {
-		return "", fmt.Errorf("close bgzf: %w", err)
-	}
-	out, err := exec.Command("tabix", "-p", "vcf", hardFilteredVcfPath).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("tabix %q: %w\n%s", hardFilteredVcfPath, err, out)
-	}
-
-	return hardFilteredVcfPath, nil
+	return FilterVcf(Options{Caller: "gatk", HardFilter: cfg}, vcf)
 }
 
 // --------------------------------------- VC Pipeline ------------------------------------------------------------ //

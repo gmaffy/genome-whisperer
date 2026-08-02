@@ -5,10 +5,6 @@ package cmd
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
@@ -23,262 +19,123 @@ var VariantCallingCmd = &cobra.Command{
 	Long: `VariantCalling
         - Calls and hard filters SNPs and Indels using GATK best practices from bams generated from short reads
         - Calls and hard filters SNPs and Indels using Deepvariant from bams generated from long reads
-        - Can use glenexus or GATK to merge gvcfs`,
-	Run: func(cmd *cobra.Command, args []string) {
-
+        - Can use glnexus or GATK to merge gvcfs
+        - Takes input from the standard data directory (--data-dir), a config file
+          (--config) or explicit bam paths (--bam)`,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		color.Green("VariantCalling called")
-		configFile, cErr := cmd.Flags().GetString("config")
-		if cErr != nil {
-			log.Fatalf("Error getting config flag: %v", cErr)
+
+		opts, err := variantOptions(cmd)
+		if err != nil {
+			return err
 		}
 
-		threads, jErr := cmd.Flags().GetInt("threads")
-		if jErr != nil {
-			log.Fatalf("Error getting threads flag: %v", jErr)
+		// A config file supplies whatever was not given on the command line.
+		configFile, err := cmd.Flags().GetString("config")
+		if err != nil {
+			return err
+		}
+		if configFile != "" {
+			cfg, cErr := utils.ReadConfig(configFile)
+			if cErr != nil {
+				return fmt.Errorf("reading config %s: %w", configFile, cErr)
+			}
+			if opts.RefFasta == "" {
+				opts.RefFasta = cfg.Reference
+			}
+			if opts.OutDir == "" {
+				opts.OutDir = cfg.OutputDir
+			}
+			if opts.Species == "" {
+				opts.Species = cfg.Species
+			}
+			if len(opts.Bams) == 0 {
+				opts.Bams = cfg.Bams
+			}
 		}
 
-		refFile, refErr := cmd.Flags().GetString("reference")
-		if refErr != nil {
-			log.Fatalf("Error getting reference flag: %v", refErr)
+		// ------------------------------------ Stage toggles ------------------------------------- //
+		if opts.NoHardFilter, err = cmd.Flags().GetBool("no-hard-filter"); err != nil {
+			return err
 		}
+		// VariantCalling consumes BQSR-recalibrated alignments by default.
+		bqsr, err := cmd.Flags().GetBool("bqsr")
+		if err != nil {
+			return err
+		}
+		opts.NoBqsr = !bqsr
 
-		refVer, refVerErr := cmd.Flags().GetString("ref-version")
-		if refVerErr != nil {
-			log.Fatalf("Error getting reference version flag: %v", refVerErr)
-		}
-
-		speciesName, sErr := cmd.Flags().GetString("species")
-		if sErr != nil {
-			log.Fatalf("Error getting species flag: %v", sErr)
-		}
-
-		gatkLogLevel, vErr := cmd.Flags().GetString("gatk-log-level")
-		if vErr != nil {
-			log.Fatalf("Error getting gatk-log-level flag: %v", vErr)
-		}
-
-		outDir, outErr := cmd.Flags().GetString("out-dir")
-		if outErr != nil {
-			log.Fatalf("Error getting output directory flag: %v", outErr)
-		}
-
-		caller, callerErr := cmd.Flags().GetString("caller")
-		if callerErr != nil {
-			log.Fatalf("Error getting caller flag: %v", callerErr)
-		}
-
-		nomerging, nErr := cmd.Flags().GetBool("no-merging")
-		if nErr != nil {
-			log.Fatalf("Error getting no-merging flag: %v", nErr)
-		}
-
-		noHardFilter, hfErrr := cmd.Flags().GetBool("no-hard-filter")
-		if hfErrr != nil {
-			log.Fatalf("Error getting no-hard-filter flag: %v", hfErrr)
-		}
-
-		merger, mergerErr := cmd.Flags().GetString("merger")
-		if mergerErr != nil {
-			log.Fatalf("Error getting merger flag: %v", mergerErr)
-		}
-
-		dvVer, dvVerErr := cmd.Flags().GetString("deepvariant-version")
-		if dvVerErr != nil {
-			log.Fatalf("Error getting deepvariant version flag: %v", dvVerErr)
-		}
-
-		modelType, mtErr := cmd.Flags().GetString("model-type")
-		if mtErr != nil {
-			log.Fatalf("Error getting model type flag: %v", mtErr)
-		}
-
-		dataDir, dErr := cmd.Flags().GetString("data-dir")
-		if dErr != nil {
-			log.Fatalf("Error getting data-dir flag: %v", dErr)
-		}
-
-		verbose, verboseErr := cmd.Flags().GetBool("verbose")
-		if verboseErr != nil {
-			verbose = false
-		}
-
-		bqsr, bqsrErr := cmd.Flags().GetBool("bqsr")
-		if bqsrErr != nil {
-			log.Fatalf("Error getting bqsr flag: %v", bqsrErr)
-		}
-		noBqsr := !bqsr
-
-		quick, qErr := cmd.Flags().GetBool("quick")
-		if qErr != nil {
-			log.Fatalf("Error getting quick flag: %v", qErr)
-		}
+		// ---------------------------------- Filter thresholds ----------------------------------- //
 		lightFilter, _ := cmd.Flags().GetBool("light-filtering")
-		minQD_SNP, _ := cmd.Flags().GetFloat64("min-qd-snp")
-		minQUAL_SNP, _ := cmd.Flags().GetFloat64("min-qual-snp")
-		maxSOR_SNP, _ := cmd.Flags().GetFloat64("max-sor-snp")
-		maxFS_SNP, _ := cmd.Flags().GetFloat64("max-fs-snp")
-		minMQ_SNP, _ := cmd.Flags().GetFloat64("min-mq-snp")
-		minMQRank, _ := cmd.Flags().GetFloat64("min-mqranksum-snp")
-		minReadPosRank, _ := cmd.Flags().GetFloat64("min-readposranksum-snp")
+		minQDSNP, _ := cmd.Flags().GetFloat64("min-qd-snp")
+		minQualSNP, _ := cmd.Flags().GetFloat64("min-qual-snp")
+		maxSORSNP, _ := cmd.Flags().GetFloat64("max-sor-snp")
+		maxFSSNP, _ := cmd.Flags().GetFloat64("max-fs-snp")
+		minMQSNP, _ := cmd.Flags().GetFloat64("min-mq-snp")
+		minMQRankSNP, _ := cmd.Flags().GetFloat64("min-mqranksum-snp")
+		minReadPosRankSNP, _ := cmd.Flags().GetFloat64("min-readposranksum-snp")
 
-		minQD_INDEL, _ := cmd.Flags().GetFloat64("min-qd-indel")
-		minQUAL_INDEL, _ := cmd.Flags().GetFloat64("min-qual-indel")
-		maxFS_INDEL, _ := cmd.Flags().GetFloat64("max-fs-indel")
-		minReadPosRank_INDEL, _ := cmd.Flags().GetFloat64("min-readposranksum-indel")
-		maxSOR_INDEL, _ := cmd.Flags().GetFloat64("max-sor-indel")
+		minQDIndel, _ := cmd.Flags().GetFloat64("min-qd-indel")
+		minQualIndel, _ := cmd.Flags().GetFloat64("min-qual-indel")
+		maxFSIndel, _ := cmd.Flags().GetFloat64("max-fs-indel")
+		maxSORIndel, _ := cmd.Flags().GetFloat64("max-sor-indel")
+		minReadPosRankIndel, _ := cmd.Flags().GetFloat64("min-readposranksum-indel")
 
-		cfg := utils.HardFilterConfig{
+		opts.HardFilter = utils.HardFilterConfig{
 			LightFilter:              lightFilter,
-			SNP_QD_Min:               minQD_SNP,
-			SNP_QUAL_Min:             minQUAL_SNP,
-			SNP_SOR_Max:              maxSOR_SNP,
-			SNP_FS_Max:               maxFS_SNP,
-			SNP_MQ_Min:               minMQ_SNP,
-			SNP_MQRankSum_Min:        minMQRank,
-			SNP_ReadPosRankSum_Min:   minReadPosRank,
-			INDEL_QD_Min:             minQD_INDEL,
-			INDEL_QUAL_Min:           minQUAL_INDEL,
-			INDEL_FS_Max:             maxFS_INDEL,
-			INDEL_ReadPosRankSum_Min: minReadPosRank_INDEL,
-			INDEL_SOR_Max:            maxSOR_INDEL,
+			SNP_QD_Min:               minQDSNP,
+			SNP_QUAL_Min:             minQualSNP,
+			SNP_SOR_Max:              maxSORSNP,
+			SNP_FS_Max:               maxFSSNP,
+			SNP_MQ_Min:               minMQSNP,
+			SNP_MQRankSum_Min:        minMQRankSNP,
+			SNP_ReadPosRankSum_Min:   minReadPosRankSNP,
+			INDEL_QD_Min:             minQDIndel,
+			INDEL_QUAL_Min:           minQualIndel,
+			INDEL_FS_Max:             maxFSIndel,
+			INDEL_ReadPosRankSum_Min: minReadPosRankIndel,
+			INDEL_SOR_Max:            maxSORIndel,
+		}
+		if opts.MinGQ, err = cmd.Flags().GetInt("min-gq"); err != nil {
+			return err
 		}
 
-		if speciesName == "" {
-			fmt.Println("Please provide species name with flag --species ")
-			return
-		}
-		genomesDir, gerr := cmd.Flags().GetString("genomes-dir")
-		if gerr != nil {
-			log.Fatalf("Error getting genomes-dir flag: %v", gerr)
-		}
-
-		caller = strings.ToLower(caller)
-		merger = strings.ToLower(merger)
-
-		//-------------------------------------------- Check dependencies ------------------------------------------ //
-		switch caller {
+		// ---------------------------------- Check dependencies ---------------------------------- //
+		switch opts.Caller {
 		case "gatk":
-			gatkErr := utils.CheckDeps([]string{"gatk", "bcftools"})
-			if gatkErr != nil {
-				fmt.Println("Dependency check failed ... ", gatkErr)
-				return
+			if depErr := utils.CheckDeps([]string{"gatk", "bcftools", "tabix"}); depErr != nil {
+				return fmt.Errorf("dependency check failed: %w", depErr)
 			}
-			if merger == "glnexus" {
-				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
-				if glnErr != nil {
-					fmt.Println("Dependency check failed ... ", glnErr)
-					return
+			if opts.Merger == "glnexus" {
+				if depErr := utils.CheckDeps([]string{"glnexus_cli", "bgzip"}); depErr != nil {
+					return fmt.Errorf("dependency check failed: %w", depErr)
 				}
-			} else if merger != "gatk" {
-				fmt.Println("merger must be either glnexus or gatk")
-				return
+			} else if opts.Merger != "gatk" {
+				return fmt.Errorf("merger must be gatk or glnexus, got %q", opts.Merger)
 			}
-
 		case "deepvariant":
-			docErr := utils.CheckDeps([]string{"docker"})
-			if docErr != nil {
-				fmt.Println("Dependency check failed ... ", docErr)
-				return
+			if depErr := utils.CheckDeps([]string{"docker", "bcftools", "tabix"}); depErr != nil {
+				return fmt.Errorf("dependency check failed: %w", depErr)
 			}
-			if merger == "glnexus" {
-				glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
-				if glnErr != nil {
-					fmt.Println("Dependency check failed ... ", glnErr)
-					return
-				}
-			} else {
-				fmt.Println("Use glnexus as merger if deepvariant is your chosen variant caller. ... ")
-				return
+			if opts.Merger != "glnexus" {
+				return fmt.Errorf("use glnexus as the merger when the caller is deepvariant")
+			}
+			if depErr := utils.CheckDeps([]string{"glnexus_cli", "bgzip"}); depErr != nil {
+				return fmt.Errorf("dependency check failed: %w", depErr)
 			}
 		default:
-			fmt.Println("caller must be either gatk or deepvariant")
-			return
+			return fmt.Errorf("caller must be gatk or deepvariant, got %q", opts.Caller)
 		}
 
-		//-------------------------------------------- Run variant calling ------------------------------------------ //
-
-		if configFile != "" {
-			fmt.Printf("Running with config file to %s\n", configFile)
-			_, err := os.Stat(configFile)
-			if err != nil {
-				fmt.Printf("Config file %s does not exist", configFile)
-				return
-
-			}
-
-			finalVcf, err := variants.VariantCallingConfig(configFile, speciesName, refVer, gatkLogLevel, caller, merger, dvVer, modelType, verbose, nomerging, noHardFilter, cfg, threads)
-			if err != nil {
-				return
-			}
-			fmt.Printf("Final VCF: %s\n", finalVcf)
-
-		} else if dataDir != "" {
-			fmt.Printf("Running Variant Calling using Plennegy data directory structure: %s\n", color.BlueString(dataDir))
-			_, err := os.Stat(dataDir)
-			if err != nil {
-				fmt.Printf("Data directory %s does not exist", dataDir)
-				return
-			}
-			if dirErr := variants.VariantCallingDir(dataDir, speciesName, refVer, genomesDir, refFile, caller, merger, dvVer, modelType, verbose, nomerging, gatkLogLevel, quick, threads, noBqsr); dirErr != nil {
-				color.Red("VariantCallingDir failed: %v\n", dirErr)
-			}
-		} else {
-
-			fmt.Printf("Running without config flag\n")
-			bams, bamsErr := cmd.Flags().GetStringSlice("bam")
-			if bamsErr != nil {
-				log.Fatalf("Error getting bam flag: %v", bamsErr)
-			}
-
-			_, rErr := os.Stat(refFile)
-			if rErr != nil {
-				fmt.Printf("Reference file: %s does not exist\n\n", refFile)
-				return
-			}
-
-			fmt.Printf("bams: %v\n", bams)
-			if len(bams) == 0 {
-				fmt.Println("You must provide at least one bam file")
-				return
-			} else {
-				for i := range bams {
-					_, err := os.Stat(bams[i])
-					if err != nil {
-						fmt.Printf("Bam file: %s is not a valid file path", bams[i])
-						log.Fatal(err)
-					}
-				}
-			}
-			outInfo, outErr := os.Stat(outDir)
-
-			if outErr != nil {
-
-				if os.IsNotExist(outErr) {
-					fmt.Printf("Output directory: %s does not exist. Attempting to create it.\n", outDir)
-					if createErr := os.MkdirAll(outDir, 0755); createErr != nil {
-						fmt.Printf("Failed to create output directory %s: %v\n", outDir, createErr)
-						return
-					}
-					fmt.Printf("Output directory %s created successfully.\n", outDir)
-				} else {
-					fmt.Printf("Error accessing output directory %s: %v\n", outDir, outErr)
-					return
-				}
-			} else if !outInfo.IsDir() {
-				fmt.Printf("Output Directory %s file path is not a directory\n", outDir)
-				return
-			}
-			logFilePath := filepath.Join(outDir, "variant_calling.log")
-			fmt.Printf("Bams: %v\n", bams)
-			fmt.Printf("threads per sample: %v\n", threads)
-			fmt.Printf("Reference: %v\n", refFile)
-
-			_, err := variants.VariantCalling(bams, refFile, speciesName, refVer, outDir, caller, merger, nomerging, noHardFilter, cfg, verbose, gatkLogLevel, threads, logFilePath, dvVer, modelType)
-			if err != nil {
-				return
-			}
+		// ------------------------------------- Run pipeline ------------------------------------- //
+		finalVCF, err := variants.RunPipeline(opts)
+		if err != nil {
+			return err
 		}
-
+		if finalVCF != "" {
+			fmt.Printf("Final VCF: %s\n", finalVCF)
+		}
+		return nil
 	},
 }
 
@@ -292,6 +149,7 @@ func init() {
 
 	// ----------------------------------------- Filtering -------------------------------------- //
 	VariantCallingCmd.Flags().Bool("light-filtering", false, "Apply the relaxed (light) filter thresholds")
+	VariantCallingCmd.Flags().Int("min-gq", 20, "DeepVariant: minimum genotype quality in at least one sample")
 
 	VariantCallingCmd.Flags().Float64("min-qd-snp", 2.0, "SNPs: minimum QualByDepth")
 	VariantCallingCmd.Flags().Float64("min-qual-snp", 30.0, "SNPs: minimum QUAL")

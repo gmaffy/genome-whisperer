@@ -24,7 +24,17 @@ type LogEntry struct {
 	Cmd        string
 }
 
+type VariantCallingConfig struct {
+	dataDir    string
+	Reference  string
+	Species    string
+	RefVersion string
+	Bam        string
+	OutputDir  string
+}
+
 type Config struct {
+	dataDir     string
 	Reference   string
 	GFF         string
 	Proteins    string

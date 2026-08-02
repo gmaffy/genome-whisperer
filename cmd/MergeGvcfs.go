@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/gmaffy/genome-whisperer/variants"
@@ -16,92 +15,75 @@ import (
 var MergeGvcfsCmd = &cobra.Command{
 	Use:   "MergeGvcfs",
 	Short: "Merge gVCFs into a multi-sample VCF",
-	Long:  `Merge gvcfs from config file, inline or from standard data directory structure`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("MergeGvcfs called")
-
-		merger, mErr := cmd.Flags().GetString("merger")
-		if mErr != nil {
-			log.Fatalf("Error getting merger flag: %v", mErr)
-		}
-		caller, callErr := cmd.Flags().GetString("caller")
-		if callErr != nil {
-			log.Fatalf("Error getting caller flag: %v", callErr)
-		}
-		configFile, cErr := cmd.Flags().GetString("config")
-		if cErr != nil {
-			log.Fatalf("Error getting config flag: %v", cErr)
-		}
-		gvcfs, gErr := cmd.Flags().GetStringSlice("gvcf")
-		if gErr != nil {
-			log.Fatalf("Error getting gvcf flag: %v", gErr)
+	Long: `MergeGvcfs
+        - Joint genotypes each chromosome with GATK or GLnexus
+        - Concatenates the per-chromosome VCFs into one multi-sample VCF
+        - Finds gVCFs in the standard data directory (--data-dir), or takes them
+          from a config file (--config) or explicit paths (--gvcf)
+        - Reuses a joint VCF that is valid and already holds the expected samples`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		opts, err := variantOptions(cmd)
+		if err != nil {
+			return err
 		}
 
-		dataDir, dErr := cmd.Flags().GetString("data-dir")
-		if dErr != nil {
-			log.Fatalf("Error getting data-dir flag: %v", dErr)
+		gvcfs, err := cmd.Flags().GetStringSlice("gvcf")
+		if err != nil {
+			return err
 		}
 
-		species, sErr := cmd.Flags().GetString("species")
-		if sErr != nil {
-			log.Fatalf("Error getting species flag: %v", sErr)
+		// A config file supplies whatever was not given on the command line.
+		configFile, err := cmd.Flags().GetString("config")
+		if err != nil {
+			return err
 		}
-		refFasta, rErr := cmd.Flags().GetString("reference")
-		if rErr != nil {
-			log.Fatalf("Error getting reference flag: %v", rErr)
-		}
-		refVer, vErr := cmd.Flags().GetString("ref-version")
-		if vErr != nil {
-			log.Fatalf("Error getting reference version flag: %v", vErr)
-		}
-		outDir, oErr := cmd.Flags().GetString("out-dir")
-		if oErr != nil {
-			log.Fatalf("Error getting out-dir flag: %v", oErr)
-		}
-
-		logFile, lErr := cmd.Flags().GetString("log")
-		if lErr != nil {
-			log.Fatalf("Error getting log file flag: %v", lErr)
-		}
-
-		verbose, vbErr := cmd.Flags().GetBool("verbose")
-		if vbErr != nil {
-			log.Fatalf("Error getting verbose flag: %v", vbErr)
+		if configFile != "" {
+			cfg, cErr := utils.ReadConfig(configFile)
+			if cErr != nil {
+				return fmt.Errorf("reading config %s: %w", configFile, cErr)
+			}
+			if opts.RefFasta == "" {
+				opts.RefFasta = cfg.Reference
+			}
+			if opts.OutDir == "" {
+				opts.OutDir = cfg.OutputDir
+			}
+			if opts.Species == "" {
+				opts.Species = cfg.Species
+			}
+			if len(gvcfs) == 0 {
+				gvcfs = cfg.GVCFs
+			}
 		}
 
-		quick, qErr := cmd.Flags().GetBool("quick")
-		if qErr != nil {
-			log.Fatalf("Error getting quick flag: %v", qErr)
-		}
-
-		skipVerification, svErr := cmd.Flags().GetBool("skip-verification")
-		if svErr != nil {
-			log.Fatalf("Error getting skip-verification flag: %v", svErr)
-		}
-
-		//---------------------------------------------- Check dependencies ------------------------------------------------------ //
-		switch merger {
+		// ---------------------------------- Check dependencies ---------------------------------- //
+		switch opts.Merger {
 		case "glnexus":
-			glnErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip"})
-			if glnErr != nil {
-				fmt.Println("Dependency check failed ... ", glnErr)
-				return
+			if depErr := utils.CheckDeps([]string{"glnexus_cli", "bcftools", "bgzip", "tabix", "gatk"}); depErr != nil {
+				return fmt.Errorf("dependency check failed: %w", depErr)
 			}
 		case "gatk":
-			gatkErr := utils.CheckDeps([]string{"gatk"})
-			if gatkErr != nil {
-				fmt.Println("Dependency check failed ... ", gatkErr)
-				return
+			if depErr := utils.CheckDeps([]string{"gatk", "bcftools", "tabix"}); depErr != nil {
+				return fmt.Errorf("dependency check failed: %w", depErr)
 			}
 		default:
-			fmt.Println("merger must be either glnexus or gatk")
-			return
+			return fmt.Errorf("merger must be gatk or glnexus, got %q", opts.Merger)
 		}
 
-		//--------------------------------------------- Run merge gvcfs ---------------------------------------------------------- //
-		fmt.Printf("config: %v, gVcfs: %v, dataDir: %v, species: %v, refVer: %v, refFasta: %v, outDir: %v, caller: %v, merger: %v, log file: %s \n", configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, caller, merger, logFile)
-		variants.MergeGvcfs(configFile, gvcfs, dataDir, species, refVer, refFasta, outDir, caller, merger, verbose, quick, skipVerification)
+		// Explicit gVCF paths are merged as a single group. Without a chromosome to
+		// key them on there is nothing to split them by, and a caller passing paths
+		// by hand is merging one set.
+		var grouped map[string][]string
+		if len(gvcfs) > 0 {
+			grouped = map[string][]string{"all": gvcfs}
+		}
 
+		finalVCF, err := variants.MergeGvcfs(opts, grouped)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Multi-sample VCF: %s\n", finalVCF)
+		return nil
 	},
 }
 
