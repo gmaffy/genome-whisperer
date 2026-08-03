@@ -54,22 +54,21 @@ type Options struct {
 // calls it up front so the paths it prints, and the paths it passes to GATK,
 // DeepVariant and GLnexus, do not depend on the current working directory.
 func absRoots(opts Options) (Options, error) {
-	for _, p := range []struct {
-		name  string
-		field *string
-	}{
-		{"data directory", &opts.DataDir},
-		{"output directory", &opts.OutDir},
-		{"reference fasta", &opts.RefFasta},
-	} {
-		if *p.field == "" {
-			continue
+	var err error
+	if opts.DataDir != "" {
+		if opts.DataDir, err = filepath.Abs(opts.DataDir); err != nil {
+			return opts, fmt.Errorf("resolving data directory: %w", err)
 		}
-		abs, err := filepath.Abs(*p.field)
-		if err != nil {
-			return opts, fmt.Errorf("resolving %s %s: %w", p.name, *p.field, err)
+	}
+	if opts.OutDir != "" {
+		if opts.OutDir, err = filepath.Abs(opts.OutDir); err != nil {
+			return opts, fmt.Errorf("resolving output directory: %w", err)
 		}
-		*p.field = abs
+	}
+	if opts.RefFasta != "" {
+		if opts.RefFasta, err = filepath.Abs(opts.RefFasta); err != nil {
+			return opts, fmt.Errorf("resolving reference fasta: %w", err)
+		}
 	}
 	return opts, nil
 }
