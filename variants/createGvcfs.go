@@ -653,7 +653,7 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 
 				if mkErr := os.MkdirAll(filepath.Dir(theGVCF), 0755); mkErr != nil {
 					_ = bar.Add(1)
-					color.Red("[Worker %d] [%s] creating %s: %v\n\n", workerID, j.sample.Sample, filepath.Dir(theGVCF), mkErr)
+					color.Red("[Worker %d] [%s] creating %s: %v\n\n", workerID, j.sample.label(), filepath.Dir(theGVCF), mkErr)
 					mu.Lock()
 					failedTasks = append(failedTasks, FailedTask{Sample: j.sample.Sample, Chrom: j.chrom, Reason: mkErr})
 					failed := len(failedTasks)
@@ -679,9 +679,9 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 				}
 
 				if caller == "gatk" {
-					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s %s gvcf with GATK", workerID, verb, j.sample.Sample, j.chrom))
+					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s %s gvcf with GATK", workerID, verb, j.sample.label(), j.chrom))
 				} else {
-					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s %s gvcf with DeepVariant (%s)", workerID, verb, j.sample.Sample, j.chrom, modelType))
+					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s %s gvcf with DeepVariant (%s)", workerID, verb, j.sample.label(), j.chrom, modelType))
 				}
 
 				var cErr error
@@ -693,8 +693,8 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 				_ = bar.Add(1)
 
 				if cErr != nil {
-					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s: FAILED", workerID, j.sample.Sample, j.chrom))
-					color.Red("[Worker %d] [%s] creating gVCF for %s FAILED: %v\n\n", workerID, j.sample.Sample, j.chrom, cErr)
+					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s: FAILED", workerID, j.sample.label(), j.chrom))
+					color.Red("[Worker %d] [%s] creating gVCF for %s FAILED: %v\n\n", workerID, j.sample.label(), j.chrom, cErr)
 					mu.Lock()
 					failedTasks = append(failedTasks, FailedTask{Sample: j.sample.Sample, Chrom: j.chrom, Reason: cErr})
 					failed := len(failedTasks)
@@ -703,7 +703,7 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 					continue
 				}
 
-				_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s: done", workerID, j.sample.Sample, j.chrom))
+				_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s: done", workerID, j.sample.label(), j.chrom))
 				mu.Lock()
 				gvcfs[j.chrom] = append(gvcfs[j.chrom], theGVCF)
 				created++
@@ -772,6 +772,27 @@ type SampleWork struct {
 	Sample  string
 	Cram    string
 	CramDir string // parent of the "bams" directory; used to derive gvcf output path
+}
+
+// projectDir returns the directory between the species and the sample in
+// data-dir mode's <DataDir>/<species>/<project>/<sample>/... layout — in this
+// dataset it is always a year (e.g. "2024"). It is empty in inline/config
+// mode, where SampleWork has no CramDir and there is no such directory.
+func (s SampleWork) projectDir() string {
+	if s.CramDir == "" {
+		return ""
+	}
+	return filepath.Base(filepath.Dir(filepath.Dir(s.CramDir)))
+}
+
+// label formats the sample for a log line, tagging on its project/year
+// directory when one exists so "which run is this sample from" doesn't
+// require looking anything up.
+func (s SampleWork) label() string {
+	if year := s.projectDir(); year != "" {
+		return fmt.Sprintf("%s (%s)", s.Sample, year)
+	}
+	return s.Sample
 }
 
 func FindBams(dataDirAbs string, species string, sample string, refVer string, noBqsr bool) ([]string, []string, error) {
