@@ -391,16 +391,16 @@ func ValidateGvcf(vcf string, verbose bool, quick bool) error {
 			return fmt.Errorf("TBI index missing for %s", vcf)
 		}
 		valStr := fmt.Sprintf("bcftools view -h %s > /dev/null", vcf)
-		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 		if verbose {
+			fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 			return RunBashCmdVerbose(valStr)
 		}
 		return RunBashCmd(valStr)
 	}
 
 	valStr := fmt.Sprintf("bcftools index --tbi --force %s", vcf)
-	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 	if verbose {
+		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 		return RunBashCmdVerbose(valStr)
 	}
 	return RunBashCmd(valStr)
@@ -413,8 +413,8 @@ func ValidateBam(bam string, ref string, verbose bool, quick bool) error {
 	} else {
 		valStr = fmt.Sprintf(`samtools view -T %s -h %s > /dev/null`, ref, bam)
 	}
-	fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 	if verbose {
+		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 		return RunBashCmdVerbose(valStr)
 	}
 	return RunBashCmd(valStr)

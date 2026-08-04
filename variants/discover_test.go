@@ -66,15 +66,15 @@ func sampleNames(samples []SampleWork) []string {
 // Inline / config mode
 // ---------------------------------------------------------------------------
 
-func TestFindGvcfSamplesInline(t *testing.T) {
+func TestFindSampleAlignmentsInline(t *testing.T) {
 	dir := t.TempDir()
 	b1 := touch(t, filepath.Join(dir, "S1.bqsr.cram"))
 	b2 := touch(t, filepath.Join(dir, "S2.bqsr.bam"))
 	missing := filepath.Join(dir, "S3.bqsr.cram")
 
-	samples, skipped, err := FindGvcfSamples(Options{Bams: []string{b1, b2, missing}})
+	samples, skipped, err := FindSampleAlignments(Options{Bams: []string{b1, b2, missing}, SkipVerification: true})
 	if err != nil {
-		t.Fatalf("FindGvcfSamples: %v", err)
+		t.Fatalf("FindSampleAlignments: %v", err)
 	}
 
 	if got := strings.Join(sampleNames(samples), ","); got != "S1.bqsr,S2.bqsr" {
@@ -92,13 +92,13 @@ func TestFindGvcfSamplesInline(t *testing.T) {
 }
 
 // A missing bam must not abort the run: the rest of the cohort still gets called.
-func TestFindGvcfSamplesInlineAllMissing(t *testing.T) {
+func TestFindSampleAlignmentsInlineAllMissing(t *testing.T) {
 	dir := t.TempDir()
-	samples, skipped, err := FindGvcfSamples(Options{Bams: []string{
+	samples, skipped, err := FindSampleAlignments(Options{Bams: []string{
 		filepath.Join(dir, "a.cram"), filepath.Join(dir, "b.cram"),
 	}})
 	if err != nil {
-		t.Fatalf("FindGvcfSamples should not error on missing inputs: %v", err)
+		t.Fatalf("FindSampleAlignments should not error on missing inputs: %v", err)
 	}
 	if len(samples) != 0 || len(skipped) != 2 {
 		t.Errorf("got %d samples and %d skipped, want 0 and 2", len(samples), len(skipped))
@@ -109,7 +109,7 @@ func TestFindGvcfSamplesInlineAllMissing(t *testing.T) {
 // Data directory mode
 // ---------------------------------------------------------------------------
 
-func TestFindGvcfSamplesDataDir(t *testing.T) {
+func TestFindSampleAlignmentsDataDir(t *testing.T) {
 	root := t.TempDir()
 	const species, refVer = "cotton", "AD1.1"
 
@@ -124,11 +124,11 @@ func TestFindGvcfSamplesDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	samples, skipped, err := FindGvcfSamples(Options{
-		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk",
+	samples, skipped, err := FindSampleAlignments(Options{
+		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", SkipVerification: true,
 	})
 	if err != nil {
-		t.Fatalf("FindGvcfSamples: %v", err)
+		t.Fatalf("FindSampleAlignments: %v", err)
 	}
 
 	if got := strings.Join(sampleNames(samples), ","); got != "S1,S2lr" {
@@ -161,17 +161,17 @@ func TestFindGvcfSamplesDataDir(t *testing.T) {
 }
 
 // --bqsr=false (NoBqsr) selects the rgmd alignment for short-read samples too.
-func TestFindGvcfSamplesDataDirNoBqsr(t *testing.T) {
+func TestFindSampleAlignmentsDataDirNoBqsr(t *testing.T) {
 	root := t.TempDir()
 	const species, refVer = "cotton", "AD1.1"
 	touch(t, alignmentPath(root, species, "proj1", "S1", refVer, "S1.bqsr.cram"))
 	touch(t, alignmentPath(root, species, "proj1", "S1", refVer, "S1.rgmd.cram"))
 
-	samples, _, err := FindGvcfSamples(Options{
-		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", NoBqsr: true,
+	samples, _, err := FindSampleAlignments(Options{
+		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", NoBqsr: true, SkipVerification: true,
 	})
 	if err != nil {
-		t.Fatalf("FindGvcfSamples: %v", err)
+		t.Fatalf("FindSampleAlignments: %v", err)
 	}
 	if len(samples) != 1 {
 		t.Fatalf("expected 1 sample, got %d", len(samples))
@@ -183,17 +183,17 @@ func TestFindGvcfSamplesDataDirNoBqsr(t *testing.T) {
 
 // Two candidate alignments are ambiguous. Picking one silently risks calling from
 // a stale file, so the sample is reported and skipped.
-func TestFindGvcfSamplesDataDirAmbiguousAlignment(t *testing.T) {
+func TestFindSampleAlignmentsDataDirAmbiguousAlignment(t *testing.T) {
 	root := t.TempDir()
 	const species, refVer = "cotton", "AD1.1"
 	touch(t, alignmentPath(root, species, "proj1", "S1", refVer, "S1.bqsr.cram"))
 	touch(t, alignmentPath(root, species, "proj1", "S1", refVer, "S1.old.bqsr.cram"))
 
-	samples, skipped, err := FindGvcfSamples(Options{
+	samples, skipped, err := FindSampleAlignments(Options{
 		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk",
 	})
 	if err != nil {
-		t.Fatalf("FindGvcfSamples: %v", err)
+		t.Fatalf("FindSampleAlignments: %v", err)
 	}
 	if len(samples) != 0 {
 		t.Errorf("an ambiguous sample must not be used, got %+v", samples)
@@ -206,14 +206,14 @@ func TestFindGvcfSamplesDataDirAmbiguousAlignment(t *testing.T) {
 // Species case must not change which directory is searched. Sample discovery used
 // the raw --species while FindBams lower-cased it, so on a case-sensitive
 // filesystem the two looked in different places.
-func TestFindGvcfSamplesSpeciesCaseInsensitive(t *testing.T) {
+func TestFindSampleAlignmentsSpeciesCaseInsensitive(t *testing.T) {
 	root := t.TempDir()
 	const refVer = "AD1.1"
 	touch(t, alignmentPath(root, "cotton", "proj1", "S1", refVer, "S1.bqsr.cram"))
 
 	for _, species := range []string{"cotton", "Cotton", "COTTON"} {
-		samples, _, err := FindGvcfSamples(Options{
-			DataDir: root, Species: species, RefVer: refVer, Caller: "gatk",
+		samples, _, err := FindSampleAlignments(Options{
+			DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", SkipVerification: true,
 		})
 		if err != nil {
 			t.Fatalf("--species %s: %v", species, err)
@@ -247,7 +247,7 @@ func TestFindExistingGvcfsGroupsByChromosome(t *testing.T) {
 	touch(t, alignmentPath(root, species, "proj1", "S1", refVer, "S1.bqsr.cram"))
 	touch(t, alignmentPath(root, species, "proj1", "S2", refVer, "S2.bqsr.cram"))
 
-	samples, _, err := FindGvcfSamples(opts)
+	samples, _, err := FindSampleAlignments(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

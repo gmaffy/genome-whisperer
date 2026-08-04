@@ -101,6 +101,7 @@ STAGES
       --ref-version AD1.1 --light-filtering
   genome-whisperer VariantCalling --config config.txt --species cotton \
       --ref-version AD1.1 --max-fs-snp 40 --min-qual-snp 50`,
+
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color.Green("VariantCalling called")
 

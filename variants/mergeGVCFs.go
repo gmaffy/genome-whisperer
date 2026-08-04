@@ -199,7 +199,7 @@ func FindExistingGvcfs(opts Options) (map[string][]string, error) {
 		return nil, fmt.Errorf("getting chromosomes and contigs: %w", err)
 	}
 
-	samples, skipped, err := FindGvcfSamples(opts)
+	samples, skipped, err := FindSampleAlignments(opts)
 	if err != nil {
 		return nil, err
 	}
