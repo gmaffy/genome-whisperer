@@ -191,23 +191,26 @@ func writeSampleMap(path string, gvcfs []string) error {
 
 // FindExistingGvcfs inventories the gVCFs already on disk, grouped by chromosome,
 // so MergeGvcfs can run standalone without CreateGvcfs having run in-process.
-// It uses GvcfPath, so it looks exactly where CreateGvcfs writes.
-func FindExistingGvcfs(opts Options) (map[string][]string, error) {
+// It uses GvcfPath, so it looks exactly where CreateGvcfs writes. The returned
+// int is the number of samples discovered — the true cohort size MergeGvcfs
+// should hold every chromosome to, not an estimate inferred from the gVCFs
+// found.
+func FindExistingGvcfs(opts Options) (map[string][]string, int, error) {
 	dictFilePath := opts.RefFasta[:len(opts.RefFasta)-len(filepath.Ext(opts.RefFasta))] + ".dict"
 	chroms, contigs, err := getChromsAndContigs(dictFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("getting chromosomes and contigs: %w", err)
+		return nil, 0, fmt.Errorf("getting chromosomes and contigs: %w", err)
 	}
 
 	samples, skipped, err := FindSampleAlignments(opts)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if len(skipped) > 0 {
 		color.Yellow("Skipped %d sample(s) with no usable alignment: %v\n", len(skipped), skipped)
 	}
 	if len(samples) == 0 {
-		return nil, fmt.Errorf("no usable samples found")
+		return nil, 0, fmt.Errorf("no usable samples found")
 	}
 
 	labels := make([]string, 0, len(chroms)+1)
@@ -239,7 +242,7 @@ func FindExistingGvcfs(opts Options) (map[string][]string, error) {
 	for label := range gvcfs {
 		sort.Strings(gvcfs[label])
 	}
-	return gvcfs, nil
+	return gvcfs, len(samples), nil
 }
 
 // gatkIntervalArgs renders the -L value for a group of sequences, plus any extra
@@ -409,10 +412,21 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 		return "", fmt.Errorf("reference dict file %s does not exist", dictFilePath)
 	}
 
+	// expected is the true cohort size, known from stage 1 (CreateGvcfs sets
+	// opts.ExpectedSamples) or discovered here when running standalone. It is
+	// only inferred from the gVCFs themselves as a last resort, since that
+	// can't tell a sample missing from every chromosome apart from a full
+	// cohort — see the fallback below.
+	expected := opts.ExpectedSamples
+
 	if gvcfs == nil {
 		color.Cyan("================================== Finding gVCFs ==================================\n\n")
-		if gvcfs, err = FindExistingGvcfs(opts); err != nil {
+		var sampleCount int
+		if gvcfs, sampleCount, err = FindExistingGvcfs(opts); err != nil {
 			return "", err
+		}
+		if expected == 0 {
+			expected = sampleCount
 		}
 	}
 	if len(gvcfs) == 0 {
@@ -426,12 +440,15 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 
 	// ============================= Decide which chromosomes to merge =========================== //
 
-	// The full cohort size is the largest sample set seen across chromosomes.
-	// Anything short of it is missing samples and is not safe to joint-call.
-	expected := 0
-	for _, paths := range gvcfs {
-		if len(paths) > expected {
-			expected = len(paths)
+	// Fallback for callers with no real sample count available (e.g. a
+	// standalone run given explicit --gvcf paths): infer it from the largest
+	// gVCF set seen across chromosomes. Anything short of it is missing
+	// samples and is not safe to joint-call.
+	if expected == 0 {
+		for _, paths := range gvcfs {
+			if len(paths) > expected {
+				expected = len(paths)
+			}
 		}
 	}
 

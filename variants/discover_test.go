@@ -265,7 +265,7 @@ func TestFindExistingGvcfsGroupsByChromosome(t *testing.T) {
 		}
 	}
 
-	gvcfs, err := FindExistingGvcfs(opts)
+	gvcfs, sampleCount, err := FindExistingGvcfs(opts)
 	if err != nil {
 		t.Fatalf("FindExistingGvcfs: %v", err)
 	}
@@ -285,18 +285,12 @@ func TestFindExistingGvcfsGroupsByChromosome(t *testing.T) {
 		t.Errorf("A01 gVCFs are not sorted: %v", gvcfs["A01"])
 	}
 
-	// This is the completeness rule MergeGvcfs applies: the cohort size is the
-	// largest sample set seen, and A02 is short of it.
-	expected := 0
-	for _, paths := range gvcfs {
-		if len(paths) > expected {
-			expected = len(paths)
-		}
+	// The discovered sample count is the real cohort size MergeGvcfs compares
+	// each chromosome against, and A02 is short of it.
+	if sampleCount != 2 {
+		t.Fatalf("sample count = %d, want 2", sampleCount)
 	}
-	if expected != 2 {
-		t.Fatalf("cohort size = %d, want 2", expected)
-	}
-	if len(gvcfs["A02"]) >= expected {
+	if len(gvcfs["A02"]) >= sampleCount {
 		t.Error("A02 should be detected as incomplete")
 	}
 }

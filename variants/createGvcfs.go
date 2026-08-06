@@ -45,6 +45,14 @@ type Options struct {
 	NoMerging    bool
 	NoHardFilter bool
 
+	// ExpectedSamples is the true cohort size discovered in stage 1
+	// (CreateGvcfs/FindSampleAlignments). MergeGvcfs uses it, when set, as the
+	// authoritative sample count a chromosome must reach to be merged, rather
+	// than inferring it from the gVCF counts it is trying to validate. Zero
+	// means "unknown" (e.g. a standalone MergeGvcfs run given explicit --gvcf
+	// paths with no sample discovery behind them).
+	ExpectedSamples int
+
 	Threads          int
 	NoBqsr           bool // data-dir mode: use the rgmd bam/cram instead of bqsr
 	Verbose          bool
@@ -478,46 +486,46 @@ func discoverValidGvcfs(opts Options, jobs []gvcfJob, maxParallel int) (valid ma
 //
 // An existing valid gVCF is reused, a corrupt one is re-created, and a sample
 // that fails is reported and skipped so the rest of the run continues.
-func CreateGvcfs(opts Options) (map[string][]string, error) {
+func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 
 	// ==================================== Validate inputs ===================================== //
 
 	if opts.Species == "" {
-		return nil, fmt.Errorf("species name must not be empty")
+		return nil, 0, fmt.Errorf("species name must not be empty")
 	}
 	if opts.RefVer == "" {
-		return nil, fmt.Errorf("reference version must not be empty")
+		return nil, 0, fmt.Errorf("reference version must not be empty")
 	}
 	if opts.RefFasta == "" {
-		return nil, fmt.Errorf("reference fasta must not be empty")
+		return nil, 0, fmt.Errorf("reference fasta must not be empty")
 	}
 
 	fastaInfo, err := os.Stat(opts.RefFasta)
 	if err != nil {
-		return nil, fmt.Errorf("accessing reference fasta %s: %w", opts.RefFasta, err)
+		return nil, 0, fmt.Errorf("accessing reference fasta %s: %w", opts.RefFasta, err)
 	}
 	if !fastaInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("reference fasta %s is not a regular file", opts.RefFasta)
+		return nil, 0, fmt.Errorf("reference fasta %s is not a regular file", opts.RefFasta)
 	}
 
 	dictFilePath := opts.RefFasta[:len(opts.RefFasta)-len(filepath.Ext(opts.RefFasta))] + ".dict"
 	if _, dErr := os.Stat(dictFilePath); dErr != nil {
-		return nil, fmt.Errorf("reference dict file %s does not exist", dictFilePath)
+		return nil, 0, fmt.Errorf("reference dict file %s does not exist", dictFilePath)
 	}
 
 	caller := strings.ToLower(opts.Caller)
 	if caller != "gatk" && caller != "deepvariant" {
-		return nil, fmt.Errorf("caller must be gatk or deepvariant, got %q", opts.Caller)
+		return nil, 0, fmt.Errorf("caller must be gatk or deepvariant, got %q", opts.Caller)
 	}
 
 	if opts.DataDir == "" && len(opts.Bams) == 0 {
-		return nil, fmt.Errorf("provide either a data directory or at least one bam file")
+		return nil, 0, fmt.Errorf("provide either a data directory or at least one bam file")
 	}
 	if opts.DataDir != "" && len(opts.Bams) > 0 {
-		return nil, fmt.Errorf("provide either a data directory or bam files, not both")
+		return nil, 0, fmt.Errorf("provide either a data directory or bam files, not both")
 	}
 	if opts.DataDir == "" && opts.OutDir == "" {
-		return nil, fmt.Errorf("an output directory is required when not using a data directory")
+		return nil, 0, fmt.Errorf("an output directory is required when not using a data directory")
 	}
 	if opts.Threads <= 0 {
 		opts.Threads = 4
@@ -527,7 +535,7 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 	// path, whatever the caller passed and whatever the working directory is.
 	// opts is a value, so this only affects this call.
 	if opts, err = absRoots(opts); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	color.Green("All file paths valid\n....................................................\n\n")
@@ -536,7 +544,7 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 
 	chroms, contigs, err := getChromsAndContigs(dictFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("getting chromosomes and contigs: %w", err)
+		return nil, 0, fmt.Errorf("getting chromosomes and contigs: %w", err)
 	}
 
 	// =================================== Discover samples ===================================== //
@@ -545,7 +553,7 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 
 	samples, skipped, err := FindSampleAlignments(opts)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	color.Green("\nAlignment Discovery Summary:\n")
 	color.Green("  - Usable sample alignments found: %d\n", len(samples))
@@ -553,7 +561,7 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 		color.Red("  - Samples with no valid alignments: %d %v\n", len(skipped), skipped)
 		color.Red("  - Cannot proceed. Run AlignReads first.\n")
 		color.Cyan("%s\n\n", strings.Repeat("=", 90))
-		return nil, fmt.Errorf("Sample(s) : %v have invalid alignment files. Cannot proceed. Run AlignReads first.", skipped)
+		return nil, 0, fmt.Errorf("Sample(s) : %v have invalid alignment files. Cannot proceed. Run AlignReads first.", skipped)
 	}
 
 	color.Green("  - Samples with no valid alignments: 0\n")
@@ -753,9 +761,9 @@ func CreateGvcfs(opts Options) (map[string][]string, error) {
 	fmt.Printf("%s\n\n", strings.Repeat("=", 72))
 
 	if len(gvcfs) == 0 {
-		return nil, fmt.Errorf("no gVCFs were produced (%d task(s) failed)", len(failedTasks))
+		return nil, 0, fmt.Errorf("no gVCFs were produced (%d task(s) failed)", len(failedTasks))
 	}
-	return gvcfs, nil
+	return gvcfs, len(samples), nil
 }
 
 // ---------------------------------------------------------------------------

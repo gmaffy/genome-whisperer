@@ -24,7 +24,7 @@ func RunPipeline(opts Options) (string, error) {
 
 	color.Cyan("\n%s STAGE 1/3  CREATE GVCFS %s\n\n", strings.Repeat("=", 24), strings.Repeat("=", 24))
 
-	gvcfs, err := CreateGvcfs(opts)
+	gvcfs, sampleCount, err := CreateGvcfs(opts)
 	if err != nil {
 		return "", fmt.Errorf("creating gVCFs: %w", err)
 	}
@@ -37,6 +37,11 @@ func RunPipeline(opts Options) (string, error) {
 	// ================================== Stage 2: merge gVCFs =================================== //
 
 	color.Cyan("\n%s STAGE 2/3  MERGE GVCFS %s\n\n", strings.Repeat("=", 24), strings.Repeat("=", 24))
+
+	// The real cohort size stage 1 discovered, so MergeGvcfs can tell "a
+	// chromosome is missing samples" apart from "a sample is missing from
+	// every chromosome" instead of inferring one from the other.
+	opts.ExpectedSamples = sampleCount
 
 	jointVCF, err := MergeGvcfs(opts, gvcfs)
 	if err != nil {

@@ -165,7 +165,7 @@ var CreateGvcfsCmd = &cobra.Command{
 			return fmt.Errorf("caller must be gatk or deepvariant, got %q", opts.Caller)
 		}
 
-		gvcfs, err := variants.CreateGvcfs(opts)
+		gvcfs, _, err := variants.CreateGvcfs(opts)
 		if err != nil {
 			return err
 		}
