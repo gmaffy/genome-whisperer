@@ -11,7 +11,7 @@ import (
 
 func BamToCram(bamPath, refFasta string, verbose bool) error {
 	cramPath := strings.TrimSuffix(bamPath, filepath.Ext(bamPath)) + ".cram"
-	bamToCramStr := fmt.Sprintf(`samtools view -T %s -C -o %s %s`, refFasta, cramPath, bamPath)
+	bamToCramStr := fmt.Sprintf(`samtools view -T %s -C --output-fmt cram,version=3.0 -o %s %s`, refFasta, cramPath, bamPath)
 	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s ...\n------------------------------------------------------------------\n\n", bamToCramStr)
 	var err error
 	if verbose {
