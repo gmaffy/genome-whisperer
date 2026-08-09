@@ -290,3 +290,268 @@ func TestLabelsSortIntoDictionaryOrderWithContigsLast(t *testing.T) {
 		t.Errorf("sorted order = %s, want %s", got, want)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GenomicsDB workspace reuse
+// ---------------------------------------------------------------------------
+
+// completeWorkspace fakes what GenomicsDBImport leaves behind on success: the
+// workspace with its metadata, and the marker holding the input fingerprint.
+func completeWorkspace(t *testing.T, workDir, fingerprint string) (theDB, marker string) {
+	t.Helper()
+	theDB = filepath.Join(workDir, "db")
+	if err := os.MkdirAll(theDB, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, meta := range []string{"callset.json", "vidmap.json"} {
+		if err := os.WriteFile(filepath.Join(theDB, meta), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marker = filepath.Join(workDir, gdbImportDoneFile)
+	if err := os.WriteFile(marker, []byte(fingerprint), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return theDB, marker
+}
+
+func TestGdbReuseAcceptsCompleteWorkspace(t *testing.T) {
+	theDB, marker := completeWorkspace(t, t.TempDir(), "abc123")
+
+	reuse, reason := gdbReuse(theDB, marker, "abc123")
+	if !reuse {
+		t.Errorf("a complete workspace should be reused, got reason %q", reason)
+	}
+	if reason != "" {
+		t.Errorf("nothing is being discarded, got reason %q", reason)
+	}
+}
+
+// The marker is written only after GenomicsDBImport returns. An import killed
+// part-way leaves a workspace holding an unknown subset of the cohort, which
+// would silently genotype fewer samples than asked for.
+func TestGdbReuseRejectsIncompleteImport(t *testing.T) {
+	workDir := t.TempDir()
+	theDB, marker := completeWorkspace(t, workDir, "abc123")
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+
+	reuse, reason := gdbReuse(theDB, marker, "abc123")
+	if reuse {
+		t.Fatal("a workspace with no completion marker must be rebuilt")
+	}
+	if reason == "" {
+		t.Error("an existing workspace being discarded should say why")
+	}
+}
+
+// A workspace built before a sample was added, or before a gVCF was re-created,
+// no longer matches the gVCFs on disk.
+func TestGdbReuseRejectsStaleFingerprint(t *testing.T) {
+	theDB, marker := completeWorkspace(t, t.TempDir(), "old-cohort")
+
+	reuse, reason := gdbReuse(theDB, marker, "new-cohort")
+	if reuse {
+		t.Fatal("a workspace built from different inputs must be rebuilt")
+	}
+	if !strings.Contains(reason, "different") {
+		t.Errorf("reason should name the mismatch, got %q", reason)
+	}
+}
+
+func TestGdbReuseRejectsWorkspaceMissingMetadata(t *testing.T) {
+	workDir := t.TempDir()
+	theDB, marker := completeWorkspace(t, workDir, "abc123")
+	if err := os.Remove(filepath.Join(theDB, "vidmap.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	reuse, reason := gdbReuse(theDB, marker, "abc123")
+	if reuse {
+		t.Fatal("a workspace missing its metadata must be rebuilt")
+	}
+	if !strings.Contains(reason, "vidmap.json") {
+		t.Errorf("reason should name the missing file, got %q", reason)
+	}
+}
+
+// A first run has nothing to discard and should say nothing about it.
+func TestGdbReuseSilentWhenNoWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	reuse, reason := gdbReuse(filepath.Join(dir, "db"), filepath.Join(dir, gdbImportDoneFile), "abc123")
+	if reuse {
+		t.Error("there is no workspace to reuse")
+	}
+	if reason != "" {
+		t.Errorf("nothing existed, so nothing is being discarded; got %q", reason)
+	}
+}
+
+func TestGdbFingerprintChangesWithInputs(t *testing.T) {
+	dir := t.TempDir()
+	a := writeVCF(t, filepath.Join(dir, "s1.g.vcf"), []string{"S1"})
+	b := writeVCF(t, filepath.Join(dir, "s2.g.vcf"), []string{"S2"})
+	seqs := []SeqInfo{{ID: "A01", Len: 100}}
+
+	base, err := gdbFingerprint([]string{a}, seqs)
+	if err != nil {
+		t.Fatalf("gdbFingerprint: %v", err)
+	}
+
+	same, err := gdbFingerprint([]string{a}, seqs)
+	if err != nil {
+		t.Fatalf("gdbFingerprint: %v", err)
+	}
+	if same != base {
+		t.Error("the same inputs must fingerprint the same, or a workspace is never reusable")
+	}
+
+	added, err := gdbFingerprint([]string{a, b}, seqs)
+	if err != nil {
+		t.Fatalf("gdbFingerprint: %v", err)
+	}
+	if added == base {
+		t.Error("adding a sample must change the fingerprint")
+	}
+
+	widened, err := gdbFingerprint([]string{a}, append(seqs, SeqInfo{ID: "A02", Len: 50}))
+	if err != nil {
+		t.Fatalf("gdbFingerprint: %v", err)
+	}
+	if widened == base {
+		t.Error("changing the imported intervals must change the fingerprint")
+	}
+}
+
+// A gVCF re-created since the import holds different calls under the same path.
+func TestGdbFingerprintChangesWhenGvcfIsRewritten(t *testing.T) {
+	dir := t.TempDir()
+	p := writeVCF(t, filepath.Join(dir, "s1.g.vcf"), []string{"S1"})
+	seqs := []SeqInfo{{ID: "A01", Len: 100}}
+
+	before, err := gdbFingerprint([]string{p}, seqs)
+	if err != nil {
+		t.Fatalf("gdbFingerprint: %v", err)
+	}
+
+	writeVCF(t, p, []string{"S1"}, "A01\t100\t.\tA\tT\t50\t.\tQD=2.0\tGT:GQ\t0/1:40")
+
+	after, err := gdbFingerprint([]string{p}, seqs)
+	if err != nil {
+		t.Fatalf("gdbFingerprint: %v", err)
+	}
+	if after == before {
+		t.Error("a re-created gVCF must invalidate the workspace built from the old one")
+	}
+}
+
+func TestGdbFingerprintFailsOnMissingGvcf(t *testing.T) {
+	_, err := gdbFingerprint([]string{filepath.Join(t.TempDir(), "gone.g.vcf")}, []SeqInfo{{ID: "A01"}})
+	if err == nil {
+		t.Error("expected an error when a gVCF cannot be stat'ed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge parallelism
+// ---------------------------------------------------------------------------
+
+func TestMergeJobsHonoursExplicitSetting(t *testing.T) {
+	jobs, _ := mergeJobs(Options{MergeJobs: 6, Threads: 4}, "gatk", 10)
+	if jobs != 6 {
+		t.Errorf("--merge-jobs 6 should give 6 jobs, got %d", jobs)
+	}
+}
+
+// Starting more workers than there are chromosome groups just leaves them idle.
+func TestMergeJobsNeverExceedsGroupCount(t *testing.T) {
+	jobs, _ := mergeJobs(Options{MergeJobs: 16, Threads: 1}, "gatk", 3)
+	if jobs != 3 {
+		t.Errorf("3 groups cannot use more than 3 jobs, got %d", jobs)
+	}
+}
+
+func TestMergeJobsAlwaysAtLeastOne(t *testing.T) {
+	for _, opts := range []Options{
+		{MergeJobs: 0, Threads: 1024}, // more threads per job than the machine has cores
+		{MergeJobs: -1},
+		{},
+	} {
+		if jobs, _ := mergeJobs(opts, "gatk", 5); jobs < 1 {
+			t.Errorf("%+v gave %d jobs; the merge must always run", opts, jobs)
+		}
+	}
+	if jobs, _ := mergeJobs(Options{}, "gatk", 0); jobs < 1 {
+		t.Errorf("no groups still needs a valid worker count, got %d", jobs)
+	}
+}
+
+// GLnexus is handed this figure, and glnexus_cli rejects a non-positive
+// --mem-gbytes. It must stay usable even on a machine whose free memory cannot
+// be read.
+func TestMergeJobsMemoryShareIsAlwaysUsable(t *testing.T) {
+	for _, groups := range []int{0, 1, 24} {
+		_, memGB := mergeJobs(Options{Threads: 4}, "glnexus", groups)
+		if memGB < glnexusJobMinMemGB {
+			t.Errorf("%d groups gave %d GB per job, want at least %d", groups, memGB, glnexusJobMinMemGB)
+		}
+	}
+}
+
+// A job's heaps must fit inside the share it was given, or running the jobs
+// concurrently oversubscribes the machine — the whole point of deriving them.
+func TestGatkMergeHeapsFitWithinTheJobShare(t *testing.T) {
+	for _, share := range []int{8, 9, 12, 16, 24, 29, 64} {
+		importGB, genotypeGB := gatkMergeHeaps(share)
+		if genotypeGB > share {
+			t.Errorf("share %d GB: genotype heap %dg exceeds it", share, genotypeGB)
+		}
+		if importGB > share {
+			t.Errorf("share %d GB: import heap %dg exceeds it", share, importGB)
+		}
+		// Headroom above the larger heap for metaspace, thread stacks and
+		// GenomicsDB's off-heap buffers.
+		if genotypeGB == share {
+			t.Errorf("share %d GB: genotype heap %dg leaves no headroom", share, genotypeGB)
+		}
+	}
+}
+
+// The old hardcoded 8g/12g are the ceiling: they were sized for a large cohort,
+// and a bigger heap on an idle machine buys nothing but longer GC pauses.
+func TestGatkMergeHeapsCappedAtTheOldFixedSizes(t *testing.T) {
+	importGB, genotypeGB := gatkMergeHeaps(1024)
+	if importGB != 8 || genotypeGB != 12 {
+		t.Errorf("got import %dg genotype %dg, want the former fixed 8g/12g", importGB, genotypeGB)
+	}
+}
+
+// An oversubscribed --merge-jobs, or a host whose free memory cannot be read,
+// must still produce heaps GATK will start with.
+func TestGatkMergeHeapsFlooredForTinyShares(t *testing.T) {
+	for _, share := range []int{0, 1, 2, 4} {
+		importGB, genotypeGB := gatkMergeHeaps(share)
+		if importGB < 2 || genotypeGB < 4 {
+			t.Errorf("share %d GB gave import %dg genotype %dg; too small to run", share, importGB, genotypeGB)
+		}
+	}
+}
+
+// The 20-core / 32 GB machine this was tuned on: the old 16 GB budget allowed a
+// single job, serialising 21 chromosomes.
+func TestMergeJobsMemoryShareSizesUsableHeaps(t *testing.T) {
+	jobs, memGB := mergeJobs(Options{Threads: 4}, "gatk", 21)
+	importGB, genotypeGB := gatkMergeHeaps(memGB)
+
+	if memGB < gatkMergeJobMemGB {
+		t.Errorf("share %d GB is below the %d GB floor a job is budgeted", memGB, gatkMergeJobMemGB)
+	}
+	if jobs*genotypeGB < genotypeGB {
+		t.Fatal("nonsensical job count")
+	}
+	if importGB < 2 || genotypeGB < 4 {
+		t.Errorf("%d job(s) of %d GB gave unusable heaps: import %dg genotype %dg",
+			jobs, memGB, importGB, genotypeGB)
+	}
+}

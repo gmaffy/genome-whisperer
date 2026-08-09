@@ -53,7 +53,16 @@ type Options struct {
 	// paths with no sample discovery behind them).
 	ExpectedSamples int
 
-	Threads          int
+	Threads int
+
+	// MergeJobs is how many chromosome groups MergeGvcfs joint-genotypes at
+	// once. Zero means "decide from the machine": see mergeJobs, which budgets
+	// by free memory rather than cores because merging is the pipeline's most
+	// memory-hungry stage. Each job's JVM heaps are then sized from its share of
+	// that memory, so raising this shrinks the heaps rather than oversubscribing
+	// the machine. Set it when you know better than the estimate.
+	MergeJobs int
+
 	NoBqsr           bool // data-dir mode: use the rgmd bam/cram instead of bqsr
 	Verbose          bool
 	Quick            bool

@@ -73,6 +73,10 @@ func variantOptions(cmd *cobra.Command) (variants.Options, error) {
 	if err != nil {
 		return variants.Options{}, err
 	}
+	mergeJobs, err := get.GetInt("merge-jobs")
+	if err != nil {
+		return variants.Options{}, err
+	}
 	verbose, err := get.GetBool("verbose")
 	if err != nil {
 		return variants.Options{}, err
@@ -122,6 +126,7 @@ func variantOptions(cmd *cobra.Command) (variants.Options, error) {
 		ModelType:        modelType,
 		GatkLogLevel:     gatkLogLevel,
 		Threads:          threads,
+		MergeJobs:        mergeJobs,
 		Verbose:          verbose,
 		Quick:            quick,
 		SkipVerification: skipVerification,

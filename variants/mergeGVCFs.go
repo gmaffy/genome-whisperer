@@ -2,11 +2,16 @@ package variants
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
@@ -282,45 +287,135 @@ func gatkIntervalArgs(dir string, seqs []SeqInfo) (regionArg, extraArgs string, 
 	return intervals, " --merge-input-intervals", nil
 }
 
+// gdbImportDoneFile is written next to the GenomicsDB workspace once
+// GenomicsDBImport has returned successfully, and holds the fingerprint of the
+// inputs that were imported. It sits beside the workspace rather than inside it
+// because GenomicsDBImport insists on creating the workspace directory itself.
+const gdbImportDoneFile = "db.import.done"
+
+// gdbFingerprint identifies the exact inputs a GenomicsDB workspace was built
+// from: every gVCF (path, size and modification time) and the intervals that
+// were imported. A workspace whose fingerprint no longer matches was built from
+// a different cohort, or from gVCFs that have since been re-created, so
+// genotyping it would produce a VCF that does not match the gVCFs on disk.
+func gdbFingerprint(gvcfs []string, seqs []SeqInfo) (string, error) {
+	h := sha256.New()
+	for _, gvcf := range gvcfs {
+		info, err := os.Stat(gvcf)
+		if err != nil {
+			return "", fmt.Errorf("stat %s: %w", gvcf, err)
+		}
+		fmt.Fprintf(h, "gvcf\t%s\t%d\t%d\n", gvcf, info.Size(), info.ModTime().UnixNano())
+	}
+	for _, s := range seqs {
+		fmt.Fprintf(h, "seq\t%s\n", s.ID)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// gdbReuse decides whether an existing GenomicsDB workspace can be genotyped as
+// it stands. discardReason is non-empty only when there is a workspace that has
+// to be thrown away, so a first run says nothing.
+//
+// The marker file is the authority: mergeChromGATK writes it only after
+// GenomicsDBImport returns successfully, so its absence means the import was
+// killed part-way and the workspace holds an unknown subset of the cohort. The
+// metadata check is a second, cheaper line of defence against a workspace that
+// was truncated or partly deleted after the import finished. Both fail towards
+// re-importing, which costs time but cannot produce a wrong VCF.
+func gdbReuse(theDB, marker, fingerprint string) (reuse bool, discardReason string) {
+	if _, err := os.Stat(theDB); err != nil {
+		return false, ""
+	}
+	recorded, err := os.ReadFile(marker)
+	if err != nil {
+		return false, "the import never completed"
+	}
+	if strings.TrimSpace(string(recorded)) != fingerprint {
+		return false, "it was built from different gVCFs or intervals"
+	}
+	for _, meta := range []string{"callset.json", "vidmap.json"} {
+		if _, sErr := os.Stat(filepath.Join(theDB, meta)); sErr != nil {
+			return false, "its " + meta + " is missing"
+		}
+	}
+	return true, ""
+}
+
 // mergeChromGATK joint-genotypes one chromosome with GenomicsDBImport followed by
 // GenotypeGVCFs.
-func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, jointVCF string) error {
+//
+// The import is the expensive half and is skipped when a previous run already
+// completed it for exactly these gVCFs — which is what a run interrupted between
+// the two steps, or one whose GenotypeGVCFs failed, leaves behind. An incomplete
+// or stale workspace is deleted and rebuilt.
+//
+// memGB is this job's share of the machine; both JVM heaps are sized from it, so
+// running several chromosomes at once shrinks each one rather than
+// oversubscribing memory.
+func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, jointVCF, tag string, memGB int) error {
 	workDir := filepath.Join(JointVcfDir(opts), "work", strings.ReplaceAll(chrom, ".", "_"))
 	theDB := filepath.Join(workDir, "db")
 	tmpDir := filepath.Join(workDir, "tmp")
+	marker := filepath.Join(workDir, gdbImportDoneFile)
 
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return fmt.Errorf("creating %s: %w", tmpDir, err)
 	}
-	// GenomicsDBImport refuses to write into an existing workspace.
-	if err := os.RemoveAll(theDB); err != nil {
-		return fmt.Errorf("removing %s: %w", theDB, err)
-	}
 
-	sampleMap := filepath.Join(workDir, "sample_map.txt")
-	if err := writeSampleMap(sampleMap, gvcfs); err != nil {
+	fingerprint, err := gdbFingerprint(gvcfs, seqs)
+	if err != nil {
 		return err
 	}
 
-	regionArg, extraArgs, err := gatkIntervalArgs(workDir, seqs)
-	if err != nil {
-		return fmt.Errorf("%s: %w", chrom, err)
-	}
+	importHeapGB, genotypeHeapGB := gatkMergeHeaps(memGB)
 
-	gDBCmd := fmt.Sprintf(
-		`gatk --java-options "-Xmx8g -Xms8g" GenomicsDBImport --sample-name-map %s `+
-			`--genomicsdb-workspace-path %s --tmp-dir %s -L %s%s `+
-			`--genomicsdb-shared-posixfs-optimizations true --batch-size 50 `+
-			`--bypass-feature-reader --verbosity %s`,
-		sampleMap, theDB, tmpDir, regionArg, extraArgs, opts.GatkLogLevel,
-	)
-	if err := utils.RunCmd(gDBCmd, opts.Verbose); err != nil {
-		return fmt.Errorf("gatk GenomicsDBImport: %w", err)
+	reuseDB, discardReason := gdbReuse(theDB, marker, fingerprint)
+	if reuseDB {
+		color.Green("%s[%s] GenomicsDB workspace is complete, skipping the import\n", tag, chrom)
+	} else {
+		if discardReason != "" {
+			color.Yellow("%s[%s] discarding the GenomicsDB workspace: %s\n", tag, chrom, discardReason)
+		}
+		// The marker goes first: if the removal below is interrupted, what is left
+		// must not look importable. GenomicsDBImport also refuses to write into an
+		// existing workspace, so the directory has to go either way.
+		if rErr := os.Remove(marker); rErr != nil && !os.IsNotExist(rErr) {
+			return fmt.Errorf("removing %s: %w", marker, rErr)
+		}
+		if rErr := os.RemoveAll(theDB); rErr != nil {
+			return fmt.Errorf("removing %s: %w", theDB, rErr)
+		}
+
+		sampleMap := filepath.Join(workDir, "sample_map.txt")
+		if sErr := writeSampleMap(sampleMap, gvcfs); sErr != nil {
+			return sErr
+		}
+
+		regionArg, extraArgs, iErr := gatkIntervalArgs(workDir, seqs)
+		if iErr != nil {
+			return fmt.Errorf("%s: %w", chrom, iErr)
+		}
+
+		gDBCmd := fmt.Sprintf(
+			`gatk --java-options "-Xmx%dg -Xms%dg" GenomicsDBImport --sample-name-map %s `+
+				`--genomicsdb-workspace-path %s --tmp-dir %s -L %s%s `+
+				`--genomicsdb-shared-posixfs-optimizations true --batch-size 50 `+
+				`--bypass-feature-reader --verbosity %s`,
+			importHeapGB, importHeapGB, sampleMap, theDB, tmpDir, regionArg, extraArgs, opts.GatkLogLevel,
+		)
+		if rErr := utils.RunCmd(gDBCmd, opts.Verbose); rErr != nil {
+			return fmt.Errorf("gatk GenomicsDBImport: %w", rErr)
+		}
+
+		if wErr := os.WriteFile(marker, []byte(fingerprint), 0644); wErr != nil {
+			return fmt.Errorf("writing %s: %w", marker, wErr)
+		}
 	}
 
 	genoCmd := fmt.Sprintf(
-		`gatk --java-options "-Xmx12g" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s --verbosity %s`,
-		opts.RefFasta, theDB, jointVCF, tmpDir, opts.GatkLogLevel,
+		`gatk --java-options "-Xmx%dg" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s --verbosity %s`,
+		genotypeHeapGB, opts.RefFasta, theDB, jointVCF, tmpDir, opts.GatkLogLevel,
 	)
 	if err := utils.RunCmd(genoCmd, opts.Verbose); err != nil {
 		return fmt.Errorf("gatk GenotypeGVCFs: %w", err)
@@ -336,7 +431,12 @@ func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, 
 
 // mergeChromGlnexus joint-genotypes one chromosome with glnexus_cli, then
 // converts the BCF to a bgzipped, indexed VCF.
-func mergeChromGlnexus(opts Options, chrom string, gvcfs []string, jointVCF string) error {
+//
+// memGB and threads are this job's share of the machine. Left to itself
+// glnexus_cli claims most of the system's memory and every core, which is
+// correct for one job and ruinous for several running side by side, so both are
+// passed explicitly.
+func mergeChromGlnexus(opts Options, chrom string, gvcfs []string, jointVCF, tag string, memGB, threads int) error {
 	workDir := filepath.Join(JointVcfDir(opts), "work", strings.ReplaceAll(chrom, ".", "_"))
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return fmt.Errorf("creating %s: %w", workDir, err)
@@ -353,8 +453,8 @@ func mergeChromGlnexus(opts Options, chrom string, gvcfs []string, jointVCF stri
 	}
 
 	jointBCF := strings.TrimSuffix(jointVCF, ".vcf.gz") + ".bcf"
-	glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s %s > %s`,
-		preset, glnexusDB, strings.Join(gvcfs, " "), jointBCF)
+	glnexusCmd := fmt.Sprintf(`glnexus_cli --config %s --dir %s --threads %d --mem-gbytes %d %s > %s`,
+		preset, glnexusDB, threads, memGB, strings.Join(gvcfs, " "), jointBCF)
 	if err := utils.RunCmd(glnexusCmd, opts.Verbose); err != nil {
 		return fmt.Errorf("glnexus_cli: %w", err)
 	}
@@ -500,71 +600,68 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 
 	// ======================================= Merge ============================================ //
 
+	// Chromosome groups are independent — separate gVCFs in, separate work
+	// directory, separate output — so they run concurrently. How many at once is
+	// bounded by memory rather than cores: a GATK job asks the JVM for a 12 GB
+	// heap and a GLnexus job will use whatever it is given.
+	jobs, memPerJobGB := mergeJobs(opts, merger, len(labels))
+
 	color.Cyan("=========================== Merging %d chromosome group(s) with %s ===========================\n\n",
 		len(labels), merger)
+	if merger == "gatk" {
+		importHeapGB, genotypeHeapGB := gatkMergeHeaps(memPerJobGB)
+		color.Cyan("Running %d merge job(s) at a time, %d GB each (import heap %dg, genotype heap %dg)\n\n",
+			jobs, memPerJobGB, importHeapGB, genotypeHeapGB)
+	} else {
+		color.Cyan("Running %d merge job(s) at a time, %d GB and %d thread(s) each\n\n",
+			jobs, memPerJobGB, jobThreads(opts))
+	}
+
+	// Results are indexed by label, not appended, so the dictionary order
+	// established above survives workers finishing out of order — gatk MergeVcfs
+	// will not reorder its inputs. Each worker writes to its own index, so no
+	// lock is needed. An empty string means that group did not produce a VCF.
+	results := make([]string, len(labels))
+
+	taskCh := make(chan int, len(labels))
+	for i := range labels {
+		taskCh <- i
+	}
+	close(taskCh)
+
+	var wg sync.WaitGroup
+	for w := 1; w <= jobs; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			// Only tag lines when there is more than one worker to tell apart.
+			tag := ""
+			if jobs > 1 {
+				tag = fmt.Sprintf("[Worker %d] ", workerID)
+			}
+
+			for i := range taskCh {
+				label := labels[i]
+
+				// An explicit --gvcf list arrives under a synthetic label ("all") that is
+				// not a sequence name, so fall back to the whole reference for it.
+				seqs := seqsFor[label]
+				if len(seqs) == 0 {
+					seqs = append(append([]SeqInfo{}, chroms...), contigs...)
+				}
+
+				results[i] = mergeOneGroup(opts, merger, label, seqs, gvcfs[label], tag, memPerJobGB)
+			}
+		}(w)
+	}
+	wg.Wait()
 
 	var jointVcfs []string
-	for _, label := range labels {
-		jointVCF := JointVcfPath(opts, label)
-
-		// ------------------------- reuse a valid, up-to-date joint VCF ------------------------- //
-		if _, sErr := os.Stat(jointVCF); sErr == nil {
-			reuse := true
-
-			// --skip-verification skips the integrity check only.
-			if !opts.SkipVerification {
-				if vErr := utils.ValidateGvcf(jointVCF, opts.Verbose, opts.Quick); vErr != nil {
-					color.Yellow("[%s] joint VCF is corrupt, re-merging: %v\n", label, vErr)
-					reuse = false
-				}
-			}
-
-			// The sample-set check always runs, even under --skip-verification: it is
-			// only a header read, and skipping it means a newly added sample silently
-			// never reaches the output.
-			if reuse {
-				want, wErr := allGvcfSampleNames(gvcfs[label])
-				have, hErr := vcfSampleNames(jointVCF)
-				switch {
-				case wErr != nil || hErr != nil:
-					color.Yellow("[%s] could not compare sample names, re-merging\n", label)
-					reuse = false
-				case !sampleNamesMatch(want, have):
-					color.Yellow("[%s] sample set changed (%d gVCFs vs %d samples in the joint VCF), re-merging\n",
-						label, len(want), len(have))
-					reuse = false
-				}
-			}
-
-			if reuse {
-				color.Green("[%s] joint VCF is up to date, reusing: %s\n", label, jointVCF)
-				jointVcfs = append(jointVcfs, jointVCF)
-				continue
-			}
-			os.Remove(jointVCF)
-			os.Remove(jointVCF + ".tbi")
+	for _, vcf := range results {
+		if vcf != "" {
+			jointVcfs = append(jointVcfs, vcf)
 		}
-
-		// An explicit --gvcf list arrives under a synthetic label ("all") that is not
-		// a sequence name, so fall back to the whole reference for it.
-		seqs := seqsFor[label]
-		if len(seqs) == 0 {
-			seqs = append(append([]SeqInfo{}, chroms...), contigs...)
-		}
-
-		color.Cyan("[%s] merging %d gVCFs ...\n\n", label, len(gvcfs[label]))
-		var mErr error
-		if merger == "gatk" {
-			mErr = mergeChromGATK(opts, label, seqs, gvcfs[label], jointVCF)
-		} else {
-			mErr = mergeChromGlnexus(opts, label, gvcfs[label], jointVCF)
-		}
-		if mErr != nil {
-			color.Red("[%s] merge FAILED: %v\n", label, mErr)
-			continue
-		}
-		color.Green("[%s] joint VCF created: %s\n\n", label, jointVCF)
-		jointVcfs = append(jointVcfs, jointVCF)
 	}
 
 	if len(jointVcfs) == 0 {
@@ -592,6 +689,211 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 
 	color.Green("Multi-sample VCF: %s\n\n", finalVCF)
 	return finalVCF, nil
+}
+
+// mergeOneGroup produces the joint VCF for one chromosome group and returns its
+// path, or "" if the group could not be merged. A failure is reported and
+// returned as "" rather than aborting, so one bad chromosome does not cost the
+// whole cohort.
+//
+// An existing joint VCF is reused when it is valid and already holds exactly the
+// samples these gVCFs carry.
+func mergeOneGroup(opts Options, merger, label string, seqs []SeqInfo, gvcfs []string, tag string, memPerJobGB int) string {
+	jointVCF := JointVcfPath(opts, label)
+
+	// ------------------------- reuse a valid, up-to-date joint VCF ------------------------- //
+	if _, sErr := os.Stat(jointVCF); sErr == nil {
+		reuse := true
+
+		// --skip-verification skips the integrity check only.
+		if !opts.SkipVerification {
+			if vErr := utils.ValidateGvcf(jointVCF, opts.Verbose, opts.Quick); vErr != nil {
+				color.Yellow("%s[%s] joint VCF is corrupt, re-merging: %v\n", tag, label, vErr)
+				reuse = false
+			}
+		}
+
+		// The sample-set check always runs, even under --skip-verification: it is
+		// only a header read, and skipping it means a newly added sample silently
+		// never reaches the output.
+		if reuse {
+			want, wErr := allGvcfSampleNames(gvcfs)
+			have, hErr := vcfSampleNames(jointVCF)
+			switch {
+			case wErr != nil || hErr != nil:
+				color.Yellow("%s[%s] could not compare sample names, re-merging\n", tag, label)
+				reuse = false
+			case !sampleNamesMatch(want, have):
+				color.Yellow("%s[%s] sample set changed (%d gVCFs vs %d samples in the joint VCF), re-merging\n",
+					tag, label, len(want), len(have))
+				reuse = false
+			}
+		}
+
+		if reuse {
+			color.Green("%s[%s] joint VCF is up to date, reusing: %s\n", tag, label, jointVCF)
+			return jointVCF
+		}
+		os.Remove(jointVCF)
+		os.Remove(jointVCF + ".tbi")
+	}
+
+	color.Cyan("%s[%s] merging %d gVCFs ...\n\n", tag, label, len(gvcfs))
+
+	var mErr error
+	if merger == "gatk" {
+		mErr = mergeChromGATK(opts, label, seqs, gvcfs, jointVCF, tag, memPerJobGB)
+	} else {
+		mErr = mergeChromGlnexus(opts, label, gvcfs, jointVCF, tag, memPerJobGB, jobThreads(opts))
+	}
+	if mErr != nil {
+		color.Red("%s[%s] merge FAILED: %v\n", tag, label, mErr)
+		return ""
+	}
+
+	color.Green("%s[%s] joint VCF created: %s\n\n", tag, label, jointVCF)
+	return jointVCF
+}
+
+// Neither merger has a fixed appetite, so these are floors: the least memory a
+// job of each kind is worth starting with. Each job is then handed an equal
+// share of what is actually free, and the GATK heaps are sized from that share
+// (see gatkMergeHeaps) rather than being fixed in the command line.
+//
+// 8 GB for GATK is what a GenotypeGVCFs heap of 6 GB plus JVM metaspace, thread
+// stacks and GenomicsDB's off-heap buffers comes to. Budgeting the old fixed
+// 12 GB heap instead cost real parallelism: on a 32 GB machine it allowed one
+// merge job, where two chromosomes could have run side by side.
+const (
+	gatkMergeJobMemGB  = 8
+	glnexusJobMinMemGB = 8
+
+	// unknownMemJobCap bounds parallelism when free memory cannot be read at
+	// all. Merging is the most memory-hungry stage in the pipeline and an
+	// over-subscribed machine will OOM-kill a job hours in, so the blind default
+	// stays small; --merge-jobs raises it.
+	unknownMemJobCap = 2
+)
+
+// gatkMergeHeaps sizes the two JVM heaps in a GATK merge job from that job's
+// memory share.
+//
+// GenotypeGVCFs holds the most, so it gets three quarters of the share, leaving
+// the rest for metaspace, thread stacks and GC structures. GenomicsDBImport
+// streams in batches of 50 samples and needs less, but its buffers live off the
+// heap, so it gets half.
+//
+// Both are clamped. The floors keep a small share from producing a heap too
+// small to start; the ceilings are the values this pipeline used to hardcode,
+// which were sized for a large cohort and are ample — handing GenotypeGVCFs a
+// 25 GB heap because a machine happens to be idle buys nothing and makes GC
+// pauses worse.
+func gatkMergeHeaps(memPerJobGB int) (importGB, genotypeGB int) {
+	return clampGB(memPerJobGB/2, 2, 8), clampGB(memPerJobGB*3/4, 4, 12)
+}
+
+func clampGB(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// jobThreads is the per-job thread count, guarding against a zero or negative
+// --threads reaching a tool that would reject it.
+func jobThreads(opts Options) int {
+	if opts.Threads < 1 {
+		return 1
+	}
+	return opts.Threads
+}
+
+// availableMemGB reports free RAM in GB from /proc/meminfo's MemAvailable, which
+// unlike MemFree counts reclaimable page cache. It returns 0 when that cannot be
+// read — a non-Linux host, or a restricted container — and callers fall back to
+// a fixed cap.
+func availableMemGB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "MemAvailable:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		kb, cErr := strconv.Atoi(fields[1])
+		if cErr != nil {
+			return 0
+		}
+		return kb / (1024 * 1024)
+	}
+	return 0
+}
+
+// mergeJobs decides how many chromosome groups to merge at once, and how much
+// memory each job may use.
+//
+// Memory is the binding constraint, not cores: the cores/--threads figure that
+// bounds gVCF creation would start a dozen JVMs here. An explicit --merge-jobs
+// is honoured as given, on the basis that someone setting it knows their
+// machine, but it is warned about when it oversubscribes what is free.
+//
+// memPerJobGB is each job's equal share of free memory. GLnexus is handed it
+// directly; the GATK path sizes its heaps from it.
+func mergeJobs(opts Options, merger string, groups int) (jobs, memPerJobGB int) {
+	if groups < 1 {
+		return 1, glnexusJobMinMemGB
+	}
+
+	avail := availableMemGB()
+	minPerJob := gatkMergeJobMemGB
+	if merger == "glnexus" {
+		minPerJob = glnexusJobMinMemGB
+	}
+
+	if opts.MergeJobs > 0 {
+		jobs = opts.MergeJobs
+		if avail > 0 && jobs > groups {
+			// Capped to groups below, so only warn about what will actually run.
+			jobs = groups
+		}
+		if avail > 0 && jobs*minPerJob > avail {
+			color.Yellow("--merge-jobs %d wants about %d GB but only %d GB is free; jobs may be killed\n",
+				jobs, jobs*minPerJob, avail)
+		}
+	} else {
+		jobs = runtime.NumCPU() / jobThreads(opts)
+
+		if avail <= 0 {
+			if jobs > unknownMemJobCap {
+				jobs = unknownMemJobCap
+			}
+		} else if avail/minPerJob < jobs {
+			jobs = avail / minPerJob
+		}
+	}
+
+	if jobs > groups {
+		jobs = groups
+	}
+	if jobs < 1 {
+		jobs = 1
+	}
+
+	// The floor keeps an oversubscribed --merge-jobs, or a host whose free memory
+	// could not be read, from producing a share too small to size a heap from.
+	memPerJobGB = avail / jobs
+	if memPerJobGB < minPerJob {
+		memPerJobGB = minPerJob
+	}
+	return jobs, memPerJobGB
 }
 
 // allGvcfSampleNames collects the sample name from each gVCF in order.

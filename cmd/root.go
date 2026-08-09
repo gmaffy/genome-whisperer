@@ -86,6 +86,7 @@ func init() {
 
 	// ----------------------------------------- Runtime ---------------------------------------- //
 	pf.IntP("threads", "t", 4, "Threads per job")
+	pf.Int("merge-jobs", 0, "Chromosome groups to joint-genotype at once (0 = from free memory)")
 	pf.BoolP("verbose", "v", false, "Stream external tool output")
 	pf.String("gatk-log-level", "INFO", "GATK log level: DEBUG, INFO, WARNING or ERROR")
 
