@@ -477,9 +477,9 @@ func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
 			}
 			plan = append(plan, ReasonConvertRgmdBam)
 		case isUsable(state.SortedBam):
-			plan = append(plan, ReasonMarkDupSortedBam)
+			plan = append(plan, ReasonMarkDupSortedBam, ReasonConvertRgmdBam)
 		default:
-			plan = append(plan, ReasonAlignFromReads)
+			plan = append(plan, ReasonAlignFromReads, ReasonConvertRgmdBam)
 			needsReads = true
 		}
 		// After producing the cram we always need to index it.
