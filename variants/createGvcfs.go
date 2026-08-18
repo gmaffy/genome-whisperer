@@ -63,6 +63,13 @@ type Options struct {
 	// the machine. Set it when you know better than the estimate.
 	MergeJobs int
 
+	// LocalWorkDir is where MergeGvcfs builds its scratch space: the GenomicsDB
+	// workspace, GLnexus database, sample map and interval list. These do heavy
+	// small-file random I/O that NAS/NFS storage handles badly, so this should be
+	// a genuinely local disk, unlike DataDir/OutDir. Empty means
+	// "$HOME/.genome-whisperer/merge-work" (see absRoots).
+	LocalWorkDir string
+
 	NoBqsr           bool // data-dir mode: use the rgmd bam/cram instead of bqsr
 	Verbose          bool
 	Quick            bool
@@ -88,6 +95,15 @@ func absRoots(opts Options) (Options, error) {
 		if opts.RefFasta, err = filepath.Abs(opts.RefFasta); err != nil {
 			return opts, fmt.Errorf("resolving reference fasta: %w", err)
 		}
+	}
+	if opts.LocalWorkDir == "" {
+		home, hErr := os.UserHomeDir()
+		if hErr != nil {
+			return opts, fmt.Errorf("resolving default local work directory: %w", hErr)
+		}
+		opts.LocalWorkDir = filepath.Join(home, ".genome-whisperer", "merge-work")
+	} else if opts.LocalWorkDir, err = filepath.Abs(opts.LocalWorkDir); err != nil {
+		return opts, fmt.Errorf("resolving local work directory: %w", err)
 	}
 	return opts, nil
 }
@@ -812,6 +828,38 @@ func (s SampleWork) label() string {
 	return s.Sample
 }
 
+// selectAlignments filters matches down to the ones tagged with the naming
+// convention this pipeline marks a completed alignment with, so a stale
+// intermediate file (sorted.bam, an untrimmed bqsr.bam left behind by a
+// partial run, etc.) is not mistaken for the finished one.
+//
+// Long-read samples prefer an "rgmd"/"RGMD" tag too — MarkDuplicates is still
+// expected to have run, just not BQSR, which is not supported for pbmm2 (see
+// dirAlign.go). But the directory-scanning AlignReads pipeline skips
+// long-read samples outright, so there is no guarantee that tag was ever
+// applied. When isLongRead is true and none of the matches carry it, every
+// match is returned untouched rather than leaving the sample with nothing.
+// FindSampleAlignments still requires exactly one candidate either way, so an
+// actually-ambiguous directory (e.g. a raw file and a MarkDuplicates-processed
+// one both present) is still caught, just one level up.
+func selectAlignments(matches []string, isLongRead, noBqsr bool) []string {
+	tag := "bqsr"
+	if noBqsr || isLongRead {
+		tag = "rgmd"
+	}
+
+	var tagged []string
+	for _, m := range matches {
+		if strings.Contains(strings.ToLower(m), tag) {
+			tagged = append(tagged, m)
+		}
+	}
+	if len(tagged) > 0 || !isLongRead {
+		return tagged
+	}
+	return matches
+}
+
 func FindBams(dataDirAbs string, species string, sample string, refVer string, noBqsr bool) ([]string, []string, error) {
 	cramPat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*.cram", dataDirAbs, strings.ToLower(species), sample, refVer)
 	bamPat := fmt.Sprintf("%s/%s/*/%s/reference_genomes/%s/bams/*.bam", dataDirAbs, strings.ToLower(species), sample, refVer)
@@ -827,48 +875,18 @@ func FindBams(dataDirAbs string, species string, sample string, refVer string, n
 	if len(cramMatches) == 0 && len(bamMatches) == 0 {
 		return nil, nil, fmt.Errorf("no cram files or bams found in %s", cramPat)
 	}
-	//fmt.Printf("Found %d cram files\n", len(cramMatches))
-	//fmt.Printf("Found %d bam files\n", len(bamMatches))
+
+	isLongRead := strings.HasSuffix(strings.ToLower(sample), "lr")
+
 	var validCrams []string
 	var validBams []string
 	if len(cramMatches) > 0 {
-
-		for _, cramMatch := range cramMatches {
-			if noBqsr {
-				cramLower := strings.ToLower(cramMatch)
-				if strings.Contains(strings.ToLower(cramLower), "rgmd") {
-					validCrams = append(validCrams, cramMatch)
-				}
-			} else {
-				cramLower := strings.ToLower(cramMatch)
-				if !strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(cramLower), "bqsr") {
-					validCrams = append(validCrams, cramMatch)
-				} else if strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(cramLower), "rgmd") {
-					validCrams = append(validCrams, cramMatch)
-				}
-			}
-		}
-	} else if len(bamMatches) > 0 {
-		for _, bamMatch := range bamMatches {
-			if noBqsr {
-				bamLower := strings.ToLower(bamMatch)
-				if strings.Contains(strings.ToLower(bamLower), "rgmd") {
-					validBams = append(validBams, bamMatch)
-				}
-			} else {
-				bamLower := strings.ToLower(bamMatch)
-				if !strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(bamLower), "bqsr") {
-					validBams = append(validBams, bamMatch)
-				} else if strings.HasSuffix(strings.ToLower(sample), "lr") && strings.Contains(strings.ToLower(bamLower), "rgmd") {
-					validBams = append(validBams, bamMatch)
-				}
-			}
-		}
-
+		validCrams = selectAlignments(cramMatches, isLongRead, noBqsr)
+	} else {
+		validBams = selectAlignments(bamMatches, isLongRead, noBqsr)
 	}
 
 	return validCrams, validBams, nil
-
 }
 
 type SeqInfo struct {

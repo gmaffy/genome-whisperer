@@ -77,6 +77,10 @@ func variantOptions(cmd *cobra.Command) (variants.Options, error) {
 	if err != nil {
 		return variants.Options{}, err
 	}
+	localWorkDir, err := get.GetString("local-work-dir")
+	if err != nil {
+		return variants.Options{}, err
+	}
 	verbose, err := get.GetBool("verbose")
 	if err != nil {
 		return variants.Options{}, err
@@ -127,6 +131,7 @@ func variantOptions(cmd *cobra.Command) (variants.Options, error) {
 		GatkLogLevel:     gatkLogLevel,
 		Threads:          threads,
 		MergeJobs:        mergeJobs,
+		LocalWorkDir:     localWorkDir,
 		Verbose:          verbose,
 		Quick:            quick,
 		SkipVerification: skipVerification,

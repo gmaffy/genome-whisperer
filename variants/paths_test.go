@@ -96,7 +96,7 @@ func TestGvcfPathTrimsAlignmentExtension(t *testing.T) {
 
 func TestJointVcfDirIncludesCombination(t *testing.T) {
 	dd := Options{DataDir: "/data", Species: "Cotton", RefVer: "AD1.1", Caller: "gatk", Merger: "glnexus"}
-	want := filepath.Join("/data", "cotton", "AD1.1", "VCFs", "gatk_glnexus")
+	want := filepath.Join("/data", "cotton", "MERGED_VCFs", "AD1.1", "gatk_glnexus")
 	if got := JointVcfDir(dd); got != want {
 		t.Errorf("JointVcfDir =\n  %s\nwant\n  %s", got, want)
 	}
@@ -105,6 +105,59 @@ func TestJointVcfDirIncludesCombination(t *testing.T) {
 	want = filepath.Join("/out", "VCFs", "dv_glnexus")
 	if got := JointVcfDir(od); got != want {
 		t.Errorf("JointVcfDir =\n  %s\nwant\n  %s", got, want)
+	}
+}
+
+// mergeWorkDir and gatkScratchDir are rooted at opts.LocalWorkDir / the OS temp
+// dir, not JointVcfDir, since GenomicsDBImport and glnexus_cli do small-file
+// random I/O that performs badly on the NAS/NFS storage JointVcfDir usually
+// lives on.
+func TestMergeWorkDirAndGatkScratchDirAreLocal(t *testing.T) {
+	opts := Options{DataDir: "/data", LocalWorkDir: "/home/user/.genome-whisperer/merge-work",
+		Species: "Cotton", RefVer: "AD1.1", Caller: "gatk", Merger: "glnexus"}
+
+	want := filepath.Join("/home/user/.genome-whisperer/merge-work", "cotton", "AD1.1", "gatk_glnexus", "work", "A01")
+	if got := mergeWorkDir(opts, "A01"); got != want {
+		t.Errorf("mergeWorkDir =\n  %s\nwant\n  %s", got, want)
+	}
+	if got := mergeWorkDir(opts, "A01"); strings.HasPrefix(got, JointVcfDir(opts)) {
+		t.Errorf("mergeWorkDir must not live under JointVcfDir: %s", got)
+	}
+
+	wantTmp := filepath.Join(os.TempDir(), "genome-whisperer-merge", "cotton", "gatk_glnexus", "A01")
+	if got := gatkScratchDir(opts, "A01"); got != wantTmp {
+		t.Errorf("gatkScratchDir =\n  %s\nwant\n  %s", got, wantTmp)
+	}
+}
+
+// Concurrent merge jobs run one chromosome group each on a shared LocalWorkDir
+// (see mergeJobs), so every chromosome and every caller/merger combination must
+// get its own scratch directory or two jobs would collide mid-import.
+func TestMergeWorkDirAndGatkScratchDirArePerChromAndCombination(t *testing.T) {
+	base := Options{LocalWorkDir: "/home/user/.genome-whisperer/merge-work", Species: "cotton", RefVer: "AD1.1"}
+
+	seenWork := make(map[string]bool)
+	seenScratch := make(map[string]bool)
+	for _, c := range []struct{ caller, merger string }{
+		{"gatk", "gatk"}, {"gatk", "glnexus"}, {"deepvariant", "glnexus"},
+	} {
+		opts := base
+		opts.Caller, opts.Merger = c.caller, c.merger
+		for _, chrom := range []string{"A01", "A02"} {
+			if w := mergeWorkDir(opts, chrom); seenWork[w] {
+				t.Errorf("duplicate mergeWorkDir: %s", w)
+			} else {
+				seenWork[w] = true
+			}
+			if s := gatkScratchDir(opts, chrom); seenScratch[s] {
+				t.Errorf("duplicate gatkScratchDir: %s", s)
+			} else {
+				seenScratch[s] = true
+			}
+		}
+	}
+	if len(seenWork) != 6 || len(seenScratch) != 6 {
+		t.Errorf("expected 6 distinct paths each, got %d work, %d scratch", len(seenWork), len(seenScratch))
 	}
 }
 
@@ -168,6 +221,23 @@ func TestAbsRoots(t *testing.T) {
 	if got.DataDir != "" {
 		t.Errorf("empty DataDir became %q", got.DataDir)
 	}
+	// Unlike DataDir/OutDir, an unset LocalWorkDir gets a real default rather
+	// than staying empty: it is never optional the way "no data-dir mode" is.
+	if !filepath.IsAbs(got.LocalWorkDir) {
+		t.Errorf("LocalWorkDir not defaulted to an absolute path: %q", got.LocalWorkDir)
+	}
+}
+
+// An explicit --local-work-dir must still work when $HOME is not what the
+// caller wants (e.g. it turns out to be network storage too).
+func TestAbsRootsRespectsExplicitLocalWorkDir(t *testing.T) {
+	got, err := absRoots(Options{LocalWorkDir: filepath.Join("scratch", "work")})
+	if err != nil {
+		t.Fatalf("absRoots: %v", err)
+	}
+	if !filepath.IsAbs(got.LocalWorkDir) || filepath.Base(got.LocalWorkDir) != "work" {
+		t.Errorf("LocalWorkDir = %q, want an absolute path ending in .../scratch/work", got.LocalWorkDir)
+	}
 }
 
 func TestAbsRootsIsIdempotent(t *testing.T) {
@@ -180,10 +250,11 @@ func TestAbsRootsIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Options holds a slice, so compare the fields absRoots actually touches.
-	if once.DataDir != twice.DataDir || once.OutDir != twice.OutDir || once.RefFasta != twice.RefFasta {
-		t.Errorf("absRoots not idempotent:\n  %s %s %s\n  %s %s %s",
-			once.DataDir, once.OutDir, once.RefFasta,
-			twice.DataDir, twice.OutDir, twice.RefFasta)
+	if once.DataDir != twice.DataDir || once.OutDir != twice.OutDir || once.RefFasta != twice.RefFasta ||
+		once.LocalWorkDir != twice.LocalWorkDir {
+		t.Errorf("absRoots not idempotent:\n  %s %s %s %s\n  %s %s %s %s",
+			once.DataDir, once.OutDir, once.RefFasta, once.LocalWorkDir,
+			twice.DataDir, twice.OutDir, twice.RefFasta, twice.LocalWorkDir)
 	}
 }
 

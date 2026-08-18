@@ -32,7 +32,7 @@ INPUT PATHS
      and writes gVCFs beside each sample, in
        .../reference_genomes/<ref-version>/{gatk_gvcfs|dv_gvcfs}/
      VCFs go to
-       <data-dir>/<species>/<ref-version>/VCFs/<caller>_<merger>/
+       <data-dir>/<species>/MERGED_VCFs/<ref-version>/<caller>_<merger>/
 
        required: --data-dir --species --ref-version
                  and --reference or --genomes-dir

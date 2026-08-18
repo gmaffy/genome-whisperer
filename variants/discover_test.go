@@ -160,6 +160,64 @@ func TestFindSampleAlignmentsDataDir(t *testing.T) {
 	}
 }
 
+// A long-read sample whose cram was never tagged "rgmd" must still be usable:
+// the directory-scanning AlignReads pipeline skips long-read samples outright
+// (see dirAlign.go), so nothing in this codebase guarantees that tag is ever
+// applied. Requiring it anyway left every untagged long-read sample
+// permanently unreachable despite a perfectly good cram sitting right there.
+//
+// The test name deliberately avoids the substrings "rgmd"/"bqsr": t.TempDir()
+// derives the sample's directory from the test name, and selectAlignments
+// matches its tag against the full path, so either substring appearing in the
+// test name would leak into the path and mask the very case being tested.
+func TestFindSampleAlignmentsDataDirLongReadUntaggedCramIsUsable(t *testing.T) {
+	root := t.TempDir()
+	const species, refVer = "cotton", "AD1.1"
+	touch(t, alignmentPath(root, species, "proj1", "S1lr", refVer, "S1_LONG_READS.cram"))
+
+	samples, skipped, err := FindSampleAlignments(Options{
+		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", SkipVerification: true,
+	})
+	if err != nil {
+		t.Fatalf("FindSampleAlignments: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("skipped = %v, want none", skipped)
+	}
+	if len(samples) != 1 || samples[0].Sample != "S1lr" {
+		t.Fatalf("samples = %+v, want just S1lr", samples)
+	}
+	if !strings.HasSuffix(samples[0].Cram, "S1_LONG_READS.cram") {
+		t.Errorf("Cram = %s, want the untagged alignment", samples[0].Cram)
+	}
+}
+
+// When a long-read sample does have a tagged alignment, that one is still
+// preferred over an untagged file sitting alongside it — falling back to
+// "accept anything" only kicks in when nothing is tagged at all, so an
+// actually stale/raw file left behind by a partial run does not get picked
+// over the finished one. (See the naming note on the test above: no
+// "rgmd"/"bqsr" substring in this test's name either.)
+func TestFindSampleAlignmentsDataDirLongReadPrefersTaggedCram(t *testing.T) {
+	root := t.TempDir()
+	const species, refVer = "cotton", "AD1.1"
+	touch(t, alignmentPath(root, species, "proj1", "S1lr", refVer, "S1_LONG_READS.cram"))
+	touch(t, alignmentPath(root, species, "proj1", "S1lr", refVer, "S1_LONG_READS.rgmd.cram"))
+
+	samples, skipped, err := FindSampleAlignments(Options{
+		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", SkipVerification: true,
+	})
+	if err != nil {
+		t.Fatalf("FindSampleAlignments: %v", err)
+	}
+	if len(samples) != 1 {
+		t.Fatalf("expected 1 sample, got %d: %+v (skipped=%v)", len(samples), samples, skipped)
+	}
+	if !strings.Contains(samples[0].Cram, "rgmd") {
+		t.Errorf("should prefer the rgmd-tagged alignment, got %s", samples[0].Cram)
+	}
+}
+
 // --bqsr=false (NoBqsr) selects the rgmd alignment for short-read samples too.
 func TestFindSampleAlignmentsDataDirNoBqsr(t *testing.T) {
 	root := t.TempDir()

@@ -21,7 +21,7 @@ import (
 // component names the caller/merger combination that produced them:
 // gatk_gatk, gatk_glnexus or dv_glnexus.
 //
-// Data-dir mode:  <DataDir>/<species>/<refVer>/VCFs/<caller>_<merger>
+// Data-dir mode:  <DataDir>/<species>/MERGED_VCFs/<refVer>/<caller>_<merger>
 // Otherwise:      <OutDir>/VCFs/<caller>_<merger>
 //
 // Per-chromosome VCFs live directly in here with the chromosome in the filename,
@@ -29,11 +29,13 @@ import (
 //
 // Giving each combination its own directory means running a second combination
 // cannot overwrite the first, the reuse checks never compare a joint VCF against
-// gVCFs from a different caller, and the scratch directories (work/, vcfs.list)
-// are per-combination too.
+// gVCFs from a different caller, and the concatenation list (vcfs.list) is
+// per-combination too. The scratch work directory (GenomicsDB workspace,
+// GLnexus database) is not under here — see mergeWorkDir — since it does
+// small-file I/O unsuited to whatever storage this directory lives on.
 func JointVcfDir(opts Options) string {
 	if opts.DataDir != "" {
-		return filepath.Join(opts.DataDir, strings.ToLower(opts.Species), opts.RefVer, "VCFs", callerMergerTag(opts))
+		return filepath.Join(opts.DataDir, strings.ToLower(opts.Species), "MERGED_VCFs", opts.RefVer, callerMergerTag(opts))
 	}
 	return filepath.Join(opts.OutDir, "VCFs", callerMergerTag(opts))
 }
@@ -342,6 +344,28 @@ func gdbReuse(theDB, marker, fingerprint string) (reuse bool, discardReason stri
 	return true, ""
 }
 
+// mergeWorkDir returns the local scratch directory for one chromosome group's
+// GenomicsDB workspace or GLnexus database. Unlike JointVcfDir, this is rooted
+// at opts.LocalWorkDir (default $HOME/.genome-whisperer/merge-work), not
+// DataDir/OutDir, because GenomicsDBImport and glnexus_cli both do heavy
+// small-file, random I/O that performs badly on NAS/NFS storage — the final
+// joint VCF is what belongs on shared storage, not the workspace that builds
+// it.
+func mergeWorkDir(opts Options, chrom string) string {
+	return filepath.Join(opts.LocalWorkDir, strings.ToLower(opts.Species), opts.RefVer,
+		callerMergerTag(opts), "work", strings.ReplaceAll(chrom, ".", "_"))
+}
+
+// gatkScratchDir returns the directory passed as GATK's own --tmp-dir. It is
+// kept separate from mergeWorkDir, rooted at the OS temp dir (os.TempDir(),
+// which honours $TMPDIR) rather than opts.LocalWorkDir, so it can live on
+// whatever scratch disk the machine is configured with and is cleaned up
+// independently of the GenomicsDB workspace.
+func gatkScratchDir(opts Options, chrom string) string {
+	return filepath.Join(os.TempDir(), "genome-whisperer-merge",
+		strings.ToLower(opts.Species), callerMergerTag(opts), strings.ReplaceAll(chrom, ".", "_"))
+}
+
 // mergeChromGATK joint-genotypes one chromosome with GenomicsDBImport followed by
 // GenotypeGVCFs.
 //
@@ -350,15 +374,23 @@ func gdbReuse(theDB, marker, fingerprint string) (reuse bool, discardReason stri
 // the two steps, or one whose GenotypeGVCFs failed, leaves behind. An incomplete
 // or stale workspace is deleted and rebuilt.
 //
+// The GenomicsDB workspace (workDir/theDB) lives under opts.LocalWorkDir and
+// the GATK --tmp-dir scratch under the OS temp dir — both local, not the NAS
+// the final joint VCF is written to (JointVcfDir) — since GenomicsDBImport's
+// small-file random I/O performs badly over the network.
+//
 // memGB is this job's share of the machine; both JVM heaps are sized from it, so
 // running several chromosomes at once shrinks each one rather than
 // oversubscribing memory.
 func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, jointVCF, tag string, memGB int) error {
-	workDir := filepath.Join(JointVcfDir(opts), "work", strings.ReplaceAll(chrom, ".", "_"))
+	workDir := mergeWorkDir(opts, chrom)
 	theDB := filepath.Join(workDir, "db")
-	tmpDir := filepath.Join(workDir, "tmp")
+	tmpDir := gatkScratchDir(opts, chrom)
 	marker := filepath.Join(workDir, gdbImportDoneFile)
 
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return fmt.Errorf("creating %s: %w", workDir, err)
+	}
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return fmt.Errorf("creating %s: %w", tmpDir, err)
 	}
@@ -422,9 +454,13 @@ func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, 
 	}
 
 	// The workspace and temp files are large and are not needed once the joint
-	// VCF exists.
+	// VCF exists. tmpDir no longer lives under workDir, so both are removed
+	// explicitly.
 	if rErr := os.RemoveAll(workDir); rErr != nil {
 		color.Yellow("could not clean up %s: %v\n", workDir, rErr)
+	}
+	if rErr := os.RemoveAll(tmpDir); rErr != nil {
+		color.Yellow("could not clean up %s: %v\n", tmpDir, rErr)
 	}
 	return nil
 }
@@ -436,8 +472,12 @@ func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, 
 // glnexus_cli claims most of the system's memory and every core, which is
 // correct for one job and ruinous for several running side by side, so both are
 // passed explicitly.
+//
+// The GLnexus database lives under opts.LocalWorkDir, not the NAS JointVcfDir
+// is on — like GenomicsDB, it does heavy small-file random I/O that performs
+// badly over the network.
 func mergeChromGlnexus(opts Options, chrom string, gvcfs []string, jointVCF, tag string, memGB, threads int) error {
-	workDir := filepath.Join(JointVcfDir(opts), "work", strings.ReplaceAll(chrom, ".", "_"))
+	workDir := mergeWorkDir(opts, chrom)
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return fmt.Errorf("creating %s: %w", workDir, err)
 	}
