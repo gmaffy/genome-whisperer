@@ -107,20 +107,27 @@ func GetValidGenomesFromDisk(genomesDir string) (map[string][]GenomeRef, error) 
 				continue
 			}
 
-			var fastaPath, dictPath string
+			var fastaPath, gzFastaPath, dictPath string
 			for _, f := range entries {
 				if f.IsDir() {
 					continue
 				}
 				name := f.Name()
 				switch {
-				case strings.HasSuffix(name, ".fa"),
-					strings.HasSuffix(name, ".fasta"),
-					strings.HasSuffix(name, ".fna"):
+				case utils.IsBgzippedFasta(name):
+					gzFastaPath = filepath.Join(assemblyDir, name)
+				case utils.IsFasta(name):
 					fastaPath = filepath.Join(assemblyDir, name)
 				case strings.HasSuffix(name, ".dict"):
 					dictPath = filepath.Join(assemblyDir, name)
 				}
+			}
+
+			// An assembly directory holding both forms is used uncompressed:
+			// GATK's recalibration tools refuse a block-compressed reference,
+			// and ReadDir order alone would pick whichever name sorts last.
+			if fastaPath == "" {
+				fastaPath = gzFastaPath
 			}
 
 			if fastaPath != "" && dictPath != "" {
@@ -181,7 +188,11 @@ const (
 	ReasonConvertRgmdBam ProcessingReason = "convert_rgmd_bam"
 	// ReasonIndexRgmdCram — rgmd.cram present but missing index.
 	ReasonIndexRgmdCram ProcessingReason = "index_rgmd_cram"
-	// ReasonRunBQSR — rgmd.cram complete; BQSR not yet done.
+	// ReasonMaterializeRgmdBam — the rgmd.cram is the only surviving alignment
+	// but GATK cannot read an indexed cram on this reference; decode it back to
+	// a CSI-indexed rgmd.bam for the BQSR steps. ReasonCleanup removes it again.
+	ReasonMaterializeRgmdBam ProcessingReason = "materialize_rgmd_bam"
+	// ReasonRunBQSR — rgmd alignment complete; BQSR not yet done.
 	ReasonRunBQSR ProcessingReason = "run_bqsr"
 	// ReasonConvertBqsrBam — bqsr.bam present; convert to bqsr.cram.
 	ReasonConvertBqsrBam ProcessingReason = "convert_bqsr_bam"
@@ -243,7 +254,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		return
 	}
 
-	dictFilePath := resolvedFasta[:len(resolvedFasta)-len(filepath.Ext(resolvedFasta))] + ".dict"
+	dictFilePath := utils.DictPath(resolvedFasta)
 	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
 		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
 		return
@@ -289,6 +300,16 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		longReadSamples []string
 	)
 
+	// Decided once for the run: on a reference with contigs past the BAI limit
+	// the GATK steps have to be given a bam, because htsjdk turns a .crai into a
+	// BAI it cannot address. Said out loud because it changes both the plan and
+	// the peak disk a sample needs.
+	gatkNeedsBam := gatkReadsNeedBam(resolvedFasta)
+	if gatkNeedsBam {
+		color.Yellow("Reference has contigs longer than %d bases: the BQSR steps will read the rgmd.bam, not the rgmd.cram\n", baiMaxPosition)
+		color.Yellow("(htsjdk builds a BAI from a .crai on open, and a BAI cannot address a position that far into a contig)\n\n")
+	}
+
 	color.Cyan("===================== Checking and validating alignment files currently in directory =====================\n")
 	for _, cleanReadsDir := range cleanReadsDirs {
 		sampleDir := filepath.Dir(cleanReadsDir)
@@ -319,7 +340,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 		// Build the full ordered plan from the current state so processSample
 		// can execute every step without re-scanning the filesystem.
-		plan, needsReads := buildPlan(state, bqsr)
+		plan, needsReads := buildPlan(state, bqsr, gatkNeedsBam)
 
 		var fwd, rev string
 		if needsReads {
@@ -383,7 +404,11 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	results := make([]sampleResult, len(tasks))
 	var wg sync.WaitGroup
 
-	color.Cyan("Processing %d samples using %d threads each (Max parallel jobs: %d)\n\n", len(tasks), threads, maxParallelJobs)
+	opts := newRuntimeOpts(threads, maxParallelJobs)
+
+	color.Cyan("Processing %d samples using %d threads each (Max parallel jobs: %d)\n", len(tasks), threads, maxParallelJobs)
+	color.Cyan("GATK: %d JVM slots, %s per sample step, %s per shard, %d interval shards, %d pair-HMM threads\n\n",
+		cap(gatkSlots), opts.javaOpts, opts.shardJava, opts.shardCount, opts.pairHmm)
 	for i, task := range tasks {
 		wg.Add(1)
 		go func(idx int, task sampleTask) {
@@ -392,7 +417,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			defer func() { <-sem }()
 
 			fmt.Printf("\nProcessing sample: %s ....\n\n", task.sample)
-			results[idx] = processSample(task, resolvedFasta, gatkLogLevel, aligner, verbose, quick, skipVer, bqsr, bootstrap, knownSites, threads)
+			results[idx] = processSample(task, resolvedFasta, gatkLogLevel, aligner, verbose, quick, skipVer, bqsr, bootstrap, knownSites, opts)
 			if results[idx].success {
 				color.Green("[%s] done\n", task.sample)
 				return
@@ -417,7 +442,7 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 	fmt.Println()
 	color.Green("Processed successfully: %d\n", successful)
-	color.Green("Successful samples: %d\n", strings.Join(successfulSampes, ", "))
+	color.Green("Successful samples: %s\n", strings.Join(successfulSampes, ", "))
 	if len(failed) > 0 {
 		color.Red("Failed:                %d\n", len(failed))
 		color.Red("Failed samples:        %s\n", strings.Join(failed, ", "))
@@ -458,7 +483,7 @@ func getPathsWithCleanReadsDir(dataDir, species string) ([]string, error) {
 // indicating whether paired FASTQ reads must be located before queuing.
 // Steps are determined once from the snapshot; processSample executes them
 // in order without any further filesystem re-scans between steps.
-func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
+func buildPlan(state SampleBamState, bqsr, gatkNeedsBam bool) ([]ProcessingReason, bool) {
 	var plan []ProcessingReason
 	needsReads := false
 
@@ -491,6 +516,27 @@ func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
 			if isUsable(state.BqsrBam) {
 				plan = append(plan, ReasonConvertBqsrBam)
 			} else {
+				// Where GATK cannot read an indexed cram, the recalibration
+				// steps read the rgmd.bam instead, so the plan has to guarantee
+				// an indexed one is in place by the time BQSR starts.
+				if gatkNeedsBam {
+					switch {
+					case containsReason(plan, ReasonAlignFromReads), containsReason(plan, ReasonMarkDupSortedBam):
+						// A fresh rgmd.bam is about to be written. Converting it
+						// to cram does not remove it — cleanup does, at the end
+						// — so all it still needs is an index.
+						if !containsReason(plan, ReasonIndexRgmdBam) {
+							plan = append(plan, ReasonIndexRgmdBam)
+						}
+					case isUsable(state.RgmdBam):
+						if !hasIndex(state.RgmdBam) && !containsReason(plan, ReasonIndexRgmdBam) {
+							plan = append(plan, ReasonIndexRgmdBam)
+						}
+					default:
+						// The cram is the only copy left; decode it back.
+						plan = append(plan, ReasonMaterializeRgmdBam)
+					}
+				}
 				plan = append(plan, ReasonRunBQSR, ReasonConvertBqsrBam)
 			}
 			plan = append(plan, ReasonIndexBqsrCram)
@@ -503,12 +549,26 @@ func buildPlan(state SampleBamState, bqsr bool) ([]ProcessingReason, bool) {
 	return plan, needsReads
 }
 
-func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verbose, quick, skipVer, bqsr, bootstrap bool, knownSites []string, threads int) sampleResult {
+// containsReason reports whether a step is already in a plan.
+func containsReason(plan []ProcessingReason, want ProcessingReason) bool {
+	for _, step := range plan {
+		if step == want {
+			return true
+		}
+	}
+	return false
+}
+
+func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verbose, quick, skipVer, bqsr, bootstrap bool, knownSites []string, opts runtimeOpts) sampleResult {
 	if err := os.MkdirAll(task.bamDir, 0o755); err != nil {
 		return sampleResult{sample: task.sample, err: err}
 	}
 
 	sn := task.sample
+
+	// Same pure function on the same reference as the one buildPlan was given,
+	// so the steps in the plan and the file this picks below cannot disagree.
+	gatkNeedsBam := gatkReadsNeedBam(refFasta)
 
 	// Live paths: updated in-place as each step produces a new file, so later
 	// steps always have the correct path without any filesystem re-scan.
@@ -549,15 +609,15 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 
 			sortedBam := filepath.Join(task.bamDir, sn+".sorted.bam")
 			color.Cyan("[%s] Aligning PE reads → %s using %s ...\n", sn, sortedBam, aligner)
-			if err := alignPairedReads(task.fwd, task.rev, refFasta, sortedBam, sn, aligner, threads, verbose); err != nil {
+			if err := alignPairedReads(task.fwd, task.rev, refFasta, sortedBam, sn, aligner, opts.threads, verbose); err != nil {
 				color.Red("[%s] Alignment failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
 			color.Green("[%s] Alignment done: %s\n", sn, sortedBam)
 
-			rgmdBamPath = filepath.Join(task.bamDir, sn+".rgmd.bam")
+			rgmdBamPath = alignment.RgmdBamPath(sortedBam)
 			color.Cyan("[%s] MarkDuplicates: sorted.bam → rgmd.bam ...\n", sn)
-			if err := alignment.MarkDuplicates(refFasta, sortedBam, verbose, aligner, gatkLogLevel); err != nil {
+			if err := alignment.MarkDuplicates(refFasta, sortedBam, verbose, aligner, gatkLogLevel, opts.javaOpts); err != nil {
 				color.Red("[%s] MarkDuplicates failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -571,9 +631,9 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// sorted.bam → rgmd.bam → rgmd.cram (MarkDuplicates path)            //
 		// ------------------------------------------------------------------ //
 		case ReasonMarkDupSortedBam:
-			rgmdBamPath = strings.TrimSuffix(task.state.SortedBam.Path, ".bam") + ".rgmd.bam"
+			rgmdBamPath = alignment.RgmdBamPath(task.state.SortedBam.Path)
 			color.Cyan("[%s] MarkDuplicates: sorted.bam → rgmd.bam ...\n", sn)
-			if err := alignment.MarkDuplicates(refFasta, task.state.SortedBam.Path, verbose, aligner, gatkLogLevel); err != nil {
+			if err := alignment.MarkDuplicates(refFasta, task.state.SortedBam.Path, verbose, aligner, gatkLogLevel, opts.javaOpts); err != nil {
 				color.Red("[%s] MarkDuplicates failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -585,7 +645,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// ------------------------------------------------------------------ //
 		case ReasonIndexRgmdBam:
 			color.Cyan("[%s] Indexing rgmd.bam: %s ...\n", sn, rgmdBamPath)
-			if err := alignment.BamIndex(rgmdBamPath, verbose); err != nil {
+			if err := alignment.BamIndex(rgmdBamPath, opts.threads, verbose); err != nil {
 				color.Red("[%s] rgmd.bam index failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -596,7 +656,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// ------------------------------------------------------------------ //
 		case ReasonConvertRgmdBam:
 			color.Cyan("[%s] Converting rgmd.bam → rgmd.cram ...\n", sn)
-			if err := alignment.BamToCram(rgmdBamPath, refFasta, verbose); err != nil {
+			if err := alignment.BamToCram(rgmdBamPath, refFasta, opts.threads, verbose); err != nil {
 				color.Red("[%s] BamToCram (rgmd) failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -608,29 +668,61 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// ------------------------------------------------------------------ //
 		case ReasonIndexRgmdCram:
 			color.Cyan("[%s] Indexing rgmd.cram: %s ...\n", sn, rgmdCramPath)
-			if err := alignment.BamIndex(rgmdCramPath, verbose); err != nil {
+			if err := alignment.BamIndex(rgmdCramPath, opts.threads, verbose); err != nil {
 				color.Red("[%s] rgmd.cram index failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
 			color.Green("[%s] rgmd.cram indexed successfully\n", sn)
 
 		// ------------------------------------------------------------------ //
-		// BQSR: rgmd.cram → bqsr.bam                                         //
+		// rgmd.cram → rgmd.bam (only where GATK cannot read the cram)        //
+		// ------------------------------------------------------------------ //
+		case ReasonMaterializeRgmdBam:
+			color.Cyan("[%s] Decoding rgmd.cram → rgmd.bam for the GATK steps ...\n", sn)
+			decoded, err := alignment.CramToBam(rgmdCramPath, refFasta, opts.threads, verbose)
+			if err != nil {
+				color.Red("[%s] CramToBam (rgmd) failed: %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			rgmdBamPath = decoded
+			color.Cyan("[%s] Indexing rgmd.bam: %s ...\n", sn, rgmdBamPath)
+			if err := alignment.BamIndex(rgmdBamPath, opts.threads, verbose); err != nil {
+				color.Red("[%s] rgmd.bam index failed: %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			color.Green("[%s] rgmd.bam ready: %s\n", sn, rgmdBamPath)
+
+		// ------------------------------------------------------------------ //
+		// BQSR: rgmd alignment → bqsr.bam                                    //
 		// ------------------------------------------------------------------ //
 		case ReasonRunBQSR:
+			color.Cyan("[%s] BQSR route: %s\n", sn, describeRoute(refFasta))
+
+			// The cram is the input everywhere it can be read; where it cannot,
+			// buildPlan has already put the steps that produce the bam in front
+			// of this one.
+			bqsrInput := rgmdCramPath
+			if gatkNeedsBam {
+				if rgmdBamPath == "" {
+					return sampleResult{sample: sn, err: fmt.Errorf("BQSR needs an rgmd.bam on this reference but none was produced")}
+				}
+				bqsrInput = rgmdBamPath
+				color.Cyan("[%s] Reading %s — a .crai cannot be read as a BAI on this reference\n", sn, filepath.Base(bqsrInput))
+			}
+
 			sampleKnownSites := append([]string(nil), knownSites...)
 			if len(sampleKnownSites) == 0 && bootstrap {
-				color.Cyan("[%s] Bootstrapping BQSR known sites from %s ...\n", sn, rgmdCramPath)
+				color.Cyan("[%s] Bootstrapping BQSR known sites from %s ...\n", sn, bqsrInput)
 				var err error
-				sampleKnownSites, err = createBootstrapKnownSites(refFasta, rgmdCramPath, gatkLogLevel, verbose)
+				sampleKnownSites, err = createBootstrapKnownSites(refFasta, bqsrInput, task.bamDir, gatkLogLevel, opts, verbose)
 				if err != nil {
 					color.Red("[%s] Bootstrapping BQSR known sites failed: %v\n", sn, err)
 					return sampleResult{sample: sn, err: err}
 				}
 				color.Green("[%s] Bootstrap known sites created\n", sn)
 			}
-			color.Cyan("[%s] Running BQSR on %s ...\n", sn, rgmdCramPath)
-			outBam, err := runBQSR(refFasta, rgmdCramPath, sampleKnownSites, verbose)
+			color.Cyan("[%s] Running BQSR on %s ...\n", sn, bqsrInput)
+			outBam, err := runBQSR(refFasta, bqsrInput, task.bamDir, sampleKnownSites, opts, verbose)
 			if err != nil {
 				color.Red("[%s] BQSR failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
@@ -643,7 +735,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// ------------------------------------------------------------------ //
 		case ReasonConvertBqsrBam:
 			color.Cyan("[%s] Converting bqsr.bam → bqsr.cram ...\n", sn)
-			if err := alignment.BamToCram(bqsrBamPath, refFasta, verbose); err != nil {
+			if err := alignment.BamToCram(bqsrBamPath, refFasta, opts.threads, verbose); err != nil {
 				color.Red("[%s] BamToCram (bqsr) failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -658,7 +750,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				bqsrCramPath = strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
 			}
 			color.Cyan("[%s] Indexing bqsr.cram: %s ...\n", sn, bqsrCramPath)
-			if err := alignment.BamIndex(bqsrCramPath, verbose); err != nil {
+			if err := alignment.BamIndex(bqsrCramPath, opts.threads, verbose); err != nil {
 				color.Red("[%s] bqsr.cram index failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -723,7 +815,8 @@ func inspectSampleBamDir(sample, bamDir, refFasta string, verbose, quick bool) (
 			state.BqsrBam = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
 		case strings.HasSuffix(lowerName, "bqsr.cram"):
 			state.BqsrCram = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
-		case strings.HasSuffix(lowerName, ".bai"), strings.HasSuffix(lowerName, ".crai"), strings.HasSuffix(lowerName, ".pdf"):
+		case strings.HasSuffix(lowerName, ".bai"), strings.HasSuffix(lowerName, ".csi"), strings.HasSuffix(lowerName, ".crai"),
+			strings.HasSuffix(lowerName, ".pdf"), strings.HasSuffix(lowerName, ".txt"), strings.HasSuffix(lowerName, ".list"):
 			continue
 		default:
 			fileInfo, err := entry.Info()
@@ -756,35 +849,26 @@ func getAlignmentFileInfo(path, refFasta string, verbose, quick bool) FileInfo {
 
 	info.Size = stat.Size()
 	info.ValidateErr = utils.ValidateBam(path, refFasta, verbose, quick)
+	if info.ValidateErr == nil {
+		// A file can be perfectly well formed and still not belong to this
+		// reference. quickcheck does not decode, so it passes such a file
+		// straight through to GATK, which fails much later and far less
+		// clearly. See checkAlignmentContigs.
+		if err := checkAlignmentContigs(path, refFasta); err != nil {
+			color.Red("%s: %v\n", filepath.Base(path), err)
+			info.ValidateErr = err
+		}
+	}
 	info.Valid = info.ValidateErr == nil
 
-	if strings.HasSuffix(path, ".bam") {
-		baiFile := strings.TrimSuffix(path, filepath.Ext(path)) + ".bai"
-		baiFile2 := path + ".bai"
-		if bInfo, err := os.Stat(baiFile); err == nil {
-			info.IndexPresent = true
-			info.IndexSize = bInfo.Size()
-		} else if b2Info, err := os.Stat(baiFile2); err == nil {
-			info.IndexPresent = true
-			info.IndexSize = b2Info.Size()
-		} else {
-			info.IndexPresent = false
-			info.IndexSize = 0
-		}
-	} else if strings.HasSuffix(path, ".cram") {
-		craiFile := strings.TrimSuffix(path, filepath.Ext(path)) + ".crai"
-		craiFile2 := path + ".crai"
-		if cInfo, err := os.Stat(craiFile); err == nil {
-			info.IndexPresent = true
-			info.IndexSize = cInfo.Size()
-		} else if c2Info, err := os.Stat(craiFile2); err == nil {
-			info.IndexPresent = true
-			info.IndexSize = c2Info.Size()
-		} else {
-			info.IndexPresent = false
-			info.IndexSize = 0
-		}
-
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".bam") || strings.HasSuffix(lower, ".cram") {
+		// findIndex reads the index rather than only stat-ing it, so an index
+		// left truncated by an interrupted run is reported as missing and gets
+		// rebuilt instead of being handed to GATK.
+		_, idxSize, found := findIndex(path, verbose)
+		info.IndexPresent = found
+		info.IndexSize = idxSize
 	} else {
 		info.IndexPresent = false
 		info.IndexSize = 0
@@ -825,7 +909,7 @@ func alignPairedReads(fwd, rev, refFasta, sortedBam, sample, aligner string, thr
 	return err
 }
 
-func runBQSR(refFasta, input string, knownSites []string, verbose bool) (string, error) {
+func runBQSR(refFasta, input, bamDir string, knownSites []string, opts runtimeOpts, verbose bool) (string, error) {
 	var output string
 	switch {
 	case strings.HasSuffix(strings.ToLower(input), ".bam"):
@@ -840,20 +924,12 @@ func runBQSR(refFasta, input string, knownSites []string, verbose bool) (string,
 	recalTable := base + "recal_table.txt"
 	recalTable2 := base + "recal_table2.txt"
 	plots := base + "recal_table_plots.pdf"
+	shardDir := filepath.Join(bamDir, "shards")
 
 	if err := removeIfExists(output, recalTable, recalTable2, plots); err != nil {
 		return "", err
 	}
-
-	// Inline removal of index files for output
-	var idxCandidates []string
-	if strings.HasSuffix(strings.ToLower(output), ".bam") {
-		idxCandidates = []string{strings.TrimSuffix(output, filepath.Ext(output)) + ".bai"}
-	} else if strings.HasSuffix(strings.ToLower(output), ".cram") {
-		stem := strings.TrimSuffix(output, filepath.Ext(output))
-		idxCandidates = []string{stem + ".crai", output + ".crai"}
-	}
-	if err := removeIfExists(idxCandidates...); err != nil {
+	if err := removeIfExists(indexCandidates(output)...); err != nil {
 		return "", err
 	}
 
@@ -863,109 +939,140 @@ func runBQSR(refFasta, input string, knownSites []string, verbose bool) (string,
 	}
 	knownSitesArgs := strings.Join(args, " ")
 
-	cmd1 := fmt.Sprintf("gatk BaseRecalibrator -R %s -I %s %s -O %s", shQuote(refFasta), shQuote(input), knownSitesArgs, shQuote(recalTable))
-	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", cmd1)
-	if err := runBash(cmd1, verbose); err != nil {
-		color.Red("[%s] BaseRecalibrator failed: %w", sn, err)
+	// Each recalibration pass is one process over the whole reference, unless the
+	// reference is large enough that useScatter sends it to the interval scatter
+	// in scatter.go. Everything else in this function is the same either way.
+	scatter := useScatter(refFasta)
+
+	recalibrate := func(bam, table, label string) error {
+		if scatter {
+			return scatterBaseRecalibrator(refFasta, bam, table, knownSitesArgs, shardDir, label, opts, verbose)
+		}
+		cmd := fmt.Sprintf(`gatk --java-options "%s" BaseRecalibrator -R %s -I %s %s -O %s --maximum-cycle-value %d --tmp-dir %s`,
+			opts.javaOpts, shQuote(refFasta), shQuote(bam), knownSitesArgs, shQuote(table), alignment.MaxCycleValue, shQuote(alignment.WorkTmpDir(table)))
+		return runGatk(cmd, verbose)
+	}
+
+	if err := recalibrate(input, recalTable, "before"); err != nil {
+		color.Red("[%s] BaseRecalibrator failed: %v\n", sn, err)
 		return "", err
 	}
 	color.Green("[%s] BaseRecalibrator completed successfully\n", sn)
 
-	cmd2 := fmt.Sprintf("gatk ApplyBQSR -R %s -I %s -bqsr %s -O %s", shQuote(refFasta), shQuote(input), shQuote(recalTable), shQuote(output))
-	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", cmd2)
-	if err := runBash(cmd2, verbose); err != nil {
-		color.Red("[%s] ApplyBQSR failed: %w", sn, err)
+	// --create-output-bam-index false is not optional on a large genome: htsjdk
+	// can only write a BAI, and a BAI cannot address positions past 2^29-1, so
+	// ApplyBQSR would do the whole pass and then die writing the index. The BAM
+	// is indexed as CSI by BamIndex below instead.
+	cmd2 := fmt.Sprintf(`gatk --java-options "%s" ApplyBQSR -R %s -I %s -bqsr %s -O %s --create-output-bam-index false --tmp-dir %s`,
+		opts.javaOpts, shQuote(refFasta), shQuote(input), shQuote(recalTable), shQuote(output), shQuote(alignment.WorkTmpDir(output)))
+	if err := runGatk(cmd2, verbose); err != nil {
+		color.Red("[%s] ApplyBQSR failed: %v\n", sn, err)
 		return "", err
 	}
 	color.Green("[%s] ApplyBQSR completed successfully\n", sn)
 
-	cmd3 := fmt.Sprintf("gatk BaseRecalibrator -R %s -I %s %s -O %s", shQuote(refFasta), shQuote(output), knownSitesArgs, shQuote(recalTable2))
-	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", cmd3)
-	if err := runBash(cmd3, verbose); err != nil {
-		color.Red("[%s] BaseRecalibrator failed: %w", sn, err)
+	// ApplyBQSR was told not to write an index, so one is built here. The
+	// scattered second pass additionally needs it, to query intervals.
+	if err := alignment.BamIndex(output, opts.threads, verbose); err != nil {
+		color.Red("[%s] BamIndex failed: %v\n", sn, err)
 		return "", err
 	}
 
+	if err := recalibrate(output, recalTable2, "after"); err != nil {
+		color.Red("[%s] Second BaseRecalibrator failed: %v\n", sn, err)
+		return "", err
+	}
 	color.Green("[%s] Second BaseRecalibrator completed successfully\n", sn)
 
-	cmd4 := fmt.Sprintf("gatk AnalyzeCovariates -before %s -after %s -plots %s", shQuote(recalTable), shQuote(recalTable2), shQuote(plots))
-	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", cmd4)
-	if err := runBash(cmd4, verbose); err != nil {
-		color.Red("[%s] AnalyzeCovariates failed: %w", sn, err)
-		return "", err
-	}
-	color.Green("[%s] AnalyzeCovariates completed successfully\n", sn)
-
-	// Re-inline removal of index files for output before re-indexing
-	if strings.HasSuffix(strings.ToLower(output), ".bam") {
-		idxCandidates = []string{strings.TrimSuffix(output, filepath.Ext(output)) + ".bai"}
-	} else if strings.HasSuffix(strings.ToLower(output), ".cram") {
-		stem := strings.TrimSuffix(output, filepath.Ext(output))
-		idxCandidates = []string{stem + ".crai", output + ".crai"}
-	}
-	if err := removeIfExists(idxCandidates...); err != nil {
-		return "", err
-	}
-
-	if err := alignment.BamIndex(output, verbose); err != nil {
-		color.Red("[%s] BamIndex failed: %w", sn, err)
-		return "", err
+	// AnalyzeCovariates only draws the before/after QC plot, and it draws it
+	// through Rscript, so it fails on a host where R or one of BQSR.R's packages
+	// (gsalib, gplots) is missing. That is not a reason to throw away a
+	// recalibration that has already finished, so it is reported and stepped
+	// over. Both recalibration tables are kept either way.
+	cmd4 := fmt.Sprintf(`gatk --java-options "%s" AnalyzeCovariates -before %s -after %s -plots %s --tmp-dir %s`,
+		opts.javaOpts, shQuote(recalTable), shQuote(recalTable2), shQuote(plots), shQuote(alignment.WorkTmpDir(plots)))
+	if err := runGatk(cmd4, verbose); err != nil {
+		color.Yellow("[%s] AnalyzeCovariates failed: %v\n", sn, err)
+		color.Yellow("[%s] Recalibration is complete; only the QC plot is missing. Check Rscript and its gsalib/gplots packages.\n", sn)
+	} else {
+		color.Green("[%s] AnalyzeCovariates completed successfully\n", sn)
 	}
 
 	return output, nil
 }
 
-func createBootstrapKnownSites(refFasta, input, gatkLogLevel string, verbose bool) ([]string, error) {
+func createBootstrapKnownSites(refFasta, input, bamDir, gatkLogLevel string, opts runtimeOpts, verbose bool) ([]string, error) {
 	base := strings.TrimSuffix(input, filepath.Ext(input))
-	rawVCF := base + ".raw.vcf.gz"
-	snpVCF := base + ".raw.SNP.vcf.gz"
-	indelVCF := base + ".raw.INDEL.vcf.gz"
-	snpColumns := base + ".raw.SNP.columns.vcf.gz"
-	indelColumns := base + ".raw.INDEL.columns.vcf.gz"
-	filteredSNP := base + ".raw.SNP.hard_filtered.vcf.gz"
-	filteredINDEL := base + ".raw.INDEL.hard_filtered.vcf.gz"
+	// Bgzip everywhere it works, uncompressed where a .tbi cannot address the
+	// contigs — the two filtered files at the end are read back by
+	// BaseRecalibrator, which needs an index it can query. See variantSuffixes.
+	vcfExt, idxExt := variantSuffixes(refFasta)
+	rawVCF := base + ".raw" + vcfExt
+	snpVCF := base + ".raw.SNP" + vcfExt
+	indelVCF := base + ".raw.INDEL" + vcfExt
+	snpColumns := base + ".raw.SNP.columns" + vcfExt
+	indelColumns := base + ".raw.INDEL.columns" + vcfExt
+	filteredSNP := base + ".raw.SNP.hard_filtered" + vcfExt
+	filteredINDEL := base + ".raw.INDEL.hard_filtered" + vcfExt
+	shardDir := filepath.Join(bamDir, "shards")
 
+	// Only the calling step has two implementations, so it carries a func while
+	// the filtering steps that follow it stay plain commands. Those read one VCF
+	// and write another and are not worth scattering at any genome size.
 	type bootstrapStep struct {
 		name   string
 		output string
 		cmd    string
+		run    func() error
 	}
+
+	// One HaplotypeCaller over the whole reference, unless the reference is large
+	// enough that useScatter sends it to the interval scatter in scatter.go. The
+	// pair-HMM thread count is left at GATK's own default here: this process has
+	// the sample to itself, which is not true of a shard.
+	wholeGenomeCall := fmt.Sprintf(`gatk --java-options "%s" HaplotypeCaller -R %s -I %s -O %s --tmp-dir %s`,
+		opts.javaOpts, shQuote(refFasta), shQuote(input), shQuote(rawVCF), shQuote(alignment.WorkTmpDir(rawVCF)))
 
 	steps := []bootstrapStep{
 		{
 			name:   "HaplotypeCaller",
 			output: rawVCF,
-			cmd:    fmt.Sprintf("gatk HaplotypeCaller -R %s -I %s -O %s", shQuote(refFasta), shQuote(input), shQuote(rawVCF)),
+			run: func() error {
+				if useScatter(refFasta) {
+					return scatterHaplotypeCaller(refFasta, input, rawVCF, shardDir, opts, verbose)
+				}
+				return runGatk(wholeGenomeCall, verbose)
+			},
 		},
 		{
 			name:   "SelectVariants (SNP)",
 			output: snpVCF,
-			cmd:    fmt.Sprintf("gatk SelectVariants -V %s --select-type-to-include SNP -O %s --verbosity %s", shQuote(rawVCF), shQuote(snpVCF), gatkLogLevel),
+			cmd:    fmt.Sprintf(`gatk --java-options "%s" SelectVariants -V %s --select-type-to-include SNP -O %s --verbosity %s`, opts.javaOpts, shQuote(rawVCF), shQuote(snpVCF), gatkLogLevel),
 		},
 		{
 			name:   "SelectVariants (INDEL)",
 			output: indelVCF,
-			cmd:    fmt.Sprintf("gatk SelectVariants -V %s --select-type-to-include INDEL -O %s --verbosity %s", shQuote(rawVCF), shQuote(indelVCF), gatkLogLevel),
+			cmd:    fmt.Sprintf(`gatk --java-options "%s" SelectVariants -V %s --select-type-to-include INDEL -O %s --verbosity %s`, opts.javaOpts, shQuote(rawVCF), shQuote(indelVCF), gatkLogLevel),
 		},
 		{
 			name:   "VariantFiltration (SNP)",
 			output: snpColumns,
-			cmd:    fmt.Sprintf(`gatk VariantFiltration -V %s -filter "QD < 2.0" --filter-name "QD2" -filter "QUAL < 30.0" --filter-name "QUAL30" -filter "SOR > 3.0" --filter-name "SOR3" -filter "FS > 60.0" --filter-name "FS60" -filter "MQ < 40.0" --filter-name "MQ40" -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" -O %s --verbosity %s`, shQuote(snpVCF), shQuote(snpColumns), gatkLogLevel),
+			cmd:    fmt.Sprintf(`gatk --java-options "%s" VariantFiltration -V %s -filter "QD < 2.0" --filter-name "QD2" -filter "QUAL < 30.0" --filter-name "QUAL30" -filter "SOR > 3.0" --filter-name "SOR3" -filter "FS > 60.0" --filter-name "FS60" -filter "MQ < 40.0" --filter-name "MQ40" -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" -O %s --verbosity %s`, opts.javaOpts, shQuote(snpVCF), shQuote(snpColumns), gatkLogLevel),
 		},
 		{
 			name:   "SelectVariants (Filtered SNP)",
 			output: filteredSNP,
-			cmd:    fmt.Sprintf("gatk SelectVariants --exclude-filtered -V %s -O %s --verbosity %s", shQuote(snpColumns), shQuote(filteredSNP), gatkLogLevel),
+			cmd:    fmt.Sprintf(`gatk --java-options "%s" SelectVariants --exclude-filtered -V %s -O %s --verbosity %s`, opts.javaOpts, shQuote(snpColumns), shQuote(filteredSNP), gatkLogLevel),
 		},
 		{
 			name:   "VariantFiltration (INDEL)",
 			output: indelColumns,
-			cmd:    fmt.Sprintf(`gatk VariantFiltration -V %s -filter "QD < 2.0" --filter-name "QD2" -filter "QUAL < 30.0" --filter-name "QUAL30" -filter "FS > 200.0" --filter-name "FS200" -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" -O %s --verbosity %s`, shQuote(indelVCF), shQuote(indelColumns), gatkLogLevel),
+			cmd:    fmt.Sprintf(`gatk --java-options "%s" VariantFiltration -V %s -filter "QD < 2.0" --filter-name "QD2" -filter "QUAL < 30.0" --filter-name "QUAL30" -filter "FS > 200.0" --filter-name "FS200" -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" -O %s --verbosity %s`, opts.javaOpts, shQuote(indelVCF), shQuote(indelColumns), gatkLogLevel),
 		},
 		{
 			name:   "SelectVariants (Filtered INDEL)",
 			output: filteredINDEL,
-			cmd:    fmt.Sprintf("gatk SelectVariants --exclude-filtered -V %s -O %s --verbosity %s", shQuote(indelColumns), shQuote(filteredINDEL), gatkLogLevel),
+			cmd:    fmt.Sprintf(`gatk --java-options "%s" SelectVariants --exclude-filtered -V %s -O %s --verbosity %s`, opts.javaOpts, shQuote(indelColumns), shQuote(filteredINDEL), gatkLogLevel),
 		},
 	}
 
@@ -979,10 +1086,16 @@ func createBootstrapKnownSites(refFasta, input, gatkLogLevel string, verbose boo
 		}
 
 		_ = removeIfExists(step.output)
-		_ = removeIfExists(step.output + ".tbi")
+		_ = removeIfExists(step.output + idxExt)
 
-		fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", step.cmd)
-		if err := runBash(step.cmd, verbose); err != nil {
+		color.Cyan("[%s] Starting ...\n", step.name)
+		var err error
+		if step.run != nil {
+			err = step.run()
+		} else {
+			err = runGatk(step.cmd, verbose)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("step %s failed: %w", step.name, err)
 		}
 	}
@@ -1036,8 +1149,7 @@ func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrCramPath string, requireBQSR
 
 	addWithIndex := func(cramPath string) {
 		keep[cramPath] = struct{}{}
-		stem := strings.TrimSuffix(cramPath, filepath.Ext(cramPath))
-		for _, idx := range []string{stem + ".crai", cramPath + ".crai", stem + ".bai", cramPath + ".bai"} {
+		for _, idx := range indexCandidates(cramPath) {
 			if _, err := os.Stat(idx); err == nil {
 				keep[idx] = struct{}{}
 			}
@@ -1071,6 +1183,15 @@ func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrCramPath string, requireBQSR
 		}
 		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("removing %s: %w", fullPath, err)
+		}
+	}
+
+	// Scratch directories are skipped by the loop above because they are
+	// directories, and the shard VCFs inside them are as large as the merged
+	// call set, so they are removed explicitly once the final CRAMs exist.
+	for _, dir := range scratchDirs(bamDir) {
+		if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing %s: %w", dir, err)
 		}
 	}
 

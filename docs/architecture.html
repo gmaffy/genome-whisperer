@@ -1,0 +1,718 @@
+<title>Genome Whisperer Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600;700&display=swap">
+
+<style>
+:root {
+  color-scheme: light;
+  --page:      #F5F6F8;
+  --surface:   #FFFFFF;
+  --surface-2: #EDEFF3;
+  --ink:       #161A21;
+  --ink-2:     #545C69;
+  --ink-3:     #7B8492;
+  --rule:      #DCE0E6;
+  --rule-2:    #C3CAD4;
+  --accent:    #1F5F8B;
+  --accent-bg: #E8F0F6;
+  --signal:    #C4381F;
+  --signal-bg: #FAEDEA;
+  --safe:      #0E8A6B;
+  --shadow:    0 1px 2px rgba(22,26,33,.05), 0 8px 24px -12px rgba(22,26,33,.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:      #11141A;
+    --surface:   #171B22;
+    --surface-2: #1E232C;
+    --ink:       #E3E7ED;
+    --ink-2:     #98A1AE;
+    --ink-3:     #6D7784;
+    --rule:      #262C36;
+    --rule-2:    #333B47;
+    --accent:    #78ADD6;
+    --accent-bg: #15242F;
+    --signal:    #E2573C;
+    --signal-bg: #2A1A16;
+    --safe:      #17A583;
+    --shadow:    0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:      #11141A;
+  --surface:   #171B22;
+  --surface-2: #1E232C;
+  --ink:       #E3E7ED;
+  --ink-2:     #98A1AE;
+  --ink-3:     #6D7784;
+  --rule:      #262C36;
+  --rule-2:    #333B47;
+  --accent:    #78ADD6;
+  --accent-bg: #15242F;
+  --signal:    #E2573C;
+  --signal-bg: #2A1A16;
+  --safe:      #17A583;
+  --shadow:    0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 54rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+
+/* masthead */
+.masthead { padding: 4.5rem 0 2.25rem; border-bottom: 2px solid var(--ink); }
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem; font-weight: 500; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--accent); margin: 0 0 1.25rem;
+}
+h1 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-weight: 700; font-size: clamp(2.4rem, 6.5vw, 3.9rem);
+  line-height: 1.03; letter-spacing: -.022em; margin: 0 0 1rem; text-wrap: balance;
+}
+.standfirst {
+  font-size: 1.14rem; line-height: 1.55; color: var(--ink-2);
+  max-width: 36em; margin: 0 0 2rem; text-wrap: pretty;
+}
+.meta {
+  display: flex; flex-wrap: wrap; gap: .5rem 1.5rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .74rem; letter-spacing: .04em; color: var(--ink-3);
+}
+.meta b { color: var(--ink-2); font-weight: 500; }
+
+/* contents */
+.toc {
+  margin: 2.5rem 0 0; padding: 1.35rem 1.5rem;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; box-shadow: var(--shadow);
+}
+.toc h2 {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .66rem; font-weight: 500; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-3); margin: 0 0 .85rem;
+}
+.toc ol { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 2rem; }
+.toc li { break-inside: avoid; margin-bottom: .3rem; font-size: .88rem; }
+.toc a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule-2); }
+.toc a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+@media (max-width: 560px) { .toc ol { columns: 1; } }
+
+/* sections */
+section { margin-top: 3.75rem; scroll-margin-top: 1.5rem; }
+h2 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 1.6rem; font-weight: 600; letter-spacing: -.014em;
+  line-height: 1.2; margin: 0 0 .35rem; text-wrap: balance;
+}
+h2 + .dek { color: var(--ink-2); font-size: .95rem; margin: 0 0 1.75rem; max-width: 42em; }
+h3 {
+  font-size: .96rem; font-weight: 600; margin: 2.25rem 0 .6rem;
+}
+h3 .tag {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .62rem; font-weight: 500; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-3);
+  border: 1px solid var(--rule-2); border-radius: 2px;
+  padding: .1rem .4rem; margin-left: .55rem; vertical-align: .1em;
+}
+p { margin: 0 0 1.1rem; max-width: 42em; text-wrap: pretty; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+strong { font-weight: 600; }
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .86em; background: var(--surface-2);
+  padding: .1em .34em; border-radius: 2px; overflow-wrap: break-word;
+}
+
+pre {
+  margin: 0 0 1.1rem; padding: 1rem 1.15rem;
+  background: var(--surface-2); border: 1px solid var(--rule);
+  border-left: 2px solid var(--rule-2); border-radius: 3px;
+  overflow-x: auto;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .76rem; line-height: 1.6; color: var(--ink); tab-size: 2;
+}
+pre .c { color: var(--ink-3); }
+pre .k { color: var(--accent); }
+
+/* stage cards */
+.stage {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; box-shadow: var(--shadow);
+  padding: 1.35rem 1.5rem; margin-bottom: 1.1rem;
+}
+.stage-head {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: .6rem 1rem; margin-bottom: .9rem;
+  padding-bottom: .75rem; border-bottom: 1px solid var(--rule);
+}
+.stage-head .n {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem; color: var(--accent); letter-spacing: .1em;
+}
+.stage-head .t { font-family: "IBM Plex Serif", Georgia, serif; font-size: 1.16rem; font-weight: 600; }
+.stage-head .w {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem; color: var(--ink-3); margin-left: auto;
+}
+.io {
+  display: grid; grid-template-columns: 4.5rem 1fr; gap: .3rem .9rem;
+  font-size: .84rem; margin-bottom: 1rem;
+}
+.io dt {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .64rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); padding-top: .22rem;
+}
+.io dd { margin: 0; color: var(--ink-2); }
+.io dd code { font-size: .82em; }
+.stage p { font-size: .93rem; margin-bottom: .8rem; }
+.stage p:last-child { margin-bottom: 0; }
+
+/* figures */
+figure { margin: 2rem 0; }
+.fig {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 3px; box-shadow: var(--shadow);
+  padding: 1.5rem; overflow-x: auto;
+}
+.fig svg { display: block; max-width: 100%; height: auto; margin: 0 auto; color: var(--ink-2); }
+figcaption { font-size: .78rem; color: var(--ink-3); margin-top: .85rem; max-width: 44em; }
+
+/* tables */
+.tablewrap {
+  overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px;
+  background: var(--surface); box-shadow: var(--shadow); margin-bottom: 1.1rem;
+}
+table { border-collapse: collapse; width: 100%; font-size: .86rem; min-width: 32rem; }
+th, td { text-align: left; padding: .75rem 1rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .64rem; font-weight: 500; letter-spacing: .11em; text-transform: uppercase;
+  color: var(--ink-3); background: var(--surface-2); white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.k { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .78rem; white-space: nowrap; }
+
+/* callouts */
+.note {
+  border-left: 2px solid var(--rule-2); padding: .1rem 0 .1rem 1.15rem;
+  margin: 0 0 1.1rem; color: var(--ink-2); font-size: .92rem;
+}
+.note.warn { border-left-color: var(--signal); }
+.note.acc { border-left-color: var(--accent); }
+.note b { color: var(--ink); }
+.note p { font-size: inherit; }
+.note p:last-child { margin-bottom: 0; }
+
+footer {
+  margin-top: 4.5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+  font-size: .8rem; color: var(--ink-3);
+}
+footer p { max-width: 44em; }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">genome-whisperer · system design</p>
+  <h1>Genome Whisperer Internals</h1>
+  <p class="standfirst">How reads become an annotated variant table: the packages, the on-disk contract that connects them, and what each stage does with what it is handed.</p>
+  <div class="meta">
+    <span><b>Scope</b> 9 packages · ~18,500 lines</span>
+    <span><b>Commands</b> 21</span>
+    <span><b>Written</b> 24 Aug 2026</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#shape">The shape of the system</a></li>
+    <li><a href="#modes">Three front doors, one plan</a></li>
+    <li><a href="#contract">The directory contract</a></li>
+    <li><a href="#flow">End-to-end data flow</a></li>
+    <li><a href="#align">Stage 1 — Alignment</a></li>
+    <li><a href="#gvcf">Stage 2 — gVCF creation</a></li>
+    <li><a href="#merge">Stage 3 — Joint genotyping</a></li>
+    <li><a href="#filter">Stage 4 — Hard filtering</a></li>
+    <li><a href="#annot">Stage 5 — Annotation</a></li>
+    <li><a href="#resume">How resume works</a></li>
+    <li><a href="#budget">Concurrency and memory</a></li>
+    <li><a href="#branches">The downstream branches</a></li>
+    <li><a href="#edges">Sharp edges</a></li>
+  </ol>
+</nav>
+
+<section id="shape">
+  <h2>The shape of the system</h2>
+  <p class="dek">One binary, a thin command layer, and domain packages that mostly orchestrate external tools rather than compute anything themselves.</p>
+
+  <p><code>main.go</code> is ten lines; it hands straight to <code>cmd/</code>, which is 23 Cobra files that parse flags, check dependencies, and call exactly one domain function each. Almost no logic lives there — the command files are a wiring layer, and the interesting decisions all sit one level down.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Package</th><th>Lines</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td class="k">variants</td><td class="k">4,055</td><td>gVCF creation, joint genotyping, concatenation, hard filtering. The engine behind <code>VariantCalling</code>, <code>CreateGvcfs</code> and <code>MergeGvcfs</code>.</td></tr>
+        <tr><td class="k">bsaseq</td><td class="k">3,361</td><td>Bulk-segregant analysis: filtering, G-statistic and Δ-allele-frequency, simulated thresholds, sliding windows, charts.</td></tr>
+        <tr><td class="k">alignmentdir</td><td class="k">2,926</td><td>Directory-driven alignment: scan, plan, execute per sample. Interval scatter and the runtime budget live here.</td></tr>
+        <tr><td class="k">alignment</td><td class="k">1,678</td><td>The individual tool invocations — aligners, MarkDuplicates, BQSR, indexing, CRAM conversion.</td></tr>
+        <tr><td class="k">annotation</td><td class="k">1,422</td><td>SnpEff runs, EFF-column splitting, gene descriptions, PRG BLAST joins, custom database building.</td></tr>
+        <tr><td class="k">genespace</td><td class="k">808</td><td>QTL interval → per-gene table with a priority classification, written to Excel.</td></tr>
+        <tr><td class="k">pangenome</td><td class="k">793</td><td>Iterative unmapped-read assembly that grows a reference.</td></tr>
+        <tr><td class="k">utils</td><td class="k">600</td><td>Config loading, dependency checks, shell execution, validation, reference resolution, memory sizing.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The system is an orchestrator. Nearly every stage shells out to <code>bwa-mem2</code>, <code>bowtie2</code>, <code>pbmm2</code>, <code>samtools</code>, <code>bcftools</code>, <code>gatk</code>, <code>snpEff</code>, DeepVariant or GLnexus through <code>utils.RunBashCmd</code>. What the Go code owns is <em>which</em> commands run, <em>in what order</em>, <em>how many at once</em>, and <em>what may be skipped</em> — and that last question is most of the complexity.</p>
+</section>
+
+<section id="modes">
+  <h2>Three front doors, one plan</h2>
+  <p class="dek">Discovery is the only thing that differs between the input modes. Everything after it is shared code.</p>
+
+  <p>A run can be described three ways, and they converge immediately:</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Mode</th><th>Given</th><th>Discovery</th></tr></thead>
+      <tbody>
+        <tr><td class="k">data-dir</td><td><code>-d /mnt/v/DATA</code> plus species and reference version</td><td>Globs the standard tree for <code>clean_reads</code> or <code>bams</code> directories and derives sample names from the path.</td></tr>
+        <tr><td class="k">config</td><td>A YAML file read by <code>utils.ReadConfig</code></td><td>Takes the explicit <code>ReadPairs</code>, <code>Bams</code> or <code>GVCFs</code> lists.</td></tr>
+        <tr><td class="k">inline</td><td>Paths on the command line</td><td>None — the paths are the work list.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>For variant calling all three normalise into a single <code>variants.Options</code> struct, and <code>RunPipeline</code> executes the same three stages regardless of which door was used. <code>absRoots</code> makes every root absolute up front, so the paths printed in logs and the paths handed to GATK never depend on the working directory.</p>
+
+  <div class="note acc"><b>Why this matters historically.</b> The package comment on <code>RunPipeline</code> records that the data-dir path used to stop after gVCF creation and never merge at all, because the two modes had separate implementations. Collapsing them into one struct is what makes the modes behave identically.</div>
+</section>
+
+<section id="contract">
+  <h2>The directory contract</h2>
+  <p class="dek">In data-dir mode the on-disk layout <em>is</em> the interface between stages. Nothing is passed between commands but the tree.</p>
+
+  <pre><span class="c">&lt;dataDir&gt;/</span>
+└── <span class="k">&lt;species&gt;</span>/                        <span class="c">onion, maxima, pepper …</span>
+    └── <span class="k">&lt;group&gt;</span>/                     <span class="c">a year or project folder — 2019, 2024 …</span>
+        └── <span class="k">&lt;sample&gt;</span>/                <span class="c">ON1708 — this is the sample name</span>
+            ├── clean_reads/            <span class="c">*_1.fq.gz  *_2.fq.gz    ← stage 1 input</span>
+            └── reference_genomes/
+                └── <span class="k">&lt;refVer&gt;</span>/         <span class="c">GCA_030765085.1_ASM3076508v1</span>
+                    ├── bams/           <span class="c">RGMD.cram, RGMD_bqsr.cram, recal tables, QC pdf</span>
+                    ├── gatk_gvcfs/     <span class="c">&lt;sample&gt;.&lt;chrom&gt;.g.vcf.gz</span>
+                    └── dv_gvcfs/       <span class="c">the DeepVariant equivalent</span>
+</pre>
+
+  <p>Two rules follow from this and explain several behaviours downstream. The sample name is <em>positional</em> — it is the directory two levels under the species, not anything read out of a file — so a misplaced directory silently becomes a differently-named sample. And a stage's output directory is derived from its input's location: <code>GvcfPath</code> walks up from the <code>bams</code> directory to place gVCFs as siblings of it. Reference versions therefore stay isolated from each other for free.</p>
+
+  <p>Outside data-dir mode the same artefacts are laid out under an explicit <code>--out-dir</code>, keyed by chromosome rather than by sample. <code>GvcfPath</code> is the single function that knows both conventions.</p>
+</section>
+
+<section id="flow">
+  <h2>End-to-end data flow</h2>
+  <p class="dek">Five stages from FASTQ to an annotated table, three of which one command runs together.</p>
+
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 660 520" role="img" aria-label="Vertical pipeline: AlignReads produces CRAMs, CreateGvcfs produces per-sample per-chromosome gVCFs, MergeGvcfs produces a joint VCF, hard filtering produces a filtered VCF, annotation produces a SUPER TSV. The middle three stages are run together by VariantCalling. GoBSAseq branches off the filtered VCF and GeneSpace off the annotated table.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- RunPipeline grouping -->
+        <rect x="28" y="126" width="248" height="284" rx="4" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="4 4" opacity=".45"/>
+        <text transform="rotate(-90 16 268)" x="16" y="268" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".75">VariantCalling · RunPipeline</text>
+
+        <!-- input -->
+        <text x="150" y="18" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">clean_reads/*_1.fq.gz</text>
+        <line x1="150" y1="26" x2="150" y2="40" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+        <!-- stage boxes -->
+        <rect x="40" y="44" width="220" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="150" y="68" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">AlignReads</text>
+        <text x="150" y="84" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">align · markdup · BQSR</text>
+
+        <rect x="40" y="140" width="220" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="150" y="164" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">CreateGvcfs</text>
+        <text x="150" y="180" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">per sample × chromosome</text>
+
+        <rect x="40" y="236" width="220" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="150" y="260" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">MergeGvcfs</text>
+        <text x="150" y="276" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">joint genotype · concat</text>
+
+        <rect x="40" y="332" width="220" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="150" y="356" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">FilterVcf</text>
+        <text x="150" y="372" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">hard-filter predicates</text>
+
+        <rect x="40" y="428" width="220" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="150" y="452" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">VariantAnnotation</text>
+        <text x="150" y="468" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">SnpEff · descriptions · PRG</text>
+
+        <!-- spine arrows + format labels -->
+        <line x1="150" y1="96"  x2="150" y2="138" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="278" y="121" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".85">&lt;sample&gt;.RGMD_bqsr.cram</text>
+
+        <line x1="150" y1="192" x2="150" y2="234" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="278" y="217" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".85">&lt;sample&gt;.&lt;chrom&gt;.g.vcf.gz</text>
+
+        <line x1="150" y1="288" x2="150" y2="330" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="278" y="313" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".85">one joint VCF, dict order</text>
+
+        <line x1="150" y1="384" x2="150" y2="426" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="278" y="409" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".85">filtered VCF</text>
+
+        <line x1="150" y1="480" x2="150" y2="500" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="278" y="504" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" opacity=".85">*_SUPER_VCF.tsv</text>
+
+        <!-- branches -->
+        <rect x="420" y="332" width="200" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".8"/>
+        <text x="520" y="356" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">GoBSAseq</text>
+        <text x="520" y="372" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">QTL statistics + charts</text>
+        <line x1="260" y1="358" x2="418" y2="358" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)" opacity=".8"/>
+
+        <rect x="420" y="428" width="200" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".8"/>
+        <text x="520" y="452" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">GeneSpace</text>
+        <text x="520" y="468" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">QTL interval → Excel</text>
+        <line x1="260" y1="454" x2="418" y2="454" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)" opacity=".8"/>
+      </svg>
+    </div>
+    <figcaption>The spine is the main pipeline; the labels on each arrow are the artefacts that actually cross between stages. <code>VariantCalling</code> runs the boxed three in one invocation, but each is also reachable on its own — which is what makes a partially finished project resumable at any point.</figcaption>
+  </figure>
+</section>
+
+<section id="align">
+  <h2>Stage 1 — Alignment</h2>
+  <p class="dek">The most stateful stage: it inspects what already exists and computes a per-sample plan before running anything.</p>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="n">01</span><span class="t">AlignReads</span>
+      <span class="w">alignmentdir/dirAlign.go</span>
+    </div>
+    <dl class="io">
+      <dt>In</dt><dd>Paired FASTQs in <code>clean_reads/</code>, or any alignment intermediate already present in <code>bams/</code></dd>
+      <dt>Out</dt><dd><code>&lt;sample&gt;.RGMD.cram</code>, and with <code>--bqsr</code> also <code>&lt;sample&gt;.RGMD_bqsr.cram</code>, both indexed, plus recalibration tables and a QC plot</dd>
+      <dt>Tools</dt><dd>bwa-mem2 / bwa / bowtie2 / pbmm2, samtools, GATK</dd>
+    </dl>
+    <p>The run begins by scanning every sample's <code>bams</code> directory. <code>inspectSampleBamDir</code> classifies files by suffix, and <code>getAlignmentFileInfo</code> both validates each one and looks for a readable index — reading the index rather than merely stat-ing it, because an index left truncated by an interrupted run is present and non-empty but useless.</p>
+    <p>That snapshot goes to <code>buildPlan</code>, a pure function returning the ordered list of steps still required. Nothing re-scans the filesystem afterwards; <code>processSample</code> walks the plan, threading each step's output path into the next.</p>
+  </div>
+
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 820 250" role="img" aria-label="The scan inspects the bams directory and builds a plan that enters the alignment chain at whichever artefact already exists: clean reads, sorted BAM, RGMD BAM, RGMD CRAM or BQSR CRAM.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect x="240" y="14" width="340" height="38" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="410" y="38" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">inspectSampleBamDir → buildPlan</text>
+
+        <!-- dashed entry arrows -->
+        <line x1="272" y1="52" x2="82"  y2="104" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar2)" opacity=".6"/>
+        <line x1="340" y1="52" x2="242" y2="104" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar2)" opacity=".6"/>
+        <line x1="410" y1="52" x2="402" y2="104" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar2)" opacity=".6"/>
+        <line x1="480" y1="52" x2="562" y2="104" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar2)" opacity=".6"/>
+        <line x1="548" y1="52" x2="722" y2="104" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar2)" opacity=".6"/>
+        <text x="600" y="76" font-size="10" fill="currentColor" opacity=".65">enters at whatever already exists</text>
+
+        <!-- artefact chain -->
+        <rect x="20"  y="106" width="124" height="40" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="82"  y="131" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">clean_reads</text>
+
+        <rect x="180" y="106" width="124" height="40" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="242" y="131" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">sorted.bam</text>
+
+        <rect x="340" y="106" width="124" height="40" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="402" y="131" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">RGMD.bam</text>
+
+        <rect x="500" y="106" width="124" height="40" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="562" y="131" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">RGMD.cram</text>
+
+        <rect x="660" y="106" width="124" height="40" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="722" y="131" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">bqsr.cram</text>
+
+        <!-- step arrows -->
+        <line x1="144" y1="126" x2="178" y2="126" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <text x="161" y="170" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity=".75">align_from_reads</text>
+
+        <line x1="304" y1="126" x2="338" y2="126" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <text x="321" y="170" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity=".75">markdup_sorted_bam</text>
+
+        <line x1="464" y1="126" x2="498" y2="126" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <text x="481" y="170" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity=".75">convert_rgmd_bam</text>
+
+        <line x1="624" y1="126" x2="658" y2="126" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <text x="641" y="170" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity=".75">run_bqsr</text>
+
+        <!-- back edge -->
+        <path d="M 562 146 L 562 200 L 402 200 L 402 148" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar2)" opacity=".75"/>
+        <text x="482" y="216" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity=".75">materialize_rgmd_bam — big-contig references only</text>
+      </svg>
+    </div>
+    <figcaption>Resume is not a journal lookup: the plan is derived from what is on disk, so a sample whose CRAM already exists simply starts later in the chain. The dashed back edge is the step added for references whose contigs exceed the BAI limit, where GATK cannot read an indexed CRAM and the BAM has to be reconstituted.</figcaption>
+  </figure>
+
+  <h3>What BQSR actually does <span class="tag">--bqsr</span></h3>
+  <p>With no known-sites VCF available, <code>--bootstrap</code> manufactures one: HaplotypeCaller over the sample, then <code>SelectVariants</code> to split SNPs from INDELs, <code>VariantFiltration</code> with the standard GATK hard-filter expressions, and <code>SelectVariants --exclude-filtered</code> to keep what passed. Those two filtered files become the known sites. Recalibration then runs twice — before and after <code>ApplyBQSR</code> — so <code>AnalyzeCovariates</code> can draw the before/after plot.</p>
+  <p>A failure to draw that plot is caught and stepped over. It runs through Rscript and fails on any host missing <code>gsalib</code> or <code>gplots</code>, which is not a reason to discard a recalibration that has already finished.</p>
+
+  <h3>Interval scatter <span class="tag">references ≥ 1 Gb</span></h3>
+  <p>Above a gigabase, single-process HaplotypeCaller and BaseRecalibrator passes run for days, so <code>useScatter</code> switches to the implementations in <code>scatter.go</code>. <code>writeShardIntervals</code> splits the reference into roughly equal interval lists, cutting long contigs into sub-intervals rather than leaving them whole — one-shard-per-contig would leave most cores idle waiting for the biggest piece — and packing the small-scaffold tail together so it does not become thousands of one-contig jobs. Shards that already exist on disk and validate are reused, so an interrupted run resumes at the shard it died on.</p>
+</section>
+
+<section id="gvcf">
+  <h2>Stage 2 — gVCF creation</h2>
+  <p class="dek">The unit of work becomes a sample × sequence-group pair, and stays that way until the merge.</p>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="n">02</span><span class="t">CreateGvcfs</span>
+      <span class="w">variants/createGvcfs.go</span>
+    </div>
+    <dl class="io">
+      <dt>In</dt><dd>Recalibrated CRAM/BAM per sample (or the RGMD one with <code>--no-bqsr</code>)</dd>
+      <dt>Out</dt><dd><code>&lt;sample&gt;.&lt;chrom&gt;.g.vcf.gz</code> per sample per sequence group, grouped by chromosome for the merge</dd>
+      <dt>Tools</dt><dd>GATK HaplotypeCaller, or DeepVariant in Docker</dd>
+    </dl>
+    <p><code>getChromsAndContigs</code> reads the reference <code>.dict</code>, sorts sequences by length descending, and treats <strong>the longest 21 as chromosomes</strong> while everything shorter becomes a single "contigs" bundle called as one unit. Mitochondrial and plastid sequences are promoted into the chromosome group regardless of length.</p>
+    <p><code>FindSampleAlignments</code> then locates one usable alignment per sample. <code>selectAlignments</code> encodes the preference order — recalibrated over RGMD, long-read-tagged files for long-read samples — and a sample with two equally plausible candidates is reported as ambiguous rather than guessed at.</p>
+    <p>Before any calling starts, <code>discoverValidGvcfs</code> checks what already exists. It validates in parallel and reuses anything sound, which is what makes a re-run after a partial failure cheap.</p>
+  </div>
+
+  <div class="note acc"><b>Two callers, one shape.</b> <code>CreateGvcfGATK</code> and <code>CreateGvcfDV</code> take the same arguments and return the same thing. DeepVariant runs in a container and needs a model type, which is inferred from the sample name when not given; GATK takes an interval list. Everything downstream treats their outputs identically, apart from the filter profile in stage 4.</div>
+</section>
+
+<section id="merge">
+  <h2>Stage 3 — Joint genotyping</h2>
+  <p class="dek">The pipeline's most memory-hungry stage, and the one that most carefully checks its own inputs before spending hours.</p>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="n">03</span><span class="t">MergeGvcfs</span>
+      <span class="w">variants/mergeGVCFs.go</span>
+    </div>
+    <dl class="io">
+      <dt>In</dt><dd>gVCFs grouped by chromosome, plus the cohort size stage 2 discovered</dd>
+      <dt>Out</dt><dd>One joint VCF per chromosome group, concatenated into a single cohort VCF</dd>
+      <dt>Tools</dt><dd>GATK GenomicsDBImport + GenotypeGVCFs, or GLnexus; GATK MergeVcfs</dd>
+    </dl>
+    <p>A chromosome is only merged if every expected sample is present for it. <code>ExpectedSamples</code> is threaded down from stage 1 precisely so the merge can tell "this chromosome is missing samples" apart from "this sample is missing everywhere" — a distinction it cannot make by inspecting gVCF counts alone.</p>
+    <p>Sample identity is checked by reading the names out of the gVCF headers and comparing as sets, not as ordered lists, so a differently-ordered cohort is not mistaken for a different one.</p>
+  </div>
+
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 640 300" role="img" aria-label="Each sample contributes one gVCF per chromosome. Each chromosome column is joint-genotyped independently, and the resulting per-chromosome VCFs are merged in reference dictionary order into one cohort VCF.">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text x="86" y="26" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".7">gVCFs</text>
+        <text x="125" y="26" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".7">chr1</text>
+        <text x="203" y="26" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".7">chr2</text>
+        <text x="281" y="26" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".7">chr3</text>
+        <text x="359" y="26" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".7">contigs</text>
+
+        <text x="86" y="52" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">ON1708</text>
+        <text x="86" y="86" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">ON2086</text>
+        <text x="86" y="120" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">ON2348</text>
+
+        <rect x="90" y="36" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="168" y="36" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="246" y="36" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="324" y="36" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+
+        <rect x="90" y="70" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="168" y="70" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="246" y="70" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="324" y="70" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+
+        <rect x="90" y="104" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="168" y="104" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="246" y="104" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <rect x="324" y="104" width="70" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+
+        <!-- column arrows -->
+        <line x1="125" y1="130" x2="125" y2="158" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar3)"/>
+        <line x1="203" y1="130" x2="203" y2="158" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar3)"/>
+        <line x1="281" y1="130" x2="281" y2="158" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar3)"/>
+        <line x1="359" y1="130" x2="359" y2="158" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar3)"/>
+
+        <rect x="90"  y="160" width="70" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <rect x="168" y="160" width="70" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <rect x="246" y="160" width="70" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <rect x="324" y="160" width="70" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="125" y="181" text-anchor="middle" font-size="10" fill="currentColor">join</text>
+        <text x="203" y="181" text-anchor="middle" font-size="10" fill="currentColor">join</text>
+        <text x="281" y="181" text-anchor="middle" font-size="10" fill="currentColor">join</text>
+        <text x="359" y="181" text-anchor="middle" font-size="10" fill="currentColor">join</text>
+
+        <text x="410" y="172" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".8">GenomicsDBImport →</text>
+        <text x="410" y="186" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".8">GenotypeGVCFs, or GLnexus</text>
+        <text x="410" y="204" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".55">N at a time, sized by free RAM</text>
+
+        <!-- to concat -->
+        <path d="M 125 194 L 125 214 L 359 214 L 359 194" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".8"/>
+        <line x1="203" y1="194" x2="203" y2="214" stroke="currentColor" stroke-width="1.2" opacity=".8"/>
+        <line x1="281" y1="194" x2="281" y2="214" stroke="currentColor" stroke-width="1.2" opacity=".8"/>
+        <line x1="242" y1="214" x2="242" y2="236" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar3)"/>
+
+        <rect x="90" y="238" width="304" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="242" y="259" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">gatk MergeVcfs — reference dict order</text>
+
+        <line x1="394" y1="255" x2="424" y2="255" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar3)"/>
+        <text x="430" y="259" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor">cohort VCF</text>
+      </svg>
+    </div>
+    <figcaption>Chromosomes are independent, so they merge in parallel — but each job holds a GenomicsDB workspace and a JVM heap, so the job count is budgeted from free memory rather than core count. Concatenation orders the results by the reference dictionary, never by which job finished first.</figcaption>
+  </figure>
+
+  <h3>Scratch space is deliberately local</h3>
+  <p><code>LocalWorkDir</code> defaults to <code>$HOME/.genome-whisperer/merge-work</code> and is explicitly <em>not</em> the data directory. GenomicsDB workspaces, the GLnexus database, sample maps and interval lists do heavy small-file random I/O, which NAS and NFS storage handle badly. A GenomicsDB workspace is also fingerprinted, so a resumed run can tell whether an existing workspace was built from the same gVCFs and intervals, and discards it when it was not.</p>
+</section>
+
+<section id="filter">
+  <h2>Stage 4 — Hard filtering</h2>
+  <p class="dek">The one stage that reads and writes variant records in Go rather than shelling out.</p>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="n">04</span><span class="t">FilterVcf</span>
+      <span class="w">variants/filter.go</span>
+    </div>
+    <dl class="io">
+      <dt>In</dt><dd>The cohort VCF</dd>
+      <dt>Out</dt><dd>A filtered VCF; SNPs and INDELs judged by their own thresholds</dd>
+      <dt>Tools</dt><dd>None — <code>vcfgo</code> in-process</dd>
+    </dl>
+    <p><code>classifyVariant</code> labels each record as SNP, INDEL or MNP, and the thresholds are then applied by whichever profile matches the caller. <code>PassesHardFilter</code> implements the GATK profile over QD, QUAL, SOR, FS, MQ, MQRankSum and ReadPosRankSum, read from a <code>utils.HardFilterConfig</code> so a project can override them from its config file.</p>
+    <p><code>passesDeepVariant</code> exists because DeepVariant output carries none of those annotations. It judges on QUAL and genotype quality instead, and deliberately ignores missing GATK fields rather than treating absence as failure.</p>
+  </div>
+
+  <div class="note warn"><b>A zero-valued config is not a permissive one.</b> There is a test named for this: an empty <code>HardFilterConfig</code> discards almost everything, because a threshold of zero is still a threshold. Configs should set the values they mean, not rely on omission.</div>
+</section>
+
+<section id="annot">
+  <h2>Stage 5 — Annotation</h2>
+  <p class="dek">Three joins that turn a VCF into something a breeder can read.</p>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="n">05</span><span class="t">CreateSuperVcf</span>
+      <span class="w">annotation/annotation.go</span>
+    </div>
+    <dl class="io">
+      <dt>In</dt><dd>Filtered VCF, a SnpEff database, a gene-description table, a PRG BLAST table</dd>
+      <dt>Out</dt><dd><code>*_SUPER_VCF.tsv</code> — one row per variant with effect, gene description and protein-hit statistics</dd>
+      <dt>Tools</dt><dd>SnpEff, GATK VariantsToTable</dd>
+    </dl>
+    <p>SnpEff annotates, then <code>splitEffColumns</code> unpacks the packed <code>EFF</code> field into real columns. Gene descriptions and PRG BLAST hits are then joined on gene or transcript identifier.</p>
+    <p>Which identifier to join on is <em>detected, not assumed</em>. The code counts how many gene names and how many transcript IDs from the variant table actually appear in each lookup file, and picks the column that overlaps. When neither overlaps it stops and says so, rather than emitting a table where every annotation column reads <code>NA</code> — the failure mode that motivated the check.</p>
+  </div>
+
+  <p><code>CreateSnpEffDB</code> builds the custom database this stage needs, from a reference FASTA, protein FASTA, CDS FASTA and GFF3.</p>
+</section>
+
+<section id="resume">
+  <h2>How resume works</h2>
+  <p class="dek">Every long stage can be re-run, and the mechanism is the same idea applied at four scales.</p>
+
+  <p>The governing rule is that <strong>the filesystem is the source of truth, and existence is not enough</strong>. An artefact counts as done when it is present, non-empty, passes a validity check, and carries a readable index where one is expected. That last clause exists because an interrupted <code>samtools index</code> leaves a file that looks finished to a directory scan.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Scale</th><th>Unit</th><th>Decided by</th></tr></thead>
+      <tbody>
+        <tr><td class="k">sample</td><td>Whole alignment plan</td><td><code>buildPlan</code> from the scanned state — the plan simply starts later</td></tr>
+        <tr><td class="k">shard</td><td>One interval of a scattered GATK step</td><td>Shard output present and valid → skipped, and the count reported</td></tr>
+        <tr><td class="k">gVCF</td><td>Sample × chromosome</td><td><code>discoverValidGvcfs</code>, validating in parallel</td></tr>
+        <tr><td class="k">merge</td><td>GenomicsDB workspace</td><td><code>gdbFingerprint</code> over the gVCF list and intervals</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>There is also an older journal mechanism — <code>utils.ParseLogFile</code> and <code>StageHasCompleted</code> read a structured log and ask whether a named program finished for a given sample and chromosome. The pangenome loop and the v1 BQSR path still use it. The newer directory-driven code deliberately does not, on the grounds that a journal can disagree with the disk and the disk is what the next tool will actually read.</p>
+
+  <div class="note"><b>Validation has two speeds.</b> <code>--quick</code> checks structure — <code>samtools quickcheck</code>, an index's presence, a BGZF integrity test. Without it, files are decoded end to end. Quick is right for a re-run over known-good data and wrong for verifying a transfer, and the difference is not cosmetic: quickcheck never inspects contig names, so it will pass a CRAM that no tool in the pipeline can actually decode.</div>
+</section>
+
+<section id="budget">
+  <h2>Concurrency and memory</h2>
+  <p class="dek">Parallelism is multiplicative here, which is why it is budgeted centrally rather than per call site.</p>
+
+  <p>Five samples each scattering a HaplotypeCaller across twenty intervals is a hundred JVMs, and each costs a few gigabytes. Two mechanisms keep that bounded.</p>
+
+  <p><code>runtimeOpts</code> is computed once per run and carries the per-sample thread budget, the JVM heap options for whole-sample steps, a smaller heap for shard steps, the shard count and the pair-HMM thread count. Every external command is sized from those figures, so no call site guesses.</p>
+
+  <p><code>gatkSlots</code> is a package-level semaphore bounding how many GATK JVMs exist at once across the whole process. The subtlety is recorded in its comment: <strong>only leaf commands take a slot</strong>. A function that spawns shards must not hold one itself, or the shards it is waiting on can never acquire theirs — a self-deadlock that would look like a hang.</p>
+
+  <p>The merge stage budgets differently again. <code>mergeJobs</code> reads <code>MemAvailable</code> from <code>/proc/meminfo</code> and decides both how many chromosome groups run at once and how large each job's heaps may be, because merging is memory-bound rather than CPU-bound. Raising the job count shrinks the heaps rather than oversubscribing the machine.</p>
+
+  <p>When not run verbosely, <code>runGatk</code> captures output rather than discarding it and replays the last 25 lines on failure. A scattered step that dies otherwise reports nothing but an exit status, once per shard, which is no use hours into a run.</p>
+</section>
+
+<section id="branches">
+  <h2>The downstream branches</h2>
+  <p class="dek">Three analyses hang off the main pipeline, plus one that grows a reference instead of consuming one.</p>
+
+  <h3>GoBSAseq <span class="tag">bsaseq</span></h3>
+  <p>Bulk-segregant analysis, and the only branch that can drive the whole pipeline itself — given a config it will align, call variants through <code>RunPipeline</code>, and then analyse. The VCF becomes a per-variant TSV of parent and bulk depths, which is filtered by minimum depth, reduced to per-variant statistics (Δ allele frequency and a G-statistic), and smoothed over sliding windows.</p>
+  <p>Significance thresholds are <em>simulated</em> rather than assumed: <code>simulateAF</code> draws allele frequencies for the given bulk sizes and population structure over many replicates, and the resulting quantiles become the threshold curves plotted alongside the data. Peak and valley detection then reports where the smoothed statistic crosses those curves. Output is an interactive go-echarts HTML chart plus the underlying CSV.</p>
+  <p>Three designs are supported — two bulks with two parents, two bulks alone, and one bulk with two parents — each with its own reader, filter and statistics path.</p>
+
+  <h3>GeneSpace <span class="tag">genespace</span></h3>
+  <p>Takes a QTL interval and turns it into a candidate-gene shortlist. It reads gene positions from the GFF, variant records for the interval, gene descriptions and PRG BLAST hits, then keeps genes where the resistant lines differ from the susceptible ones. <code>ClassifyPriority</code> ranks what survives, and the result is written as Excel.</p>
+
+  <h3>GoPan <span class="tag">pangenome</span></h3>
+  <p>The one loop that modifies its own input. For each sample in turn: align to the current reference, extract the unmapped reads, assemble them with MEGAHIT or MaSuRCA, trim and rename the resulting scaffolds so they carry the sample name, and concatenate them onto the reference. The next sample aligns against that larger reference. <code>LatestRef</code> finds the highest-numbered reference produced so far, which is what lets an interrupted run pick up mid-cohort.</p>
+</section>
+
+<section id="edges">
+  <h2>Sharp edges</h2>
+  <p class="dek">Things that are true of the code today and worth knowing before you change it.</p>
+
+  <h3>The 21-sequence split is a heuristic</h3>
+  <p><code>getChromsAndContigs</code> calls the longest 21 sequences "chromosomes" and bundles the rest. For a chromosome-scale assembly that is right. For a fragmented one it is arbitrary — on a reference with 2,099 sequences the cut lands wherever the length distribution happens to put it, and the bundle can be very large. Nothing validates that the split matches the biology.</p>
+
+  <h3>Index ceilings on large genomes</h3>
+  <p>BAI, TBI and the index htsjdk builds from a CRAI all stop at 536,870,911 bp. Onion and pepper references exceed that, which changes which file formats the pipeline may use for reads and for variants. <code>refExceedsBaiLimit</code> is the predicate that decides; the reasoning is written up separately in <em>The 512 Mb Ceiling</em>.</p>
+  <p><code>variants/createGvcfs.go</code> still hardcodes <code>.g.vcf.gz</code>, so <code>CreateGvcfs</code> has not yet been adapted for those references.</p>
+
+  <h3>Two generations of code coexist</h3>
+  <p><code>old/</code> holds the v1 and v2 implementations, and <code>variants/REDESIGN.md</code> documents the duplication that motivated the current package — two implementations of the same biology with different layouts, resume strategies and concurrency models, only one of which reached a merged VCF. That plan describes a further refactor: a single <code>Layout</code> owning every path, a <code>Runner</code> interface making external tools injectable, and a pure core with a thin shell. Worth reading before extending <code>variants</code>, since it lists the specific bugs the structure is meant to prevent.</p>
+
+  <h3>Error handling is uneven</h3>
+  <p><code>variants</code>, <code>annotation</code>, <code>genespace</code> and <code>utils</code> return errors properly and let the caller decide. The older packages do not: there are 57 <code>log.Fatal</code> calls outside <code>cmd/</code> — 31 in <code>bsaseq</code>, 15 in <code>alignment</code>, 7 in <code>alignmentdir</code>, 4 in <code>pangenome</code> — each of which kills the process from inside a library function, so a single bad sample can end a whole cohort run and none of those paths can be unit-tested. The annotation package also returns <code>(error, T)</code> rather than the conventional <code>(T, error)</code>.</p>
+</section>
+
+<footer>
+  <p>Written from the source as it stands on 24 Aug 2026, at commit <code>071221b</code> plus uncommitted working-tree changes. Line counts exclude the <code>old/</code> tree. Where this document and the code disagree, the code is right — and the document should be corrected.</p>
+</footer>
+
+</div>

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"os/exec"
@@ -324,8 +325,15 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 		}
 	}
 
-	_, faiErr := os.Stat(ref + ".fai")
-	if faiErr != nil {
+	// samtools writes both the .fai and, for a bgzipped reference, the .gzi
+	// offset index in one pass, so a missing .gzi has to re-run faidx too:
+	// without it nothing can seek into the compressed reference.
+	_, faiErr := os.Stat(FaiPath(ref))
+	gziErr := error(nil)
+	if gzi := GziPath(ref); gzi != "" {
+		_, gziErr = os.Stat(gzi)
+	}
+	if faiErr != nil || gziErr != nil {
 		samIndexStr := fmt.Sprintf(`samtools faidx %s`, ref)
 		fmt.Printf("Running %s ...\n\n", samIndexStr)
 
@@ -342,11 +350,14 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 			return fmt.Errorf("samtools indexing failed: %v", samIndexErr)
 		}
 	}
-	baseName := ref[:len(ref)-len(filepath.Ext(ref))]
-	_, dicfErr := os.Stat(baseName + ".dict")
+	// -O is passed explicitly rather than left to GATK, which derives the name
+	// by stripping extensions and would write genome.dict for a genome.fa.gz —
+	// not the genome.fa.gz.dict every reader here looks for.
+	dictPath := DictPath(ref)
+	_, dicfErr := os.Stat(dictPath)
 	if dicfErr != nil {
-		fmt.Printf("Running  gatk CreateSequenceDictionary -R %s ...\n\n", ref)
-		dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s`, ref)
+		fmt.Printf("Running  gatk CreateSequenceDictionary -R %s -O %s ...\n\n", ref, dictPath)
+		dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s -O %s`, ref, dictPath)
 
 		var dicErr error
 		if verbose {
@@ -361,8 +372,15 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 
 	}
 
+	// makeblastdb reads plain text only, so a bgzipped reference gets no blast
+	// database. Nothing on the alignment path needs one; the step is skipped
+	// out loud rather than failing the whole preparation over it.
 	_, nsqErr := os.Stat(ref + ".nsq")
-	if nsqErr != nil {
+	if IsBgzippedFasta(ref) {
+		if nsqErr != nil {
+			fmt.Printf("Skipping makeblastdb: %s is block-compressed and makeblastdb cannot read it\n\n", ref)
+		}
+	} else if nsqErr != nil {
 		mbdbStr := fmt.Sprintf(`makeblastdb -in %s -dbtype nucl -out %s`, ref, ref)
 		fmt.Printf("Running %s ...\n\n", mbdbStr)
 
@@ -385,10 +403,19 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 }
 
 func ValidateGvcf(vcf string, verbose bool, quick bool) error {
+	// Which index belongs beside a VCF is decided by the VCF: a bgzipped one
+	// carries the .tbi bcftools writes, an uncompressed one the Tribble .idx
+	// GATK writes. On a reference with contigs past the BAI ceiling only the
+	// second can be built at all.
+	compressed := strings.HasSuffix(strings.ToLower(vcf), ".gz")
+	index := vcf + ".idx"
+	if compressed {
+		index = vcf + ".tbi"
+	}
+
 	if quick {
-		tbi := vcf + ".tbi"
-		if _, err := os.Stat(tbi); err != nil {
-			return fmt.Errorf("TBI index missing for %s", vcf)
+		if _, err := os.Stat(index); err != nil {
+			return fmt.Errorf("%s index missing for %s", filepath.Ext(index), vcf)
 		}
 		valStr := fmt.Sprintf("bcftools view -h %s > /dev/null", vcf)
 		if verbose {
@@ -398,7 +425,13 @@ func ValidateGvcf(vcf string, verbose bool, quick bool) error {
 		return RunBashCmd(valStr)
 	}
 
+	// The thorough check rebuilds the index, which bcftools can only do for a
+	// bgzipped file; for the rest, reading every record end to end is the
+	// equivalent test of whether the file is whole.
 	valStr := fmt.Sprintf("bcftools index --tbi --force %s", vcf)
+	if !compressed {
+		valStr = fmt.Sprintf("bcftools view %s > /dev/null", vcf)
+	}
 	if verbose {
 		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
 		return RunBashCmdVerbose(valStr)
@@ -481,20 +514,27 @@ func GetValidGenomesFromDisk(genomesDir string) (map[string][]GenomeRef, error) 
 				continue
 			}
 
-			var fastaPath, dictPath string
+			var fastaPath, gzFastaPath, dictPath string
 			for _, f := range entries {
 				if f.IsDir() {
 					continue
 				}
 				name := f.Name()
 				switch {
-				case strings.HasSuffix(name, ".fa"),
-					strings.HasSuffix(name, ".fasta"),
-					strings.HasSuffix(name, ".fna"):
+				case IsBgzippedFasta(name):
+					gzFastaPath = filepath.Join(assemblyDir, name)
+				case IsFasta(name):
 					fastaPath = filepath.Join(assemblyDir, name)
 				case strings.HasSuffix(name, ".dict"):
 					dictPath = filepath.Join(assemblyDir, name)
 				}
+			}
+
+			// An assembly directory holding both forms is used uncompressed:
+			// GATK's recalibration tools refuse a block-compressed reference,
+			// and ReadDir order alone would pick whichever name sorts last.
+			if fastaPath == "" {
+				fastaPath = gzFastaPath
 			}
 
 			if fastaPath != "" && dictPath != "" {
@@ -582,4 +622,173 @@ func CalculateGATKMemory(totalSystemRamGB int, maxWorkers int) string {
 	}
 
 	return fmt.Sprintf("-Xmx%dg -Xms%dg", memPerWorker, memPerWorker)
+}
+
+// envTmpDir names the environment variable that moves every scratch directory
+// this package hands out — the small ones and the large spills alike — off the
+// default base in one go.
+const envTmpDir = "GENOME_WHISPERER_TMPDIR"
+
+// TmpBase returns the directory scratch goes under: $GENOME_WHISPERER_TMPDIR if
+// it is set, otherwise os.TempDir(), which honours $TMPDIR and is /tmp on a
+// default Linux host.
+func TmpBase() string {
+	if explicit := os.Getenv(envTmpDir); explicit != "" {
+		return explicit
+	}
+	return os.TempDir()
+}
+
+// WorkTmpDir returns, creating it if needed, the scratch directory the external
+// tools are told to spill into: <TmpBase()>/genome-whisperer/<key>.
+//
+// Everything the pipeline shells out to — samtools sort, the Picard-style GATK
+// tools, the GATK walkers — is pointed here rather than at a directory beside
+// its own output. Outputs live on the mounted data drives, where the small-file
+// random I/O a spill is made of is the slowest thing a step does, while
+// os.TempDir() is local. The base is TmpBase() rather than a hard-coded /tmp, so
+// a run whose spill will not fit there can be sent elsewhere with
+// $GENOME_WHISPERER_TMPDIR (or $TMPDIR) without touching the code — worth
+// knowing on a host where /tmp is a RAM-backed tmpfs.
+//
+// The key is derived from the output's own directory, so two samples, or two
+// concurrent processes, never share a scratch directory.
+func WorkTmpDir(outPath string) string {
+	dir := WorkTmpDirFor(filepath.Dir(outPath))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		// Nowhere to spill but beside the output, which is where these tools
+		// would have gone on their own.
+		return filepath.Dir(outPath)
+	}
+	return dir
+}
+
+// WorkTmpDirFor returns the scratch path WorkTmpDir hands out for outputs
+// written to dir, without creating it. Cleanup needs the path of a directory it
+// may never have created.
+func WorkTmpDirFor(dir string) string {
+	return filepath.Join(TmpBase(), "genome-whisperer", scratchKey(dir))
+}
+
+// SpillTmpDir is WorkTmpDir for the two steps that spill on the order of the
+// read set rather than a few MB: the samtools sort at the end of an aligner pipe
+// and MarkDuplicates' sorting collection. A whole-genome sort of a 40x sample
+// writes tens of GB of chunks, so those two cannot go wherever the small
+// scratch goes when os.TempDir() is a RAM-backed tmpfs — that is a full tmpfs
+// and an OOM, not a slow step.
+//
+// The base is the first of these that is a directory:
+//
+//	$GENOME_WHISPERER_TMPDIR   taken as given, RAM-backed or not
+//	os.TempDir()               unless it is a tmpfs/ramfs (honours $TMPDIR)
+//	/var/tmp                   unless it is a tmpfs/ramfs
+//
+// and if none of them can be created, the spill goes back beside the output as
+// <output dir>/tmp — slow on a mounted data drive, but never out of space.
+//
+// The joint-genotyping scratch in the variants package is deliberately not
+// routed through here: GenomicsDBImport's temp files stay on os.TempDir().
+func SpillTmpDir(outPath string) string {
+	dir := SpillTmpDirFor(filepath.Dir(outPath))
+	if err := os.MkdirAll(dir, 0o755); err == nil {
+		return dir
+	}
+	beside := filepath.Join(filepath.Dir(outPath), "tmp")
+	if err := os.MkdirAll(beside, 0o755); err != nil {
+		return filepath.Dir(outPath)
+	}
+	return beside
+}
+
+// SpillTmpDirFor returns the large-spill scratch path for outputs written to
+// dir, without creating it, so cleanup can find what SpillTmpDir created.
+func SpillTmpDirFor(dir string) string {
+	for _, base := range spillBases() {
+		if info, err := os.Stat(base); err == nil && info.IsDir() {
+			return filepath.Join(base, "genome-whisperer", scratchKey(dir))
+		}
+	}
+	return filepath.Join(dir, "tmp")
+}
+
+func spillBases() []string {
+	var bases []string
+	if explicit := os.Getenv(envTmpDir); explicit != "" {
+		bases = append(bases, explicit)
+	}
+	if tmp := os.TempDir(); !isRAMBacked(tmp) {
+		bases = append(bases, tmp)
+	}
+	if !isRAMBacked("/var/tmp") {
+		bases = append(bases, "/var/tmp")
+	}
+	return bases
+}
+
+// isRAMBacked reports whether path sits on a filesystem that is really memory:
+// filling it costs the run its RAM, not its disk. Unknown filesystems — and any
+// host with no /proc/mounts to read — count as real disks, so the answer only
+// ever moves a spill away from a tmpfs it can prove is there.
+func isRAMBacked(path string) bool {
+	mounts, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	abs = filepath.Clean(abs)
+
+	var (
+		bestPoint string
+		bestType  string
+	)
+	for _, line := range strings.Split(string(mounts), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		point := filepath.Clean(fields[1])
+		if point != "/" && !strings.HasPrefix(point, "/") {
+			continue
+		}
+		if abs != point && point != "/" && !strings.HasPrefix(abs, point+string(os.PathSeparator)) {
+			continue
+		}
+		if len(point) >= len(bestPoint) {
+			bestPoint, bestType = point, fields[2]
+		}
+	}
+
+	switch bestType {
+	case "tmpfs", "ramfs", "devtmpfs":
+		return true
+	}
+	return false
+}
+
+// scratchKey names one output directory's scratch: a readable tail of the path
+// so /tmp stays legible mid-run, plus a hash of the whole path so flattening the
+// separators out of that tail cannot make two directories collide.
+func scratchKey(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(abs))
+
+	label := strings.Trim(strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-':
+			return r
+		}
+		return '_'
+	}, abs), "_")
+	if len(label) > 60 {
+		label = label[len(label)-60:]
+	}
+
+	return fmt.Sprintf("%s-%x", label, h.Sum64())
 }

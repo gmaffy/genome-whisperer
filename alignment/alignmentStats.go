@@ -8,9 +8,9 @@ import (
 )
 
 func Stats(ref, bam string, verbose bool) error {
-	cmdStr := fmt.Sprintf(`gatk CollectAlignmentSummaryMetrics -R %s -I %s -O %s`, ref, bam, strings.TrimSuffix(bam, ".bam")+"_alignment_metrics.txt")
+	cmdStr := fmt.Sprintf(`gatk CollectAlignmentSummaryMetrics -R %s -I %s -O %s --tmp-dir %s`, ref, bam, strings.TrimSuffix(bam, ".bam")+"_alignment_metrics.txt", WorkTmpDir(bam))
 
-	cmdStr2 := fmt.Sprintf(`gatk CollectInsertSizeMetrics -R %s -I %s -O %s -H %s`, ref, bam, strings.TrimSuffix(bam, ".bam")+"_insert_metrics.txt", strings.TrimSuffix(bam, ".bam")+"_insert_size_histogram.pdf")
+	cmdStr2 := fmt.Sprintf(`gatk CollectInsertSizeMetrics -R %s -I %s -O %s -H %s --tmp-dir %s`, ref, bam, strings.TrimSuffix(bam, ".bam")+"_insert_metrics.txt", strings.TrimSuffix(bam, ".bam")+"_insert_size_histogram.pdf", WorkTmpDir(bam))
 
 	cmdStr3 := fmt.Sprintf(`samtools flagstat %s > %s`, bam, strings.TrimSuffix(bam, ".bam")+"_flagstats.txt")
 

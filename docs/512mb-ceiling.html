@@ -1,0 +1,696 @@
+<title>The 512 Mb Ceiling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600;700&display=swap">
+
+<style>
+:root {
+  color-scheme: light;
+  --page:        #F5F6F8;
+  --surface:     #FFFFFF;
+  --surface-2:   #EDEFF3;
+  --ink:         #161A21;
+  --ink-2:       #545C69;
+  --ink-3:       #7B8492;
+  --rule:        #DCE0E6;
+  --rule-2:      #C3CAD4;
+  --signal:      #C4381F;
+  --signal-bg:   #FAEDEA;
+  --safe:        #0E8A6B;
+  --safe-bg:     #E6F3EF;
+  --link:        #2E5C8A;
+  --shadow:      0 1px 2px rgba(22, 26, 33, .05), 0 8px 24px -12px rgba(22, 26, 33, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:      #11141A;
+    --surface:   #171B22;
+    --surface-2: #1E232C;
+    --ink:       #E3E7ED;
+    --ink-2:     #98A1AE;
+    --ink-3:     #6D7784;
+    --rule:      #262C36;
+    --rule-2:    #333B47;
+    --signal:    #E2573C;
+    --signal-bg: #2A1A16;
+    --safe:      #17A583;
+    --safe-bg:   #0F241E;
+    --link:      #85AEDC;
+    --shadow:    0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:      #11141A;
+  --surface:   #171B22;
+  --surface-2: #1E232C;
+  --ink:       #E3E7ED;
+  --ink-2:     #98A1AE;
+  --ink-3:     #6D7784;
+  --rule:      #262C36;
+  --rule-2:    #333B47;
+  --signal:    #E2573C;
+  --signal-bg: #2A1A16;
+  --safe:      #17A583;
+  --safe-bg:   #0F241E;
+  --link:      #85AEDC;
+  --shadow:    0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 53rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 6rem;
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  padding: 4.5rem 0 2.25rem;
+  border-bottom: 2px solid var(--ink);
+}
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--signal);
+  margin: 0 0 1.25rem;
+}
+h1 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-weight: 700;
+  font-size: clamp(2.6rem, 7vw, 4.1rem);
+  line-height: 1.02;
+  letter-spacing: -.022em;
+  margin: 0 0 1rem;
+  text-wrap: balance;
+}
+.standfirst {
+  font-size: 1.16rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 34em;
+  margin: 0 0 2rem;
+  text-wrap: pretty;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .74rem;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+}
+.meta b { color: var(--ink-2); font-weight: 500; }
+
+/* ------------------------------------------------------------- hero figure */
+
+.collide {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 1.25rem;
+  margin: 2.75rem 0 0;
+  padding: 2rem 1.75rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  box-shadow: var(--shadow);
+}
+.collide-cell .n {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.15rem, 3.4vw, 1.7rem);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.15;
+  display: block;
+}
+.collide-cell .k {
+  display: block;
+  font-size: .78rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  margin-top: .5rem;
+}
+.collide-cell.limit .n { color: var(--ink); }
+.collide-cell.over .n  { color: var(--signal); }
+.versus {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: .8rem;
+  font-style: italic;
+  color: var(--ink-3);
+  padding: 0 .25rem;
+}
+@media (max-width: 620px) {
+  .collide { grid-template-columns: 1fr; text-align: left; }
+  .versus { padding: 0; }
+}
+
+/* --------------------------------------------------------------- sections */
+
+section { margin-top: 3.75rem; }
+
+h2 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 1.62rem;
+  font-weight: 600;
+  letter-spacing: -.014em;
+  line-height: 1.2;
+  margin: 0 0 .35rem;
+  text-wrap: balance;
+}
+h2 + .dek {
+  color: var(--ink-2);
+  font-size: .95rem;
+  margin: 0 0 1.75rem;
+  max-width: 40em;
+}
+h3 {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: .96rem;
+  font-weight: 600;
+  letter-spacing: .005em;
+  margin: 2.25rem 0 .6rem;
+}
+p { margin: 0 0 1.1rem; max-width: 40em; text-wrap: pretty; }
+a { color: var(--link); text-underline-offset: 2px; }
+a:focus-visible, .row:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+strong { font-weight: 600; }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .86em;
+  background: var(--surface-2);
+  padding: .1em .34em;
+  border-radius: 2px;
+  overflow-wrap: break-word;
+}
+
+/* ------------------------------------------------------------------ chart */
+
+figure { margin: 0; }
+
+.chart {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1.5rem 1.5rem 1.25rem;
+  box-shadow: var(--shadow);
+}
+.chart-head {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .7rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 1.4rem;
+}
+.plot {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: .9rem;
+  row-gap: .32rem;
+  position: relative;
+}
+/* The ceiling rule is drawn per-row rather than as one spanning element: a
+   negative grid line cannot resolve in an implicit grid, and each row's segment
+   is stretched by half the row-gap so the rule reads continuous. */
+.track::before, .axis::before {
+  content: "";
+  position: absolute;
+  left: 25.56%;
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--ink);
+  opacity: .45;
+  pointer-events: none;
+  z-index: 2;
+}
+.track::before { top: -.16rem; bottom: -.16rem; }
+.axis::before  { top: -.16rem; height: .48rem; }
+
+.axis { grid-column: 2; position: relative; height: 1.2rem; }
+.tick {
+  position: absolute;
+  left: 25.56%;
+  top: .42rem;
+  padding-left: .4rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .64rem;
+  letter-spacing: .04em;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.lbl {
+  grid-column: 1;
+  font-size: .8rem;
+  color: var(--ink-2);
+  text-align: right;
+  line-height: 1.3;
+}
+.lbl .sp { display: block; color: var(--ink); font-weight: 500; }
+.lbl .here {
+  display: inline-block;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .6rem;
+  letter-spacing: .08em;
+  color: var(--signal);
+}
+.track { grid-column: 2; position: relative; height: 1.05rem; z-index: 1; }
+.bar {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  min-width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--safe);
+}
+.over .bar { background: var(--signal); }
+.val {
+  grid-column: 3;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: .74rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-align: right;
+}
+.val .x { color: var(--ink-3); }
+.val.over .x { color: var(--signal); }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.4rem;
+  margin-top: 1.5rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--rule);
+  font-size: .76rem;
+  color: var(--ink-2);
+}
+.key { display: inline-flex; align-items: center; gap: .45rem; }
+.sw { width: 1.05rem; height: .55rem; border-radius: 0 3px 3px 0; display: inline-block; }
+.sw.s { background: var(--signal); }
+.sw.g { background: var(--safe); }
+.sw.l { width: 2px; height: .85rem; border-radius: 0; background: var(--ink); opacity: .5; }
+figcaption {
+  font-size: .78rem;
+  color: var(--ink-3);
+  margin-top: .85rem;
+  max-width: 42em;
+}
+
+/* ------------------------------------------------------------------ table */
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); box-shadow: var(--shadow); }
+table { border-collapse: collapse; width: 100%; font-size: .87rem; min-width: 34rem; }
+th, td { text-align: left; padding: .8rem 1rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .66rem;
+  font-weight: 500;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.site { font-weight: 500; white-space: nowrap; }
+td code { font-size: .8em; }
+.no  { color: var(--signal); font-weight: 500; }
+.yes { color: var(--safe); font-weight: 500; }
+
+/* ------------------------------------------------------------------- code */
+
+pre {
+  margin: 0 0 1.1rem;
+  padding: 1rem 1.15rem;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--rule-2);
+  border-radius: 3px;
+  overflow-x: auto;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem;
+  line-height: 1.62;
+  color: var(--ink);
+  tab-size: 2;
+}
+pre.err { border-left-color: var(--signal); background: var(--signal-bg); }
+pre .c { color: var(--ink-3); }
+pre .hl { color: var(--signal); font-weight: 500; }
+
+/* -------------------------------------------------------------- callouts */
+
+.note {
+  border-left: 2px solid var(--rule-2);
+  padding: .1rem 0 .1rem 1.15rem;
+  margin: 0 0 1.1rem;
+  color: var(--ink-2);
+  font-size: .92rem;
+}
+.note.warn { border-left-color: var(--signal); }
+.note b { color: var(--ink); }
+
+/* ------------------------------------------------------------- procedure */
+
+ol.steps { list-style: none; counter-reset: s; margin: 0; padding: 0; }
+ol.steps > li {
+  counter-increment: s;
+  position: relative;
+  padding-left: 2.4rem;
+  margin-bottom: 1.8rem;
+}
+ol.steps > li::before {
+  content: counter(s);
+  position: absolute;
+  left: 0; top: .05rem;
+  width: 1.6rem; height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule-2);
+  border-radius: 50%;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .74rem;
+  color: var(--ink-2);
+}
+ol.steps h3 { margin-top: 0; }
+
+/* ------------------------------------------------------------ file list */
+
+.files { display: flex; flex-direction: column; gap: 0; }
+.file {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  gap: .35rem 1.5rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--rule);
+}
+.file:last-child { border-bottom: 1px solid var(--rule); }
+.file .fp {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .78rem;
+  color: var(--ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.file .fp .new {
+  display: inline-block;
+  margin-left: .45rem;
+  font-size: .6rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--safe);
+}
+.file .fd { font-size: .88rem; color: var(--ink-2); margin: 0; max-width: none; }
+@media (max-width: 640px) {
+  .file { grid-template-columns: 1fr; }
+}
+
+footer {
+  margin-top: 4.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  font-size: .8rem;
+  color: var(--ink-3);
+}
+footer p { max-width: 44em; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .row, .bar { transition: opacity .15s ease; }
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">genome-whisperer · field note</p>
+  <h1>The 512&nbsp;Mb Ceiling</h1>
+  <p class="standfirst">Onion and pepper contigs are longer than any BAM- or VCF-style index can address. Here is what breaks, how to recognise it in ten seconds, and what changed in the pipeline.</p>
+  <div class="meta">
+    <span><b>Affects</b> onion · pepper</span>
+    <span><b>Stage</b> AlignReads / BQSR</span>
+    <span><b>Written</b> 24 Aug 2026</span>
+  </div>
+</header>
+
+<div class="collide">
+  <div class="collide-cell limit">
+    <span class="n">536,870,911</span>
+    <span class="k">The highest coordinate a BAI, TBI or CRAI-derived index can address — 2<sup>29</sup>−1.</span>
+  </div>
+  <div class="versus">against</div>
+  <div class="collide-cell over">
+    <span class="n">1,056,413,696</span>
+    <span class="k">The length of a single contig in <code>GCA_030765085.1</code>, our working onion reference. Fifteen of them.</span>
+  </div>
+</div>
+
+<section>
+  <h2>Why the number is fixed</h2>
+  <p class="dek">Nothing about it is tunable, and no newer version of the tools raises it.</p>
+
+  <p>A BAI-style index carries a <em>linear index</em>: a flat array of 2<sup>15</sup> windows, each covering 2<sup>14</sup> bases. That product — 536,870,911 — is the entire addressable span of one reference sequence. A feature beyond it has no window to live in, so the write walks off the end of the array.</p>
+
+  <p>The same binning scheme backs three formats we rely on: <code>.bai</code> for BAM, <code>.tbi</code> for bgzipped VCF, and the in-memory index htsjdk builds when it opens a CRAM. All three inherit the ceiling. The exception is always the same shape:</p>
+
+  <pre class="err">java.lang.ArrayIndexOutOfBoundsException: Index <span class="hl">36621</span> out of bounds for length <span class="hl">32770</span></pre>
+
+  <p>Both numbers are readable. <code>32770</code> is the array size — 2<sup>29</sup> ÷ 2<sup>14</sup>, plus two — and it is the same in every one of these failures, so it is the fingerprint. <code>36621</code> is the window the offending feature wanted, so <strong>multiply it by 16,384 to recover the coordinate</strong>: position ≈ 600,014,848.</p>
+
+  <div class="note"><b>Worth knowing:</b> the first shard that failed on ON1708 reported <code>Index 32770</code> — window 32770, or roughly base 536,903,680. The read that took down the run was about 33&nbsp;kb past the line.</div>
+</section>
+
+<section>
+  <h2>Three places it bites</h2>
+  <p class="dek">One limit, three symptoms, and they surface at different moments — which is why fixing the first only reveals the second.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Where</th><th>What happens</th><th>Fails at</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="site">Reading a CRAM</td>
+          <td>htsjdk has no CRAM index reader. When a <code>.crai</code> sits beside the file it converts it into an in-memory BAI — <code>CRAMBAIIndexer.processBAIEntry</code> — and overflows.</td>
+          <td>Engine startup, before a single record is read.</td>
+        </tr>
+        <tr>
+          <td class="site">Writing a VCF</td>
+          <td>GATK writes a <code>.tbi</code> alongside any <code>.vcf.gz</code> output, through <code>TabixIndexCreator</code>. Same binning, same overflow.</td>
+          <td><code>close()</code> — the call finishes, then throws away the work.</td>
+        </tr>
+        <tr>
+          <td class="site">Writing a BAM index</td>
+          <td>ApplyBQSR would emit a <code>.bai</code>. Already handled: <code>--create-output-bam-index false</code>, then a CSI built separately.</td>
+          <td>Handled before this investigation.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn"><b>Intervals are not the trigger.</b> It is tempting to blame <code>-L</code>, since the scatter path queries by interval. It isn't that. htsjdk resolves the index when it constructs the reader, so an indexed CRAM throws with no <code>-L</code> at all. The only way to read one is to have no index — which the scatter cannot do.</div>
+</section>
+
+<section>
+  <h2>What to use instead</h2>
+  <p class="dek">For each thing GATK needs, exactly one format survives.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>You need</th><th>Does not work</th><th>Works</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="site">Reads GATK can index</td>
+          <td><span class="no">CRAM + .crai</span> — converted to BAI on open</td>
+          <td><span class="yes">BAM + .csi</span></td>
+        </tr>
+        <tr>
+          <td class="site">Variants GATK can read</td>
+          <td><span class="no">.vcf.gz + .tbi</span> — cannot be built<br><span class="no">.vcf.gz + .csi</span> — builds, but GATK will not read it</td>
+          <td><span class="yes">.vcf + .idx</span> (Tribble)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>That second row is the one that costs time. A CSI index has no coordinate ceiling and <code>bcftools index -c</code> writes one happily — but GATK does not accept CSI for variants, and says so misleadingly:</p>
+
+  <pre class="err">A USER ERROR has occurred: An index is required but was not found for file ks.vcf.gz.
+Support for unindexed block-compressed files has been temporarily disabled.</pre>
+
+  <p>The index is right there. GATK simply cannot read that kind. Dropping the compression and letting GATK write its own Tribble <code>.idx</code> is the only combination that both builds and reads.</p>
+</section>
+
+<section>
+  <h2>Which of our genomes trip it</h2>
+  <p class="dek">Everything we grow sits comfortably under the line except two crops — and those two are over it by a factor of two to four.</p>
+
+  <figure>
+    <div class="chart">
+      <div class="chart-head">Longest contig per reference</div>
+      <div class="plot">
+        <div class="lbl"><span class="sp">onion</span> DH066619 t2t</div>
+        <div class="track over"><div class="bar" style="width:100%"></div></div>
+        <div class="val over">2,100,000,000 <span class="x">3.9×</span></div>
+
+        <div class="lbl"><span class="sp">onion</span> DHW30006</div>
+        <div class="track over"><div class="bar" style="width:96.3%"></div></div>
+        <div class="val over">2,021,949,759 <span class="x">3.8×</span></div>
+
+        <div class="lbl"><span class="sp">pepper</span> Chiltepin 2.0</div>
+        <div class="track over"><div class="bar" style="width:51.2%"></div></div>
+        <div class="val over">1,074,497,993 <span class="x">2.0×</span></div>
+
+        <div class="lbl"><span class="sp">onion</span> GCA_030765085.1 <span class="here">◂ in use</span></div>
+        <div class="track over"><div class="bar" style="width:50.3%"></div></div>
+        <div class="val over">1,056,413,696 <span class="x">2.0×</span></div>
+
+        <div class="lbl"><span class="sp">pepper</span> Zunla-1 2.0</div>
+        <div class="track over"><div class="bar" style="width:34.0%"></div></div>
+        <div class="val over">714,758,103 <span class="x">1.3×</span></div>
+
+        <div class="lbl"><span class="sp">cabbage</span> JZS v2</div>
+        <div class="track"><div class="bar" style="width:3.5%"></div></div>
+        <div class="val">74,510,869 <span class="x">0.14×</span></div>
+
+        <div class="lbl"><span class="sp">maxima</span> v1.1</div>
+        <div class="track"><div class="bar" style="width:3.2%"></div></div>
+        <div class="val">68,193,771 <span class="x">0.13×</span></div>
+
+        <div class="lbl"><span class="sp">carrot</span> v3.0</div>
+        <div class="track"><div class="bar" style="width:3.1%"></div></div>
+        <div class="val">64,558,952 <span class="x">0.12×</span></div>
+
+        <div class="lbl"><span class="sp">beans</span> v2.0</div>
+        <div class="track"><div class="bar" style="width:3.0%"></div></div>
+        <div class="val">63,048,260 <span class="x">0.12×</span></div>
+
+        <div class="lbl"><span class="sp">melon</span> DHL92 v4</div>
+        <div class="track"><div class="bar" style="width:1.7%"></div></div>
+        <div class="val">36,141,931 <span class="x">0.07×</span></div>
+
+        <div class="axis"><span class="tick">2²⁹ ceiling · 536,870,911 bp</span></div>
+      </div>
+
+      <div class="legend">
+        <span class="key"><span class="sw s"></span> Over the ceiling — needs BAM + CSI and plain VCF</span>
+        <span class="key"><span class="sw g"></span> Under — CRAM and bgzipped VCF work as before</span>
+        <span class="key"><span class="sw l"></span> 2<sup>29</sup>−1 = 536,870,911 bp</span>
+      </div>
+    </div>
+    <figcaption>Multipliers are the longest contig divided by the ceiling. Onion chromosomes are naturally ~2.4&nbsp;Gb; GCA_030765085.1 already arrives pre-split into ~1.06&nbsp;Gb pieces, which clears the 2&nbsp;Gb signed-int limit but not this one.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Diagnosing it in three commands</h2>
+  <p class="dek">If a GATK step dies on a new species, this is the order to check things.</p>
+
+  <ol class="steps">
+    <li>
+      <h3>Measure the longest contig</h3>
+      <p>Anything above 536,870,911 means every index decision below changes.</p>
+      <pre>sort -k2,2nr ref.fa.fai | head -1</pre>
+    </li>
+    <li>
+      <h3>Confirm the fingerprint</h3>
+      <p>Search the stack trace for <code>length 32770</code>. That constant appears in no other failure. <code>CRAMBAIIndexer</code> in the frames means reads; <code>TabixIndexCreator</code> means variants.</p>
+    </li>
+    <li>
+      <h3>Prove it is the index, not the data</h3>
+      <p>Move the <code>.crai</code> aside and rerun without <code>-L</code>. If it now works, the file was never the problem — the index beside it was.</p>
+      <pre>mv sample.cram.crai /tmp/ &amp;&amp; gatk CountReads -R ref.fa -I sample.cram</pre>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>What changed in the pipeline</h2>
+  <p class="dek">All of it keys off one predicate, so genomes under the ceiling are untouched — same plan, same steps, same formats.</p>
+
+  <div class="files">
+    <div class="file">
+      <div class="fp">alignmentdir/scatter.go</div>
+      <p class="fd"><code>refExceedsBaiLimit()</code> reads the <code>.fai</code> and decides everything downstream. <code>gatkReadsNeedBam()</code> and <code>variantSuffixes()</code> derive from it, so reads and variants can never disagree about which reference they are on.</p>
+    </div>
+    <div class="file">
+      <div class="fp">alignmentdir/dirAlign.go</div>
+      <p class="fd">A new <code>materialize_rgmd_bam</code> step decodes the CRAM back to a CSI-indexed BAM when that is the only surviving alignment. The bootstrap chain's seven VCF paths follow <code>variantSuffixes</code>. The run announces the decision up front.</p>
+    </div>
+    <div class="file">
+      <div class="fp">alignmentdir/refcheck.go <span class="new">new</span></div>
+      <p class="fd">Catches a contig-name mismatch during the scan and names the fix, instead of letting it surface hours later as a missing-sequence error from inside htslib.</p>
+    </div>
+    <div class="file">
+      <div class="fp">alignment/helper.go</div>
+      <p class="fd"><code>CramToBam()</code> and <code>RgmdBamPath()</code>. Also corrects a comment that claimed <code>.crai</code> escapes the limit — true of the format, false of GATK, and the assumption this whole class of failure hid behind.</p>
+    </div>
+    <div class="file">
+      <div class="fp">utils/utils.go</div>
+      <p class="fd"><code>ValidateGvcf</code> looks for <code>.tbi</code> or <code>.idx</code> according to the file it was handed, rather than assuming bgzip.</p>
+    </div>
+    <div class="file">
+      <div class="fp">scripts/reheader-crams.sh <span class="new">new</span></div>
+      <p class="fd">Repoints CRAMs at a renamed reference. Verifies before it writes, refuses anything that is not a pure rename, keeps the replaced header, and is safe to run twice.</p>
+    </div>
+    <div class="file">
+      <div class="fp">scripts/run-local.sh</div>
+      <p class="fd">Peak-disk estimate raised from 4× to 6× the staged bytes, because an affected sample now also holds the decoded BAM.</p>
+    </div>
+  </div>
+
+  <h3>The cost, honestly</h3>
+  <p>On an affected reference a resuming sample decodes its CRAM to a BAM once — roughly twice the CRAM in disk, deleted at that sample's cleanup. A sample aligned from scratch pays nothing: MarkDuplicates already wrote the BAM, and converting it to CRAM does not delete it, so the plan just indexes what is already there.</p>
+  <p>If disk gets tight, the cheaper shape is to slice per shard — extract each interval into a small BAM with samtools, which reads the <code>.crai</code> without complaint, capping peak at one shard instead of a whole BAM. More moving parts, which is why it is not the default.</p>
+</section>
+
+<section>
+  <h2>The trap sitting behind it</h2>
+  <p class="dek">Unrelated to the ceiling, but it surfaces the moment the ceiling is cleared, so expect both together.</p>
+
+  <p>Our onion CRAMs were aligned against the GenBank-named reference (<code>CM060928.1</code>). The assembly directory now holds a renamed copy (<code>chr1_0-1056413696</code>). Same sequence — all 2,099 M5 checksums and lengths match, in order — but CRAM resolves its reference <em>by contig name</em>, so nothing could decode them:</p>
+
+  <pre class="err"><span class="c">[W::cram_get_ref]</span> Reference file given, but ref 'CM060928.1' not present
+<span class="c">[E::refs_load_fai]</span> Failed to open reference file '/mnt/u/Genomes/Onion/...fna.gz'</pre>
+
+  <p>It falls back to the <code>UR:</code> path baked into the header at alignment time, which had long since gone. Because the sequences were provably identical, the fix was a header rewrite rather than a realignment — and it turned out to be nearly free. Dropping the dead <code>UR:</code> field more than paid for the longer contig names, so the new header fits inside the old one's footprint and samtools pads it in place:</p>
+
+  <pre>scripts/reheader-crams.sh -r assembly/..._corrected.fa -d /mnt/v/DATA/onion</pre>
+
+  <div class="note"><b>Nothing after the header moves</b>, so existing <code>.crai</code> files stay byte-identical and no reindex is needed. Five 40–80&nbsp;GB CRAMs migrated in seconds rather than hours. Verify with M5 first — if the checksums differ it is a different assembly, not a rename, and the script will refuse.</div>
+</section>
+
+<section>
+  <h2>Still open</h2>
+  <p><code>variants/createGvcfs.go</code> hardcodes <code>.g.vcf.gz</code>, and a per-chromosome gVCF on a 1.06&nbsp;Gb contig needs exactly the <code>.tbi</code> that cannot be built. <strong><code>CreateGvcfs</code> will fail the same way on onion and pepper.</strong></p>
+  <p>It was left alone deliberately: changing the gVCF format pulls in the naming convention, GenomicsDB import and <code>MergeGvcfs</code> together, and that is a decision worth making on its own rather than folding into a BQSR fix. Whoever picks it up should start from the format table above — the same three options, the same single survivor.</p>
+</section>
+
+<footer>
+  <p>Verified end to end on a real sample through all six pipeline steps — index, decode, bootstrap known sites, both recalibration passes, ApplyBQSR, conversion and cleanup — with no overflow at any stage. The <code>.crai</code>-hidden test and the CSI-VCF rejection above were both reproduced directly against GATK 4.6.2.0 / htsjdk on the same reference.</p>
+</footer>
+
+</div>

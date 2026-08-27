@@ -74,7 +74,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 
 			readGroup := fmt.Sprintf("@RG\\tID:%s.1\\tSM:%s\\tLB:%s\\tPL:BGISEQ", sampleName, sampleName, libName)
-			cmdStr := fmt.Sprintf(`bwa-mem2 mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortedBam)
+			cmdStr := fmt.Sprintf(`bwa-mem2 mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -T %s -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortPrefix(sortedBam), sortedBam)
 			fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
 
 			var memErr error
@@ -160,7 +160,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			slog.Info("ALIGNMENT", "PROGRAM", "BWA_MEM", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED") //, "CMD", "ALL")
 
 			readGroup := fmt.Sprintf("@RG\\tID:%s.1\\tSM:%s\\tLB:%s\\tPL:BGISEQ", sampleName, sampleName, libName)
-			cmdStr := fmt.Sprintf(`bwa mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortedBam)
+			cmdStr := fmt.Sprintf(`bwa mem -t %v -M -Y -R '%s' %s %s %s | samtools sort -T %s -o %s`, threads, readGroup, referencePath, forwardPath, reversePath, sortPrefix(sortedBam), sortedBam)
 			fmt.Printf("%s\n--------------------------------------------\n\n", cmdStr)
 
 			var memErr error
@@ -245,7 +245,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("ALIGNMENT", "PROGRAM", "BOWTIE2", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			cmdStr := fmt.Sprintf(`bowtie2 -I 0 -X 1000 -x %s -1 %s -2 %s --end-to-end --sensitive --threads %v  --rg-id %s.1 --rg PL:BGISEQ --rg SM:%s --rg LB:%s | samtools sort -o %s`, referencePath, forwardPath, reversePath, threads, sampleName, sampleName, libName, sortedBam)
+			cmdStr := fmt.Sprintf(`bowtie2 -I 0 -X 1000 -x %s -1 %s -2 %s --end-to-end --sensitive --threads %v  --rg-id %s.1 --rg PL:BGISEQ --rg SM:%s --rg LB:%s | samtools sort -T %s -o %s`, referencePath, forwardPath, reversePath, threads, sampleName, sampleName, libName, sortPrefix(sortedBam), sortedBam)
 			fmt.Println(cmdStr)
 			var bowErr error
 			if verbose {
@@ -330,7 +330,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s`, sortedBam, rgBam, sampleName, libName, sampleName)
+			rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s --tmp-dir %s`, sortedBam, rgBam, sampleName, libName, sampleName, WorkTmpDir(rgBam))
 			fmt.Printf("%s\n-----------------------------------------------\n\n", rgCmdStr)
 			var rgErr error
 			if verbose {

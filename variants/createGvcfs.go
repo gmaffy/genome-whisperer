@@ -533,7 +533,7 @@ func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 		return nil, 0, fmt.Errorf("reference fasta %s is not a regular file", opts.RefFasta)
 	}
 
-	dictFilePath := opts.RefFasta[:len(opts.RefFasta)-len(filepath.Ext(opts.RefFasta))] + ".dict"
+	dictFilePath := utils.DictPath(opts.RefFasta)
 	if _, dErr := os.Stat(dictFilePath); dErr != nil {
 		return nil, 0, fmt.Errorf("reference dict file %s does not exist", dictFilePath)
 	}
@@ -951,7 +951,7 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, theGVCF string
 	if len(chroms) == 1 {
 		regionArg = chroms[0].ID
 	} else {
-		f, err := os.CreateTemp("", "gatk_intervals_contigs_*.list")
+		f, err := os.CreateTemp(utils.WorkTmpDir(theGVCF), "gatk_intervals_contigs_*.list")
 		if err != nil {
 			return "", fmt.Errorf("creating GATK interval list: %w", err)
 		}
@@ -964,8 +964,8 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, theGVCF string
 	}
 
 	hapCmdStr := fmt.Sprintf(
-		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s`,
-		refFile, bam, regionArg, theGVCF, gatkLogLevel,
+		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s --tmp-dir %s`,
+		refFile, bam, regionArg, theGVCF, gatkLogLevel, utils.WorkTmpDir(theGVCF),
 	)
 	fmt.Printf("\n%s\n\n", hapCmdStr)
 	return theGVCF, utils.RunCmd(hapCmdStr, verbose)

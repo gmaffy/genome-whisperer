@@ -203,7 +203,7 @@ func writeSampleMap(path string, gvcfs []string) error {
 // should hold every chromosome to, not an estimate inferred from the gVCFs
 // found.
 func FindExistingGvcfs(opts Options) (map[string][]string, int, error) {
-	dictFilePath := opts.RefFasta[:len(opts.RefFasta)-len(filepath.Ext(opts.RefFasta))] + ".dict"
+	dictFilePath := utils.DictPath(opts.RefFasta)
 	chroms, contigs, err := getChromsAndContigs(dictFilePath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("getting chromosomes and contigs: %w", err)
@@ -357,13 +357,20 @@ func mergeWorkDir(opts Options, chrom string) string {
 }
 
 // gatkScratchDir returns the directory passed as GATK's own --tmp-dir. It is
-// kept separate from mergeWorkDir, rooted at the OS temp dir (os.TempDir(),
-// which honours $TMPDIR) rather than opts.LocalWorkDir, so it can live on
-// whatever scratch disk the machine is configured with and is cleaned up
+// kept separate from mergeWorkDir, rooted at utils.TmpBase() rather than at
+// opts.LocalWorkDir, so it lives on the machine's scratch disk and is cleaned up
 // independently of the GenomicsDB workspace.
+//
+// Unlike the alignment pipeline's large spills this stays on the default base
+// even when that is a RAM-backed tmpfs, because GenotypeGVCFs streams and the
+// import writes its bulk into the workspace, not here. What GenomicsDBImport
+// does put here still grows with cohort size and interval length, so a cohort
+// too large for the default base is moved with $GENOME_WHISPERER_TMPDIR, which
+// utils.TmpBase() reads.
 func gatkScratchDir(opts Options, chrom string) string {
-	return filepath.Join(os.TempDir(), "genome-whisperer-merge",
-		strings.ToLower(opts.Species), callerMergerTag(opts), strings.ReplaceAll(chrom, ".", "_"))
+	return filepath.Join(utils.TmpBase(), "genome-whisperer", "merge",
+		strings.ToLower(opts.Species), opts.RefVer, callerMergerTag(opts),
+		strings.ReplaceAll(chrom, ".", "_"))
 }
 
 // mergeChromGATK joint-genotypes one chromosome with GenomicsDBImport followed by
@@ -394,6 +401,15 @@ func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, 
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return fmt.Errorf("creating %s: %w", tmpDir, err)
 	}
+	// Every return below this point has to take the scratch with it. Unlike
+	// workDir, which an interrupted import resumes from, nothing in here is
+	// reusable — and on a tmpfs base a failed chromosome would otherwise hold
+	// its scratch as memory until the machine is rebooted.
+	defer func() {
+		if rErr := os.RemoveAll(tmpDir); rErr != nil {
+			color.Yellow("could not clean up %s: %v\n", tmpDir, rErr)
+		}
+	}()
 
 	fingerprint, err := gdbFingerprint(gvcfs, seqs)
 	if err != nil {
@@ -453,14 +469,11 @@ func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, 
 		return fmt.Errorf("gatk GenotypeGVCFs: %w", err)
 	}
 
-	// The workspace and temp files are large and are not needed once the joint
-	// VCF exists. tmpDir no longer lives under workDir, so both are removed
-	// explicitly.
+	// The workspace is large and is not needed once the joint VCF exists. The
+	// scratch directory is handled by the deferred cleanup above, which also
+	// covers the failure paths.
 	if rErr := os.RemoveAll(workDir); rErr != nil {
 		color.Yellow("could not clean up %s: %v\n", workDir, rErr)
-	}
-	if rErr := os.RemoveAll(tmpDir); rErr != nil {
-		color.Yellow("could not clean up %s: %v\n", tmpDir, rErr)
 	}
 	return nil
 }
@@ -547,7 +560,7 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 		return "", err
 	}
 
-	dictFilePath := opts.RefFasta[:len(opts.RefFasta)-len(filepath.Ext(opts.RefFasta))] + ".dict"
+	dictFilePath := utils.DictPath(opts.RefFasta)
 	if _, dErr := os.Stat(dictFilePath); dErr != nil {
 		return "", fmt.Errorf("reference dict file %s does not exist", dictFilePath)
 	}
@@ -976,9 +989,13 @@ func ConcatenateVcfs(vcfs []string, outVCF string, verbose bool) (string, error)
 		return outVCF, nil
 	}
 
-	// The input list lives next to the output, so parallel runs of different
-	// caller/merger combinations cannot overwrite each other's list.
-	vcfListPath := strings.TrimSuffix(outVCF, ".vcf.gz") + ".vcfs.list"
+	// The list is scratch, so it lives in the scratch directory — keyed by the
+	// output's own directory, and named after the output, so parallel runs of
+	// different caller/merger combinations cannot overwrite each other's list.
+	tmpDir := utils.WorkTmpDir(outVCF)
+	vcfListPath := filepath.Join(tmpDir,
+		strings.TrimSuffix(filepath.Base(outVCF), ".vcf.gz")+".vcfs.list")
+	defer os.Remove(vcfListPath)
 	f, err := os.Create(vcfListPath)
 	if err != nil {
 		return "", fmt.Errorf("creating %s: %w", vcfListPath, err)
@@ -993,7 +1010,7 @@ func ConcatenateVcfs(vcfs []string, outVCF string, verbose bool) (string, error)
 		return "", fmt.Errorf("closing %s: %w", vcfListPath, cErr)
 	}
 
-	cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s`, vcfListPath, outVCF)
+	cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s --tmp-dir %s`, vcfListPath, outVCF, tmpDir)
 	if err := utils.RunCmd(cmd, verbose); err != nil {
 		return "", fmt.Errorf("gatk MergeVcfs: %w", err)
 	}

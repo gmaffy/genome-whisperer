@@ -84,7 +84,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 		log.Fatal(err)
 	}
 
-	dictFilePath := resolvedFasta[:len(resolvedFasta)-len(filepath.Ext(resolvedFasta))] + ".dict"
+	dictFilePath := utils.DictPath(resolvedFasta)
 	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
 		color.Red("Reference dict file: %s does not exist\n", dictFilePath)
 		log.Fatal(dicfErr)
@@ -141,14 +141,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 					//color.Yellow("[%s] has INVALID sorted bam: %s\n", sampleName, bamPath)
 				}
 				sampleState.SortedBam.ValidateErr = valErr
-				baiFile := strings.Replace(bamPath, ".bam", ".bai", 1)
-				baiInfo, err := os.Stat(baiFile)
-				if err == nil && baiInfo.Mode().IsRegular() {
-					//color.Red("bai file: %s is not a valid regular file\n", baiFile)
-					//log.Fatal(err)
-					sampleState.SortedBam.IndexPresent = true
-					sampleState.SortedBam.IndexSize = baiInfo.Size()
-				}
+				setIndexInfo(&sampleState.SortedBam, verbose)
 
 			} else if strings.HasSuffix(name, "rgmd.bam") || strings.HasSuffix(name, "RGMD.bam") {
 				sampleState.RgmdBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
@@ -162,15 +155,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 					//color.Yellow("[%s] has INVALID rgmd bam: %s\n", sampleName, bamPath)
 				}
 				sampleState.RgmdBam.ValidateErr = valErr
-				baiFile := strings.Replace(bamPath, ".bam", ".bai", 1)
-				baiInfo, err := os.Stat(baiFile)
-				if err != nil || !baiInfo.Mode().IsRegular() {
-					color.Red("bai file: %s is not a valid regular file\n", baiFile)
-					//log.Fatal(err)
-				} else {
-					sampleState.RgmdBam.IndexPresent = true
-					sampleState.RgmdBam.IndexSize = baiInfo.Size()
-				}
+				setIndexInfo(&sampleState.RgmdBam, verbose)
 
 			} else if strings.HasSuffix(name, "rgmd.cram") || strings.HasSuffix(name, "RGMD.cram") {
 				sampleState.RgmdCram = FileInfo{Path: bamPath, Size: bamSize, Present: true}
@@ -181,23 +166,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 					//color.Green("[%s] has VALID rgmd cram: %s\n", sampleName, bamPath)
 				}
 				sampleState.RgmdCram.ValidateErr = valErr
-				baiFile := strings.Replace(bamPath, ".cram", ".crai", 1)
-				baiInfo, err1 := os.Stat(baiFile)
-
-				baiFile2 := fmt.Sprintf("%s.crai", bamPath)
-				baiInfo2, err2 := os.Stat(baiFile2)
-
-				if err1 == nil && baiInfo.Mode().IsRegular() {
-					sampleState.RgmdCram.IndexPresent = true
-					sampleState.RgmdCram.IndexSize = baiInfo.Size()
-				} else if err2 == nil && baiInfo2.Mode().IsRegular() {
-					sampleState.RgmdCram.IndexPresent = true
-					sampleState.RgmdCram.IndexSize = baiInfo2.Size()
-				} else {
-					//color.Red("bai file: %s is not a valid regular file\n", baiFile)
-					sampleState.RgmdCram.IndexPresent = false
-
-				}
+				setIndexInfo(&sampleState.RgmdCram, verbose)
 
 			} else if strings.HasSuffix(name, "bqsr.bam") || strings.HasSuffix(name, "BQSR.bam") {
 				sampleState.BqsrBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
@@ -208,14 +177,7 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 					color.Green("[%s] has VALID bqsr bam: %s\n", sampleName, bamPath)
 				}
 
-				baiFile := strings.Replace(bamPath, ".bam", ".bai", 1)
-				baiInfo, err := os.Stat(baiFile)
-				if err == nil && baiInfo.Mode().IsRegular() {
-					//color.Red("bai file: %s is not a valid regular file\n", baiFile)
-					//log.Fatal(err)
-					sampleState.BqsrBam.IndexPresent = true
-					sampleState.BqsrBam.IndexSize = baiInfo.Size()
-				}
+				setIndexInfo(&sampleState.BqsrBam, verbose)
 
 			} else if strings.HasSuffix(name, "bqsr.cram") || strings.HasSuffix(name, "BQSR.cram") {
 				sampleState.BqsrCram = FileInfo{Path: bamPath, Size: bamSize, Present: true}
@@ -225,25 +187,9 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 					sampleState.BqsrCram.Valid = true
 					color.Green("[%s] has VALID bqsr cram: %s\n", sampleName, bamPath)
 				}
-				baiFile := strings.Replace(bamPath, ".cram", ".crai", 1)
-				baiInfo, err1 := os.Stat(baiFile)
-
-				baiFile2 := fmt.Sprintf("%s.crai", bamPath)
-				baiInfo2, err2 := os.Stat(baiFile2)
-
-				if err1 == nil && baiInfo.Mode().IsRegular() {
-					sampleState.BqsrCram.IndexPresent = true
-					sampleState.BqsrCram.IndexSize = baiInfo.Size()
-				} else if err2 == nil && baiInfo2.Mode().IsRegular() {
-					sampleState.BqsrCram.IndexPresent = true
-					sampleState.BqsrCram.IndexSize = baiInfo2.Size()
-				} else {
-					//color.Red("bai file: %s is not a valid regular file\n", baiFile)
-					sampleState.BqsrCram.IndexPresent = false
-
-				}
+				setIndexInfo(&sampleState.BqsrCram, verbose)
 			} else {
-				if !strings.HasSuffix(name, ".bai") && !strings.HasSuffix(name, ".crai") && !strings.HasSuffix(name, ".pdf") {
+				if !strings.HasSuffix(name, ".bai") && !strings.HasSuffix(name, ".csi") && !strings.HasSuffix(name, ".crai") && !strings.HasSuffix(name, ".pdf") {
 					color.Blue("[%s] Random artifact found: %s\n", sampleName, bamPath)
 					sampleState.OtherFiles = append(sampleState.OtherFiles, FileInfo{Path: bamPath, Size: bamSize, Present: true})
 

@@ -55,7 +55,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		cmdStr := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s`, ref, bam, ks, recalTable)
+		cmdStr := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s --maximum-cycle-value %d --tmp-dir %s`, ref, bam, ks, recalTable, MaxCycleValue, WorkTmpDir(recalTable))
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStr))
 
 		if verbose {
@@ -79,7 +79,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "ApplyBQSR", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		aCmdStr := fmt.Sprintf(`gatk ApplyBQSR -R %s -I %s -bqsr %s -O %s`, ref, bam, recalTable, bqsrBam)
+		aCmdStr := fmt.Sprintf(`gatk ApplyBQSR -R %s -I %s -bqsr %s -O %s --tmp-dir %s`, ref, bam, recalTable, bqsrBam, WorkTmpDir(bqsrBam))
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", aCmdStr))
 		var aErr error
 		if verbose {
@@ -103,7 +103,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "BaseRecalibrator", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		cmdStr2 := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s`, ref, bqsrBam, ks, recalTable2)
+		cmdStr2 := fmt.Sprintf(`gatk BaseRecalibrator -R %s -I %s %s -O %s --maximum-cycle-value %d --tmp-dir %s`, ref, bqsrBam, ks, recalTable2, MaxCycleValue, WorkTmpDir(recalTable2))
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStr2))
 
 		var bErr error
@@ -128,7 +128,7 @@ func Recalibrate(ref string, bam string, knownSites []string, logFilePath string
 
 	} else {
 		jlog.Info("BQSR", "PROGRAM", "AnalyzeCovariates", "SAMPLE", bqsrBam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-		cmdStrA := fmt.Sprintf(`gatk AnalyzeCovariates -before %s -after %s -plots %s `, recalTable, recalTable2, plots)
+		cmdStrA := fmt.Sprintf(`gatk AnalyzeCovariates -before %s -after %s -plots %s --tmp-dir %s`, recalTable, recalTable2, plots, WorkTmpDir(plots))
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStrA))
 
 		var A2err error
@@ -245,7 +245,7 @@ func CreateKnownVariants(ref string, bam string, logFilePath string, gatkLogLeve
 		slog.Info(msg)
 
 	} else {
-		cmdStrHap := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -O %s`, ref, bam, rawVCF)
+		cmdStrHap := fmt.Sprintf(`gatk HaplotypeCaller -R %s -I %s -O %s --tmp-dir %s`, ref, bam, rawVCF, WorkTmpDir(rawVCF))
 		fmt.Println(cmdStrHap)
 		jlog.Info("BQSR", "PROGRAM", "HaplotypeCaller", "SAMPLE", bam, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 		slog.Info(fmt.Sprintf("%s\n-------------------------------------------------\n\n", cmdStrHap))

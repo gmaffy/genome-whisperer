@@ -124,9 +124,22 @@ func TestMergeWorkDirAndGatkScratchDirAreLocal(t *testing.T) {
 		t.Errorf("mergeWorkDir must not live under JointVcfDir: %s", got)
 	}
 
-	wantTmp := filepath.Join(os.TempDir(), "genome-whisperer-merge", "cotton", "gatk_glnexus", "A01")
+	wantTmp := filepath.Join(os.TempDir(), "genome-whisperer", "merge", "cotton", "AD1.1", "gatk_glnexus", "A01")
 	if got := gatkScratchDir(opts, "A01"); got != wantTmp {
 		t.Errorf("gatkScratchDir =\n  %s\nwant\n  %s", got, wantTmp)
+	}
+}
+
+// A cohort whose import scratch will not fit on the default base has to be
+// movable without a code change.
+func TestGatkScratchDirHonoursTmpDirOverride(t *testing.T) {
+	opts := Options{Species: "cotton", RefVer: "AD1.1", Caller: "gatk", Merger: "glnexus"}
+	base := t.TempDir()
+	t.Setenv("GENOME_WHISPERER_TMPDIR", base)
+
+	want := filepath.Join(base, "genome-whisperer", "merge", "cotton", "AD1.1", "gatk_glnexus", "A01")
+	if got := gatkScratchDir(opts, "A01"); got != want {
+		t.Errorf("gatkScratchDir =\n  %s\nwant\n  %s", got, want)
 	}
 }
 
