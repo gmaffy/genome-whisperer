@@ -56,7 +56,7 @@ func alignmentSQ(path string) ([]sqRecord, error) {
 
 // referenceSQ reads the .dict beside a reference FASTA.
 func referenceSQ(refFasta string) ([]sqRecord, error) {
-	dictPath := utils.DictPath(refFasta)
+	dictPath := utils.ResolveDictPath(refFasta)
 	data, err := os.ReadFile(dictPath)
 	if err != nil {
 		return nil, err

@@ -3,7 +3,6 @@ package variants
 import (
 	"bufio"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
-	"github.com/schollz/progressbar/v3"
 )
 
 // Options is everything the pipeline needs, for every stage and every input
@@ -174,7 +172,8 @@ func FindSampleAlignments(opts Options) ([]SampleWork, []string, error) {
 				inlineDesc = "Checking alignment files with deep validation"
 			}
 		}
-		bar := progressbar.Default(int64(len(opts.Bams)), inlineDesc)
+		bar := utils.NewBar(int64(len(opts.Bams)), inlineDesc)
+		defer utils.AttachBar(bar)()
 
 		var wg sync.WaitGroup
 		for i := 0; i < numWorkers; i++ {
@@ -271,7 +270,8 @@ func FindSampleAlignments(opts Options) ([]SampleWork, []string, error) {
 			barDesc = "Discovering alignments with deep validation"
 		}
 	}
-	bar := progressbar.Default(int64(len(sampleList)), barDesc)
+	bar := utils.NewBar(int64(len(sampleList)), barDesc)
+	defer utils.AttachBar(bar)()
 
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
@@ -446,7 +446,8 @@ func discoverValidGvcfs(opts Options, jobs []gvcfJob, maxParallel int) (valid ma
 			desc = "Discovering valid gVCFs (deep validation)"
 		}
 	}
-	bar := progressbar.Default(int64(len(jobs)), desc)
+	bar := utils.NewBar(int64(len(jobs)), desc)
+	defer utils.AttachBar(bar)()
 
 	var wg sync.WaitGroup
 	for w := 0; w < maxParallel; w++ {
@@ -533,10 +534,11 @@ func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 		return nil, 0, fmt.Errorf("reference fasta %s is not a regular file", opts.RefFasta)
 	}
 
-	dictFilePath := utils.DictPath(opts.RefFasta)
-	if _, dErr := os.Stat(dictFilePath); dErr != nil {
-		return nil, 0, fmt.Errorf("reference dict file %s does not exist", dictFilePath)
+	if dErr := utils.EnsureGatkDict(opts.RefFasta); dErr != nil {
+		return nil, 0, dErr
 	}
+	// Guaranteed to exist by the check above, and the same file GATK will read.
+	dictFilePath := utils.DictPath(opts.RefFasta)
 
 	caller := strings.ToLower(opts.Caller)
 	if caller != "gatk" && caller != "deepvariant" {
@@ -640,29 +642,15 @@ func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 	)
 
 	// One tick per job regardless of outcome, so the bar always reaches 100%.
-	// AddDetail keeps a rolling window of the most recent worker activity
-	// rendered above the bar (one row per worker, capped so it never outgrows
-	// a typical terminal); the description underneath it carries a running
-	// done/remaining/failed tally.
-	detailRows := maxParallel
-	if detailRows > 10 {
-		detailRows = 10
-	}
-	bar := progressbar.NewOptions64(
-		int64(len(remaining)),
-		progressbar.OptionSetDescription("Creating gVCFs"),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionSetWidth(10),
-		progressbar.OptionShowTotalBytes(true),
-		progressbar.OptionThrottle(65*time.Millisecond),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowIts(),
-		progressbar.OptionOnCompletion(func() { fmt.Fprint(os.Stderr, "\n") }),
-		progressbar.OptionSpinnerType(14),
-		progressbar.OptionFullWidth(),
-		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionSetMaxDetailRow(detailRows),
-	)
+	// Worker activity is reported with utils.Printf, which the attached bar
+	// flushes above itself, so the lines scroll past a bar that stays on the
+	// bottom line; the description carries a running done/remaining/failed
+	// tally. This replaces the fixed AddDetail window that used to sit below
+	// the bar: a detail region and a verbose child's output are two different
+	// cursor regimes writing the same frame, and the whole point here is that
+	// only one thing paints the terminal at a time.
+	bar := utils.NewBar(int64(len(remaining)), "Creating gVCFs")
+	defer utils.AttachBar(bar)()
 
 	// reportProgress refreshes the description with how many jobs are done,
 	// left and failed. Called with the current failedTasks count still held
@@ -712,9 +700,9 @@ func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 				}
 
 				if caller == "gatk" {
-					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s %s gvcf with GATK", workerID, verb, j.sample.label(), j.chrom))
+					utils.Printf("[Worker %d] %s %s %s gvcf with GATK\n", workerID, verb, j.sample.label(), j.chrom)
 				} else {
-					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s %s gvcf with DeepVariant (%s)", workerID, verb, j.sample.label(), j.chrom, modelType))
+					utils.Printf("[Worker %d] %s %s %s gvcf with DeepVariant (%s)\n", workerID, verb, j.sample.label(), j.chrom, modelType)
 				}
 
 				var cErr error
@@ -726,7 +714,7 @@ func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 				_ = bar.Add(1)
 
 				if cErr != nil {
-					_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s: FAILED", workerID, j.sample.label(), j.chrom))
+					utils.Printf("[Worker %d] %s %s: FAILED\n", workerID, j.sample.label(), j.chrom)
 					color.Red("[Worker %d] [%s] creating gVCF for %s FAILED: %v\n\n", workerID, j.sample.label(), j.chrom, cErr)
 					mu.Lock()
 					failedTasks = append(failedTasks, FailedTask{Sample: j.sample.Sample, Chrom: j.chrom, Reason: cErr})
@@ -736,7 +724,7 @@ func CreateGvcfs(opts Options) (map[string][]string, int, error) {
 					continue
 				}
 
-				_ = bar.AddDetail(fmt.Sprintf("[Worker %d] %s %s: done", workerID, j.sample.label(), j.chrom))
+				utils.Printf("[Worker %d] %s %s: done\n", workerID, j.sample.label(), j.chrom)
 				mu.Lock()
 				gvcfs[j.chrom] = append(gvcfs[j.chrom], theGVCF)
 				created++
@@ -833,12 +821,15 @@ func (s SampleWork) label() string {
 // intermediate file (sorted.bam, an untrimmed bqsr.bam left behind by a
 // partial run, etc.) is not mistaken for the finished one.
 //
-// Long-read samples prefer an "rgmd"/"RGMD" tag too — MarkDuplicates is still
-// expected to have run, just not BQSR, which is not supported for pbmm2 (see
-// dirAlign.go). But the directory-scanning AlignReads pipeline skips
-// long-read samples outright, so there is no guarantee that tag was ever
-// applied. When isLongRead is true and none of the matches carry it, every
-// match is returned untouched rather than leaving the sample with nothing.
+// Long-read samples prefer an "rgmd"/"RGMD" tag too — duplicate marking is
+// still expected to have run, just not BQSR, which is never applied to a
+// long-read sample (see dirAlign.go). The directory-scanning AlignReads
+// pipeline now produces that tag for long-read samples like any other, so the
+// untagged fallback below is for directories it has not processed: an
+// externally produced MENINA_LONG_READS.aligned.cram that was dropped in by
+// hand and never adopted. When isLongRead is true and none of the matches carry
+// the tag, every match is returned untouched rather than leaving the sample
+// with nothing.
 // FindSampleAlignments still requires exactly one candidate either way, so an
 // actually-ambiguous directory (e.g. a raw file and a MarkDuplicates-processed
 // one both present) is still caught, just one level up.
@@ -967,7 +958,7 @@ func CreateGvcfGATK(bam string, refFile string, chroms []SeqInfo, theGVCF string
 		`gatk HaplotypeCaller -R %s -I %s -L %s -O %s -ERC GVCF --verbosity %s --tmp-dir %s`,
 		refFile, bam, regionArg, theGVCF, gatkLogLevel, utils.WorkTmpDir(theGVCF),
 	)
-	fmt.Printf("\n%s\n\n", hapCmdStr)
+	utils.Printf("\n%s\n\n", hapCmdStr)
 	return theGVCF, utils.RunCmd(hapCmdStr, verbose)
 }
 
@@ -1001,7 +992,7 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, theGVCF string, 
 
 	// Remove intermediate directory if it exists to ensure a clean start for re-runs
 	if _, err := os.Stat(intermediatePath); err == nil {
-		slog.Info("Removing existing intermediate directory", "path", intermediatePath)
+		utils.Printf("Removing existing intermediate directory: %s\n", intermediatePath)
 		if err := os.RemoveAll(intermediatePath); err != nil {
 			return "", fmt.Errorf("removing existing intermediate directory %s: %w", intermediatePath, err)
 		}
@@ -1027,7 +1018,7 @@ func CreateGvcfDV(bam string, refFile string, chroms []SeqInfo, theGVCF string, 
 	// directory is removed (not a tmp_* glob) so concurrent jobs writing to the
 	// same gvcf directory are not disturbed.
 	if rErr := os.RemoveAll(intermediatePath); rErr != nil {
-		slog.Warn("removing DeepVariant intermediate directory", "path", intermediatePath, "err", rErr)
+		color.Yellow("removing DeepVariant intermediate directory %s: %v\n", intermediatePath, rErr)
 	}
 
 	return theGVCF, nil

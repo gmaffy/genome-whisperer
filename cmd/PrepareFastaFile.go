@@ -15,7 +15,13 @@ import (
 var PrepareFastaFileCmd = &cobra.Command{
 	Use:   "PrepareFastaFile",
 	Short: "Indexes fasta file with samtools, creates Gatk's fasta dictionary and indexes with aligner",
-	Long:  `genome-whisperer PrepareFastaFile -r <reference fasta file> -a <bwa, bwa-mem2, bowtie2 or pbmm2 (default: bwa-mem2)>`,
+	Long: `genome-whisperer PrepareFastaFile --reference <reference fasta file> --aligner <bwa-mem, bwa-mem2, bowtie2 or pbmm2 (default: bwa-mem2)>
+
+The reference may be plain or bgzipped. Either way the sequence dictionary is
+written under the name GATK derives for itself — genome.fa and genome.fa.gz
+both give genome.dict — since the GATK engine tools accept no other spelling.
+A genome prepared by an older version, carrying only genome.fa.gz.dict, is
+migrated in place by re-running this command.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("PrepareFastaFile called")
 		refFile, rErr := cmd.Flags().GetString("reference")

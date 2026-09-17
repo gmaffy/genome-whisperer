@@ -41,16 +41,17 @@ func TestIsBgzippedFasta(t *testing.T) {
 	}
 }
 
-// The dictionary is the one sidecar whose name differs between the two forms:
-// an uncompressed reference replaces its extension, a compressed one appends.
+// The dictionary name is the one GATK derives itself, which means the FASTA
+// extension is replaced for compressed and uncompressed alike. genome.fa and
+// genome.fa.gz share genome.dict; the engine tools look for nothing else.
 func TestDictPath(t *testing.T) {
 	cases := map[string]string{
 		"/g/genome.fa":       "/g/genome.dict",
 		"/g/genome.fasta":    "/g/genome.dict",
 		"/g/genome.fna":      "/g/genome.dict",
-		"/g/genome.fa.gz":    "/g/genome.fa.gz.dict",
-		"/g/genome.fasta.gz": "/g/genome.fasta.gz.dict",
-		"/g/genome.fna.gz":   "/g/genome.fna.gz.dict",
+		"/g/genome.fa.gz":    "/g/genome.dict",
+		"/g/genome.fasta.gz": "/g/genome.dict",
+		"/g/genome.fna.gz":   "/g/genome.dict",
 		"/g/odd.reference":   "/g/odd.dict",
 	}
 	for in, want := range cases {
@@ -62,7 +63,7 @@ func TestDictPath(t *testing.T) {
 
 // A dot in the assembly name must not be mistaken for the extension.
 func TestDictPathDottedName(t *testing.T) {
-	if got, want := DictPath("/g/PN40024.v4.fa.gz"), "/g/PN40024.v4.fa.gz.dict"; got != want {
+	if got, want := DictPath("/g/PN40024.v4.fa.gz"), "/g/PN40024.v4.dict"; got != want {
 		t.Errorf("DictPath = %q, want %q", got, want)
 	}
 	if got, want := DictPath("/g/PN40024.v4.fa"), "/g/PN40024.v4.dict"; got != want {
@@ -147,12 +148,154 @@ func TestGetValidGenomesFromDiskCompressed(t *testing.T) {
 	}
 
 	// The dictionary each discovered reference resolves to must be the file
-	// actually on disk beside it.
+	// actually on disk beside it. PN40024 here carries the pre-correction
+	// genome.fa.gz.dict, so this also covers an unmigrated genome: readers go
+	// through ResolveDictPath and still find it.
 	for _, key := range []string{"VITIS", "MALUS"} {
 		for _, r := range genomes[key] {
-			if _, err := os.Stat(DictPath(r.FastaPath)); err != nil {
-				t.Errorf("%s/%s: derived dict %s does not exist", key, r.RefVer, DictPath(r.FastaPath))
+			if _, err := os.Stat(ResolveDictPath(r.FastaPath)); err != nil {
+				t.Errorf("%s/%s: resolved dict %s does not exist", key, r.RefVer, ResolveDictPath(r.FastaPath))
 			}
+		}
+	}
+}
+
+// A genome prepared before DictPath was corrected carries genome.fa.gz.dict.
+// Readers must still find it, while anything writing a dictionary is pointed
+// at the name GATK will look for.
+func TestLegacyAndResolveDictPath(t *testing.T) {
+	if got := LegacyDictPath("/g/genome.fa.gz"); got != "/g/genome.fa.gz.dict" {
+		t.Errorf("LegacyDictPath(compressed) = %q", got)
+	}
+	if got := LegacyDictPath("/g/genome.fa"); got != "" {
+		t.Errorf("LegacyDictPath(uncompressed) = %q, want empty", got)
+	}
+
+	dir := t.TempDir()
+	ref := filepath.Join(dir, "genome.fa.gz")
+
+	// Nothing on disk yet: callers are steered to the canonical name so a
+	// freshly prepared genome lands where GATK looks.
+	if got, want := ResolveDictPath(ref), filepath.Join(dir, "genome.dict"); got != want {
+		t.Errorf("ResolveDictPath(no dict) = %q, want %q", got, want)
+	}
+
+	// Only the legacy name present: use it rather than pretending the
+	// canonical one exists.
+	legacy := filepath.Join(dir, "genome.fa.gz.dict")
+	if err := os.WriteFile(legacy, []byte("@HD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveDictPath(ref); got != legacy {
+		t.Errorf("ResolveDictPath(legacy only) = %q, want %q", got, legacy)
+	}
+
+	// Both present: the canonical name wins, so a migrated genome stops
+	// depending on the old file.
+	canonical := filepath.Join(dir, "genome.dict")
+	if err := os.WriteFile(canonical, []byte("@HD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveDictPath(ref); got != canonical {
+		t.Errorf("ResolveDictPath(both) = %q, want %q", got, canonical)
+	}
+}
+
+// A BLAST database is recognised under the reference's own full name, and in
+// both of the shapes makeblastdb writes: one volume leaves a .nsq, several
+// leave only a .nal alias beside the per-volume files.
+func TestHasBlastDB(t *testing.T) {
+	dir := t.TempDir()
+	ref := filepath.Join(dir, "genome.fa.gz")
+
+	if HasBlastDB(ref) {
+		t.Error("HasBlastDB(nothing on disk) = true")
+	}
+
+	nsq := ref + ".nsq"
+	if err := os.WriteFile(nsq, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasBlastDB(ref) {
+		t.Error("HasBlastDB(single volume) = false")
+	}
+
+	// A volumed database: the plain .nsq is absent and the alias stands in for
+	// it, so a check that only knew .nsq would rebuild the whole thing.
+	if err := os.Remove(nsq); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ref+".00.nsq", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if HasBlastDB(ref) {
+		t.Error("HasBlastDB(volume file only, no alias) = true")
+	}
+	if err := os.WriteFile(ref+".nal", []byte("TITLE genome\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasBlastDB(ref) {
+		t.Error("HasBlastDB(volumed) = false")
+	}
+}
+
+// The protein counterpart, in the same two shapes makeblastdb writes: one
+// volume leaves a .psq, several leave only a .pal alias.
+func TestHasProtBlastDB(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "AllResistanceGenes.fasta")
+
+	if HasProtBlastDB(db) {
+		t.Error("HasProtBlastDB(nothing on disk) = true")
+	}
+
+	psq := db + ".psq"
+	if err := os.WriteFile(psq, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasProtBlastDB(db) {
+		t.Error("HasProtBlastDB(single volume) = false")
+	}
+
+	// A volumed database: the plain .psq is absent and the alias stands in.
+	if err := os.Remove(psq); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(db+".00.psq", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if HasProtBlastDB(db) {
+		t.Error("HasProtBlastDB(volume file only, no alias) = true")
+	}
+	if err := os.WriteFile(db+".pal", []byte("TITLE prg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasProtBlastDB(db) {
+		t.Error("HasProtBlastDB(volumed) = false")
+	}
+
+	// A nucleotide database must not satisfy the protein check, or a caller
+	// would hand blastp a db it cannot read and find out much later.
+	nuclOnly := filepath.Join(dir, "genome.fa")
+	if err := os.WriteFile(nuclOnly+".nsq", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if HasProtBlastDB(nuclOnly) {
+		t.Error("HasProtBlastDB(nucleotide db) = true")
+	}
+}
+
+// A bare database name is resolved by blastp through $BLASTDB and cannot be
+// checked on disk, so it must not be mistaken for a path.
+func TestLooksLikeBlastDBPath(t *testing.T) {
+	for _, db := range []string{"/home/godwin/prgdb/AllResistanceGenes.fasta", "./prgdb/x", "prgdb/x"} {
+		if !LooksLikeBlastDBPath(db) {
+			t.Errorf("LooksLikeBlastDBPath(%q) = false", db)
+		}
+	}
+	for _, db := range []string{"swissprot", "nr"} {
+		if LooksLikeBlastDBPath(db) {
+			t.Errorf("LooksLikeBlastDBPath(%q) = true", db)
 		}
 	}
 }

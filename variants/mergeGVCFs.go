@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/gmaffy/genome-whisperer/utils"
+	"github.com/schollz/progressbar/v3"
 )
 
 // JointVcfDir returns the directory joint-genotyped VCFs belong in. The last
@@ -163,6 +166,80 @@ func dictOrder(dictFilePath string) (map[string]int, error) {
 	return order, nil
 }
 
+// vcfContigOrder returns the contigs a VCF actually holds, in the order they
+// appear in the file. It reads the index rather than the records, so it costs
+// nothing even on a multi-gigabyte VCF.
+func vcfContigOrder(vcf string) ([]string, error) {
+	out, err := exec.Command("tabix", "-l", vcf).Output()
+	if err != nil {
+		return nil, fmt.Errorf("tabix -l %s: %w", vcf, err)
+	}
+	var contigs []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			contigs = append(contigs, line)
+		}
+	}
+	return contigs, nil
+}
+
+// dictOrderViolation describes the first place a VCF's contigs run backwards
+// against the reference dictionary, or returns "" if the file is in dictionary
+// order.
+//
+// This is worth checking rather than assuming. GenotypeGVCFs over a GenomicsDB
+// workspace built from more than one interval emits its partitions in
+// lexicographic name order, not dictionary order — so the "contigs" group, the
+// one group that covers hundreds of sequences, comes out with scaffold_1037
+// ahead of scaffold_104. Every reader downstream assumes dictionary order, and
+// gatk MergeVcfs is merely the first one to say so out loud.
+func dictOrderViolation(vcf string, order map[string]int) string {
+	contigs, err := vcfContigOrder(vcf)
+	if err != nil {
+		// Not being able to tell is not the same as being wrong; the integrity
+		// check that runs alongside this one is what catches a broken file.
+		return ""
+	}
+	return contigOrderViolation(contigs, order)
+}
+
+// contigOrderViolation is the comparison behind dictOrderViolation, split out
+// so it can be tested without a VCF and an index on disk.
+func contigOrderViolation(contigs []string, order map[string]int) string {
+	prev, prevName := -1, ""
+	for _, c := range contigs {
+		pos, ok := order[c]
+		if !ok {
+			return fmt.Sprintf("%s is not in the reference dictionary", c)
+		}
+		if pos < prev {
+			return fmt.Sprintf("%s (dict position %d) comes after %s (dict position %d)",
+				c, pos, prevName, prev)
+		}
+		prev, prevName = pos, c
+	}
+	return ""
+}
+
+// sortVcfToDictOrder rewrites unsorted into sorted in the contig order the VCF's
+// own header declares, which GATK writes from the reference dictionary. bcftools
+// does this with an external merge sort, so a group with hundreds of contigs
+// costs a spill to scratch rather than the whole file in memory.
+func sortVcfToDictOrder(unsorted, sorted, tmpDir string, verbose bool) error {
+	// -T is a directory, not a prefix, and bcftools does not create it.
+	sortTmp := filepath.Join(tmpDir, "vcfsort")
+	if err := os.MkdirAll(sortTmp, 0755); err != nil {
+		return fmt.Errorf("creating %s: %w", sortTmp, err)
+	}
+
+	cmd := fmt.Sprintf(`bcftools sort -T %s -O z --write-index=tbi -o %s %s`,
+		sortTmp, sorted, unsorted)
+	if err := utils.RunCmd(cmd, verbose); err != nil {
+		return fmt.Errorf("bcftools sort %s: %w", unsorted, err)
+	}
+	return nil
+}
+
 // writeSampleMap writes the GenomicsDBImport sample map (sample<TAB>path).
 //
 // Sample names come from each gVCF's own header rather than from its filename,
@@ -203,7 +280,7 @@ func writeSampleMap(path string, gvcfs []string) error {
 // should hold every chromosome to, not an estimate inferred from the gVCFs
 // found.
 func FindExistingGvcfs(opts Options) (map[string][]string, int, error) {
-	dictFilePath := utils.DictPath(opts.RefFasta)
+	dictFilePath := utils.ResolveDictPath(opts.RefFasta)
 	chroms, contigs, err := getChromsAndContigs(dictFilePath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("getting chromosomes and contigs: %w", err)
@@ -461,12 +538,30 @@ func mergeChromGATK(opts Options, chrom string, seqs []SeqInfo, gvcfs []string, 
 		}
 	}
 
+	// A group covering more than one sequence cannot be genotyped straight to
+	// its final path: GenomicsDB emits one partition per interval and
+	// GenotypeGVCFs walks them in lexicographic name order, so the records come
+	// out with scaffold_1037 ahead of scaffold_104. It is written to scratch and
+	// sorted into place instead. A single-sequence group has nothing to reorder
+	// and is written directly.
+	genoOut := jointVCF
+	if len(seqs) > 1 {
+		genoOut = filepath.Join(tmpDir, filepath.Base(jointVCF)+".unsorted.vcf.gz")
+	}
+
 	genoCmd := fmt.Sprintf(
 		`gatk --java-options "-Xmx%dg" GenotypeGVCFs -R %s -V gendb://%s -O %s --tmp-dir %s --verbosity %s`,
-		genotypeHeapGB, opts.RefFasta, theDB, jointVCF, tmpDir, opts.GatkLogLevel,
+		genotypeHeapGB, opts.RefFasta, theDB, genoOut, tmpDir, opts.GatkLogLevel,
 	)
 	if err := utils.RunCmd(genoCmd, opts.Verbose); err != nil {
 		return fmt.Errorf("gatk GenotypeGVCFs: %w", err)
+	}
+
+	if genoOut != jointVCF {
+		color.Cyan("%s[%s] sorting %d sequences into dictionary order\n", tag, chrom, len(seqs))
+		if err := sortVcfToDictOrder(genoOut, jointVCF, tmpDir, opts.Verbose); err != nil {
+			return err
+		}
 	}
 
 	// The workspace is large and is not needed once the joint VCF exists. The
@@ -560,10 +655,11 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 		return "", err
 	}
 
-	dictFilePath := utils.DictPath(opts.RefFasta)
-	if _, dErr := os.Stat(dictFilePath); dErr != nil {
-		return "", fmt.Errorf("reference dict file %s does not exist", dictFilePath)
+	if dErr := utils.EnsureGatkDict(opts.RefFasta); dErr != nil {
+		return "", dErr
 	}
+	// Guaranteed to exist by the check above, and the same file GATK will read.
+	dictFilePath := utils.DictPath(opts.RefFasta)
 
 	// expected is the true cohort size, known from stage 1 (CreateGvcfs sets
 	// opts.ExpectedSamples) or discovered here when running standalone. It is
@@ -586,9 +682,13 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 		return "", fmt.Errorf("no gVCFs to merge")
 	}
 
+	// Writable, not merely present: everything this stage produces lands here,
+	// and the concatenation at the end is the first thing to open a file for
+	// writing in it. Finding out there that the volume is read-only or full
+	// costs the whole merge.
 	vcfDir := JointVcfDir(opts)
-	if err := os.MkdirAll(vcfDir, 0755); err != nil {
-		return "", fmt.Errorf("creating %s: %w", vcfDir, err)
+	if err := utils.EnsureWritableDir(vcfDir); err != nil {
+		return "", err
 	}
 
 	// ============================= Decide which chromosomes to merge =========================== //
@@ -704,7 +804,7 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 					seqs = append(append([]SeqInfo{}, chroms...), contigs...)
 				}
 
-				results[i] = mergeOneGroup(opts, merger, label, seqs, gvcfs[label], tag, memPerJobGB)
+				results[i] = mergeOneGroup(opts, merger, label, seqs, gvcfs[label], order, tag, memPerJobGB)
 			}
 		}(w)
 	}
@@ -751,7 +851,7 @@ func MergeGvcfs(opts Options, gvcfs map[string][]string) (string, error) {
 //
 // An existing joint VCF is reused when it is valid and already holds exactly the
 // samples these gVCFs carry.
-func mergeOneGroup(opts Options, merger, label string, seqs []SeqInfo, gvcfs []string, tag string, memPerJobGB int) string {
+func mergeOneGroup(opts Options, merger, label string, seqs []SeqInfo, gvcfs []string, order map[string]int, tag string, memPerJobGB int) string {
 	jointVCF := JointVcfPath(opts, label)
 
 	// ------------------------- reuse a valid, up-to-date joint VCF ------------------------- //
@@ -779,6 +879,18 @@ func mergeOneGroup(opts Options, merger, label string, seqs []SeqInfo, gvcfs []s
 			case !sampleNamesMatch(want, have):
 				color.Yellow("%s[%s] sample set changed (%d gVCFs vs %d samples in the joint VCF), re-merging\n",
 					tag, label, len(want), len(have))
+				reuse = false
+			}
+		}
+
+		// A joint VCF can be intact, hold the right samples and still be
+		// unusable, because a multi-sequence group's records can come back from
+		// GenomicsDB in lexicographic rather than dictionary order. Checking it
+		// here means a file written before that was fixed is rebuilt rather than
+		// reused into a concatenation that fails hours later.
+		if reuse && len(seqs) > 1 {
+			if why := dictOrderViolation(jointVCF, order); why != "" {
+				color.Yellow("%s[%s] joint VCF is not in dictionary order (%s), re-merging\n", tag, label, why)
 				reuse = false
 			}
 		}
@@ -966,6 +1078,74 @@ func allGvcfSampleNames(gvcfs []string) ([]string, error) {
 // Absorbed from the retired RunVariantCaller.go / RunVariantCallerDir.go
 // ---------------------------------------------------------------------------
 
+// mergeVcfsProgress matches the record count in a line of MergeVcfs output:
+//
+//	INFO  ...  MergeVcfs  Processed  9,960,000 records.  Elapsed time: 00:04:53s. ...
+var mergeVcfsProgress = regexp.MustCompile(`Processed\s+([\d,]+) records`)
+
+// mergeVcfsRecordCount returns the running record total a line of MergeVcfs
+// output reports, and whether it reported one at all.
+func mergeVcfsRecordCount(line string) (int64, bool) {
+	m := mergeVcfsProgress.FindStringSubmatch(line)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.ReplaceAll(m[1], ",", ""), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// totalVcfRecords is how many records the concatenation will write: the sum of
+// what every input's index already knows. It costs nothing — the counts come
+// out of the .tbi files, not the VCFs — but an index written by GATK rather
+// than by htslib carries no count, so this reports whether it got them all.
+func totalVcfRecords(vcfs []string) (int64, bool) {
+	var total int64
+	for _, vcf := range vcfs {
+		out, err := exec.Command("bcftools", "index", "-n", vcf).Output()
+		if err != nil {
+			return 0, false
+		}
+		n, pErr := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		if pErr != nil || n <= 0 {
+			return 0, false
+		}
+		total += n
+	}
+	return total, total > 0
+}
+
+// concatProgress returns the bar for the concatenation and the function that
+// advances it from one line of MergeVcfs output.
+//
+// With a record total the bar is a real one, with a percentage and an estimate;
+// without it the bar spins instead, which is still worth having for a step that
+// otherwise prints nothing for minutes.
+func concatProgress(vcfs []string) (*progressbar.ProgressBar, func(line string)) {
+	desc := fmt.Sprintf("Concatenating %d VCFs", len(vcfs))
+
+	total, ok := totalVcfRecords(vcfs)
+	if !ok {
+		bar := utils.NewBar(-1, desc)
+		return bar, func(line string) {
+			if _, reported := mergeVcfsRecordCount(line); reported {
+				_ = bar.Add(1)
+			}
+		}
+	}
+
+	bar := utils.NewBar(total, desc)
+	return bar, func(line string) {
+		// Set rather than Add: the tool reports a running total, so a dropped
+		// or repeated line cannot shift the bar permanently.
+		if n, reported := mergeVcfsRecordCount(line); reported {
+			_ = bar.Set64(n)
+		}
+	}
+}
+
 // ConcatenateVcfs writes vcfs into outVCF with gatk MergeVcfs, copying instead
 // when there is only one input. vcfs must already be in reference-dictionary
 // order; MergeVcfs will not reorder them.
@@ -1010,9 +1190,18 @@ func ConcatenateVcfs(vcfs []string, outVCF string, verbose bool) (string, error)
 		return "", fmt.Errorf("closing %s: %w", vcfListPath, cErr)
 	}
 
-	cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s --tmp-dir %s`, vcfListPath, outVCF, tmpDir)
-	if err := utils.RunCmd(cmd, verbose); err != nil {
+	// The concatenation is minutes of work inside java, so nothing on this side
+	// knows how far along it is. MergeVcfs does, and says so in its own log, so
+	// the bar is driven from that — read whether or not --verbose is asking to
+	// see it.
+	bar, advance := concatProgress(vcfs)
+	defer utils.AttachBar(bar)()
+
+	cmd := fmt.Sprintf(`gatk MergeVcfs -I %s -O %s --TMP_DIR %s`, vcfListPath, outVCF, tmpDir)
+	if err := utils.RunCmdScan(cmd, verbose, advance); err != nil {
 		return "", fmt.Errorf("gatk MergeVcfs: %w", err)
 	}
+	_ = bar.Finish()
+
 	return outVCF, nil
 }

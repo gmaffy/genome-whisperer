@@ -114,6 +114,11 @@ func ReadConfig(configPath string) (Config, error) {
 			cfg.CDS = value
 		case "Species":
 			cfg.Species = value
+		// The Version field has been on Config since it was written, but this
+		// case was missing, so every config file's "Version:" line was parsed
+		// and discarded.
+		case "Version":
+			cfg.Version = value
 		case "OutputDir":
 			cfg.OutputDir = value
 		case "bam":
@@ -190,12 +195,23 @@ func CheckDeps(deps []string) error {
 
 func RunBashCmdVerbose(cmdStr string) error {
 	cmd := exec.Command("bash", "-c", cmdStr)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// One writer for both streams, rather than the process inheriting this
+	// one's stdout and stderr. Inherited descriptors reach the terminal without
+	// passing through anything this process can intercept, which is what breaks
+	// a progress bar the moment a worker runs a verbose child. os/exec
+	// guarantees that when Stdout and Stderr are the same comparable value at
+	// most one goroutine calls Write at a time, so the two streams stay in
+	// order and the writer needs no lock of its own. Outside a bar LogWriter
+	// hands back os.Stdout, so this is unchanged from a direct assignment.
+	out := LogWriter()
+	defer out.Close()
+	cmd.Stdout = out
+	cmd.Stderr = out
 
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("CMD error:", err)
+		Printf("CMD error: %v\n", err)
 		return err
 	}
 	return nil
@@ -205,7 +221,10 @@ func RunBashCmd(cmdStr string) error {
 	cmd := exec.Command("bash", "-c", cmdStr)
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("CMD error:", err)
+		// Not gated on verbose, so this is the one line a quiet run can still
+		// print from inside a worker; it goes through the console for the same
+		// reason the verbose banners do.
+		Printf("CMD error: %v\n", err)
 		return err
 	}
 	return nil
@@ -286,6 +305,18 @@ func CopyFile(src, dst string) error {
 	return nil
 }
 
+// copyFile duplicates a small file, preserving nothing but the bytes. It is
+// used for sequence dictionaries, which are text and at most a few megabytes
+// even for a heavily fragmented assembly, so reading the whole file into
+// memory is cheaper than the ceremony of a streaming copy.
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0644)
+}
+
 func PrepareFasta(ref, aligner string, verbose bool) error {
 
 	fmt.Printf("Starting prepare fasta with %s................\n\n", aligner)
@@ -350,12 +381,27 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 			return fmt.Errorf("samtools indexing failed: %v", samIndexErr)
 		}
 	}
-	// -O is passed explicitly rather than left to GATK, which derives the name
-	// by stripping extensions and would write genome.dict for a genome.fa.gz —
-	// not the genome.fa.gz.dict every reader here looks for.
+	// -O is passed explicitly so the name is stated rather than inferred, but it
+	// is now the same name GATK derives on its own: genome.dict for genome.fa
+	// and for genome.fa.gz alike. See DictPath — the engine tools accept no
+	// other spelling.
 	dictPath := DictPath(ref)
-	_, dicfErr := os.Stat(dictPath)
-	if dicfErr != nil {
+	if _, dicfErr := os.Stat(dictPath); dicfErr != nil {
+		// A genome prepared before DictPath was corrected carries the
+		// dictionary under the longer genome.fa.gz.dict. Its contents are
+		// right; only the name is one GATK will not look for. Copying beats
+		// re-reading a multi-gigabyte assembly to derive an identical file.
+		if legacy := LegacyDictPath(ref); legacy != "" {
+			if _, legacyErr := os.Stat(legacy); legacyErr == nil {
+				fmt.Printf("Adopting existing dictionary %s as %s (GATK derives the shorter name) ...\n\n", legacy, dictPath)
+				if cpErr := copyFile(legacy, dictPath); cpErr != nil {
+					return fmt.Errorf("copying %s to %s: %v", legacy, dictPath, cpErr)
+				}
+			}
+		}
+	}
+
+	if _, dicfErr := os.Stat(dictPath); dicfErr != nil {
 		fmt.Printf("Running  gatk CreateSequenceDictionary -R %s -O %s ...\n\n", ref, dictPath)
 		dicStr := fmt.Sprintf(`gatk CreateSequenceDictionary -R %s -O %s`, ref, dictPath)
 
@@ -372,18 +418,26 @@ func PrepareFasta(ref, aligner string, verbose bool) error {
 
 	}
 
-	// makeblastdb reads plain text only, so a bgzipped reference gets no blast
-	// database. Nothing on the alignment path needs one; the step is skipped
-	// out loud rather than failing the whole preparation over it.
-	_, nsqErr := os.Stat(ref + ".nsq")
-	if IsBgzippedFasta(ref) {
-		if nsqErr != nil {
-			fmt.Printf("Skipping makeblastdb: %s is block-compressed and makeblastdb cannot read it\n\n", ref)
-		}
-	} else if nsqErr != nil {
+	// makeblastdb opens plain text only: handed a bgzipped reference by name it
+	// stops at "Input doesn't start with a defline or comment". So the
+	// compressed form is decompressed into its stdin instead, and the database
+	// still lands under the reference's own full name — genome.fa.gz.nsq beside
+	// genome.fa.gz — so a caller addresses either form of a reference the same
+	// way and HasBlastDB needs no special case.
+	//
+	// Two details of the piped form are not optional. -title is required
+	// because a database built from stdin has no file name to derive one from,
+	// and pipefail is set because makeblastdb exits 0 on truncated input: a
+	// decompression that died halfway would otherwise leave a short database
+	// behind and report success. gzip rather than bgzip does the reading, since
+	// BGZF is ordinary gzip and this way the step needs nothing on PATH that
+	// the rest of the preparation does not already require.
+	if !HasBlastDB(ref) {
 		mbdbStr := fmt.Sprintf(`makeblastdb -in %s -dbtype nucl -out %s`, ref, ref)
-		fmt.Printf("Running %s ...\n\n", mbdbStr)
-
+		if IsBgzippedFasta(ref) {
+			mbdbStr = fmt.Sprintf(`set -o pipefail; gzip -cd %s | makeblastdb -in - -dbtype nucl -title %s -out %s`,
+				ref, filepath.Base(ref), ref)
+		}
 		fmt.Printf("\nRunning: %s ...\n\n", mbdbStr)
 
 		var mbdbErr error
@@ -408,55 +462,55 @@ func ValidateGvcf(vcf string, verbose bool, quick bool) error {
 	// GATK writes. On a reference with contigs past the BAI ceiling only the
 	// second can be built at all.
 	compressed := strings.HasSuffix(strings.ToLower(vcf), ".gz")
-	index := vcf + ".idx"
-	if compressed {
-		index = vcf + ".tbi"
-	}
-
 	if quick {
-		if _, err := os.Stat(index); err != nil {
-			return fmt.Errorf("%s index missing for %s", filepath.Ext(index), vcf)
+		indexes := []string{vcf + ".idx"}
+		if compressed {
+			indexes = []string{vcf + ".tbi", vcf + ".csi"}
+		} else if strings.HasSuffix(strings.ToLower(vcf), ".bcf") {
+			indexes = []string{vcf + ".csi"}
 		}
-		valStr := fmt.Sprintf("bcftools view -h %s > /dev/null", vcf)
-		if verbose {
-			fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
-			return RunBashCmdVerbose(valStr)
+		for _, index := range indexes {
+			if _, err := os.Stat(index); err == nil {
+				return runValidation(verbose, "bcftools", "view", "-h", vcf)
+			}
 		}
-		return RunBashCmd(valStr)
+		return fmt.Errorf("variant index missing for %s", vcf)
 	}
 
 	// The thorough check rebuilds the index, which bcftools can only do for a
 	// bgzipped file; for the rest, reading every record end to end is the
 	// equivalent test of whether the file is whole.
-	valStr := fmt.Sprintf("bcftools index --tbi --force %s", vcf)
-	if !compressed {
-		valStr = fmt.Sprintf("bcftools view %s > /dev/null", vcf)
+	if compressed {
+		return runValidation(verbose, "bcftools", "index", "--tbi", "--force", vcf)
 	}
-	if verbose {
-		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
-		return RunBashCmdVerbose(valStr)
-	}
-	return RunBashCmd(valStr)
+	return runValidation(verbose, "bcftools", "view", vcf)
 }
 
 func ValidateBam(bam string, ref string, verbose bool, quick bool) error {
-	var valStr string
 	if quick {
-		valStr = fmt.Sprintf("samtools quickcheck %s > /dev/null", bam)
-	} else {
-		valStr = fmt.Sprintf(`samtools view -T %s -h %s > /dev/null`, ref, bam)
+		return runValidation(verbose, "samtools", "quickcheck", bam)
 	}
+	return runValidation(verbose, "samtools", "view", "-T", ref, "-h", bam)
+}
+
+// runValidation executes a validation tool without shell interpolation, so
+// filenames discovered during a scan are always treated as data, never code.
+func runValidation(verbose bool, program string, args ...string) error {
 	if verbose {
-		fmt.Printf("\n-------------------------------------------------------------------\n%s\n------------------------------------------------------------------\n\n", valStr)
-		return RunBashCmdVerbose(valStr)
+		Printf("\n-------------------------------------------------------------------\n%s %s\n------------------------------------------------------------------\n\n", program, strings.Join(args, " "))
 	}
-	return RunBashCmd(valStr)
+	cmd := exec.Command(program, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w: %s", program, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func ValidateFastqGz(fastq string, verbose bool, quick bool) error {
 	if quick {
 		valStr := fmt.Sprintf("gzip -t %s", fastq)
-		fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
+		Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
 		if verbose {
 			return RunBashCmdVerbose(valStr)
 		}
@@ -467,7 +521,7 @@ func ValidateFastqGz(fastq string, verbose bool, quick bool) error {
 		`bash -c 'gzip -cd %s | awk "NR%%4==1 && !/^@/ { print \"Bad header at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } NR%%4==3 && !/^\+/ { print \"Bad separator at record\", int(NR/4)+1 > \"/dev/stderr\"; exit 1 } END { if(NR%%4!=0) { print \"Truncated: \", NR, \"lines\" > \"/dev/stderr\"; exit 1 } }" '`,
 		fastq,
 	)
-	fmt.Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
+	Printf("\n-------------------------------------------------------------------\n%s\n-------------------------------------------------------------------\n\n", valStr)
 	if verbose {
 		return RunBashCmdVerbose(valStr)
 	}
@@ -791,4 +845,30 @@ func scratchKey(dir string) string {
 	}
 
 	return fmt.Sprintf("%s-%x", label, h.Sum64())
+}
+
+// EnsureWritableDir creates dir if it is missing and proves it can be written
+// to, by creating and removing a file inside it.
+//
+// os.MkdirAll returns nil for a directory that already exists, whatever its
+// permissions and whatever state its filesystem is in, so it is not the check
+// it looks like. A full or read-only volume — a Windows drive WSL still reports
+// as rw, an NFS export that dropped, a disk that hit 100% — passes MkdirAll and
+// then fails inside whichever external tool first opens an output for writing,
+// hours later and in that tool's own words.
+//
+// Checking here costs one create and one unlink, and turns that into a message
+// naming the directory before any work is done.
+func EnsureWritableDir(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+	probe, err := os.CreateTemp(dir, ".gw-write-probe-*")
+	if err != nil {
+		return fmt.Errorf("%s is not writable: %w", dir, err)
+	}
+	name := probe.Name()
+	probe.Close()
+	os.Remove(name)
+	return nil
 }

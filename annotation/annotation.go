@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"time"
 
 	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/schollz/progressbar/v3"
@@ -458,7 +459,7 @@ func AddDescriptions(variants []string, desc string, bsaseq bool) (error, []stri
 		genesInVariants := make(map[string]struct{})
 		transInVariants := make(map[string]struct{})
 
-		readBar := progressbar.Default(-1, "reading rows")
+		readBar := utils.NewBar(-1, "reading rows", progressbar.OptionThrottle(65*time.Millisecond))
 		for innerScanner.Scan() {
 			fields := strings.Split(innerScanner.Text(), "\t")
 			allRows = append(allRows, fields)
@@ -513,7 +514,7 @@ func AddDescriptions(variants []string, desc string, bsaseq bool) (error, []stri
 		fmt.Printf("\nWriting output to %s\n\n", outputFileName)
 
 		writer.WriteString(headerLine + "\tGENE_DESC\n")
-		writeBar := progressbar.Default(int64(len(allRows)), "writing output")
+		writeBar := utils.NewBar(int64(len(allRows)), "writing output", progressbar.OptionThrottle(65*time.Millisecond))
 		for _, fields := range allRows {
 			description := "NA"
 
@@ -737,7 +738,7 @@ func AddPrg(variants []string, prgBlastFile string, bsaseq bool) (error, []strin
 		genesInVariants := make(map[string]struct{})
 		transInVariants := make(map[string]struct{})
 
-		readBar := progressbar.Default(-1, "reading rows")
+		readBar := utils.NewBar(-1, "reading rows", progressbar.OptionThrottle(65*time.Millisecond))
 		for innerScanner.Scan() {
 			fields := strings.Split(innerScanner.Text(), "\t")
 			allRows = append(allRows, fields)
@@ -796,7 +797,7 @@ func AddPrg(variants []string, prgBlastFile string, bsaseq bool) (error, []strin
 
 		fmt.Printf("\nWriting output to %s\n\n", outputFileName)
 
-		writeBar := progressbar.Default(int64(len(allRows)), "writing output")
+		writeBar := utils.NewBar(int64(len(allRows)), "writing output", progressbar.OptionThrottle(65*time.Millisecond))
 		for _, fields := range allRows {
 			percIdent := "0"
 			qlenMatchLen := "0"
@@ -1064,7 +1065,7 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 		genesInVariants := make(map[string]struct{})
 		transInVariants := make(map[string]struct{})
 
-		readBar := progressbar.Default(-1, "reading rows")
+		readBar := utils.NewBar(-1, "reading rows", progressbar.OptionThrottle(65*time.Millisecond))
 		for innerScanner.Scan() {
 			fields := strings.Split(innerScanner.Text(), "\t")
 			allRows = append(allRows, fields)
@@ -1146,7 +1147,7 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 
 		fmt.Printf("\nWriting output to %s\n\n", outputFileName)
 
-		writeBar := progressbar.Default(int64(len(allRows)), "writing output")
+		writeBar := utils.NewBar(int64(len(allRows)), "writing output", progressbar.OptionThrottle(65*time.Millisecond))
 		for _, fields := range allRows {
 			percIdent := "0"
 			qlenMatchLen := "0"

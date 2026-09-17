@@ -1,12 +1,15 @@
 package variants
 
 import (
+	"bufio"
 	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/biogo/hts/bgzf"
@@ -16,7 +19,8 @@ import (
 )
 
 // FilterVcf hard filters a joint VCF and returns the path of the filtered file
-// (<input>.hard_filtered.vcf.gz, indexed).
+// (<input>.hard_filtered.vcf.gz, indexed). An existing filtered VCF that is
+// still up to date is reused rather than rebuilt — see staleFilteredVcf.
 //
 // The threshold profile follows the caller, because the two produce different
 // annotations:
@@ -54,11 +58,29 @@ func FilterVcf(opts Options, vcf string) (string, error) {
 
 	keep := func(v *vcfgo.Variant) bool { return PassesHardFilter(v, cfg) }
 	profile := "GATK best practices"
+	profileKey := "gatk"
 	needSamples := strings.ToLower(opts.Caller) == "deepvariant"
 	if needSamples {
 		keep = func(v *vcfgo.Variant) bool { return passesDeepVariant(v, cfg, minGQ) }
 		profile = fmt.Sprintf("DeepVariant (QUAL + GQ >= %d)", minGQ)
+		profileKey = "deepvariant"
 	}
+
+	stamp := filterStamp(cfg, profileKey, minGQ)
+
+	// ------------------------ reuse a valid, up-to-date filtered VCF ------------------------ //
+
+	if _, sErr := os.Stat(filteredVcf); sErr == nil {
+		why := staleFilteredVcf(opts, vcf, filteredVcf, stamp)
+		if why == "" {
+			color.Green("Filtered VCF is up to date, reusing: %s\n\n", filteredVcf)
+			return filteredVcf, nil
+		}
+		color.Yellow("Existing filtered VCF %s, re-filtering: %s\n\n", why, filteredVcf)
+		os.Remove(filteredVcf)
+		os.Remove(filteredVcf + ".tbi")
+	}
+
 	color.Cyan("Hard filtering %s using %s\n\n", vcf, profile)
 
 	in, cleanup, err := openVCF(vcf)
@@ -75,6 +97,18 @@ func FilterVcf(opts Options, vcf string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("VCF header %q: %w", vcf, err)
 	}
+
+	// Record what is being applied in the output's own header, so the next run
+	// can tell "already filtered" from "already filtered, with other thresholds".
+	// Any stamp inherited from the input is dropped first: filtering a filtered
+	// VCF would otherwise leave two, and the reader takes the first it finds.
+	extras := rdr.Header.Extras[:0]
+	for _, line := range rdr.Header.Extras {
+		if !strings.HasPrefix(line, "##"+filterStampKey+"=") {
+			extras = append(extras, line)
+		}
+	}
+	rdr.Header.Extras = append(extras, "##"+filterStampKey+"="+stamp)
 
 	outFile, err := os.Create(filteredVcf)
 	if err != nil {
@@ -119,6 +153,126 @@ func FilterVcf(opts Options, vcf string) (string, error) {
 
 	color.Green("Kept %d of %d variants -> %s\n\n", written, read, filteredVcf)
 	return filteredVcf, nil
+}
+
+// filterStampKey names the header line FilterVcf writes into every VCF it
+// produces, recording the thresholds that produced it.
+const filterStampKey = "GenomeWhispererHardFilter"
+
+// filterStamp renders a threshold set as one VCF header value. Nothing else in
+// a filtered VCF says how it was filtered, so this is what lets a later run
+// tell an output it can reuse from one built to different thresholds. Writing
+// the values out rather than a hash of them means the header doubles as
+// provenance for anyone reading the VCF by hand.
+//
+// cfg is the effective config — after the --light-filter reduction — so a light
+// run and a full run with the same QUAL floors still stamp differently.
+func filterStamp(cfg utils.HardFilterConfig, profile string, minGQ int) string {
+	num := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+
+	return strings.Join([]string{
+		"profile=" + profile,
+		"light=" + strconv.FormatBool(cfg.LightFilter),
+		"snpQD=" + num(cfg.SNP_QD_Min),
+		"snpQUAL=" + num(cfg.SNP_QUAL_Min),
+		"snpSOR=" + num(cfg.SNP_SOR_Max),
+		"snpFS=" + num(cfg.SNP_FS_Max),
+		"snpMQ=" + num(cfg.SNP_MQ_Min),
+		"snpMQRankSum=" + num(cfg.SNP_MQRankSum_Min),
+		"snpReadPosRankSum=" + num(cfg.SNP_ReadPosRankSum_Min),
+		"indelQD=" + num(cfg.INDEL_QD_Min),
+		"indelQUAL=" + num(cfg.INDEL_QUAL_Min),
+		"indelFS=" + num(cfg.INDEL_FS_Max),
+		"indelReadPosRankSum=" + num(cfg.INDEL_ReadPosRankSum_Min),
+		"indelSOR=" + num(cfg.INDEL_SOR_Max),
+		"minGQ=" + strconv.Itoa(minGQ),
+	}, ",")
+}
+
+// staleFilteredVcf reports why the filtered VCF beside a joint VCF cannot be
+// reused, or "" when it can. It mirrors the reuse check in mergeOneGroup: an
+// intact output that holds the right samples and was built the same way is
+// worth hours of re-filtering on a large cohort.
+//
+// Freshness is judged from content, never from timestamps. MergeGvcfs
+// re-concatenates the joint VCF on every run, so its mtime is always newer than
+// a filtered VCF from a previous run and an mtime comparison would reuse
+// nothing.
+//
+// The gap this leaves: a joint VCF whose records changed while its sample set
+// did not — a single chromosome re-merged, say — is not detected, and the
+// previous filtered VCF is reused. Delete it to force a rebuild.
+func staleFilteredVcf(opts Options, vcf, filteredVcf, stamp string) string {
+	// --skip-verification skips the integrity check only, as in mergeOneGroup.
+	if !opts.SkipVerification {
+		if vErr := utils.ValidateGvcf(filteredVcf, opts.Verbose, opts.Quick); vErr != nil {
+			return fmt.Sprintf("is corrupt (%v)", vErr)
+		}
+	}
+
+	// The remaining checks run even under --skip-verification: they are header
+	// reads, and skipping them means a changed threshold or a re-merged cohort
+	// silently keeps the previous run's variants.
+	had, hErr := vcfHeaderValue(filteredVcf, filterStampKey)
+	switch {
+	case hErr != nil:
+		return fmt.Sprintf("has an unreadable header (%v)", hErr)
+	case had == "":
+		// Written before FilterVcf stamped its output, so what produced it is
+		// unknowable. Rebuilt once, after which the stamp is there.
+		return "records no filter settings"
+	case had != stamp:
+		return fmt.Sprintf("was filtered with different settings (%s)", had)
+	}
+
+	// A sites-only input has no sample columns for vcfSampleNames to return, so
+	// it lands in the branch below and is re-filtered every run. Nothing in this
+	// pipeline produces one — GATK and GLnexus both emit sample columns — so the
+	// lost reuse is theoretical.
+	want, wErr := vcfSampleNames(vcf)
+	if wErr != nil {
+		return fmt.Sprintf("cannot be checked against %s (%v)", filepath.Base(vcf), wErr)
+	}
+	have, sErr := vcfSampleNames(filteredVcf)
+	if sErr != nil {
+		return fmt.Sprintf("has no readable sample columns (%v)", sErr)
+	}
+	if !sampleNamesMatch(want, have) {
+		return fmt.Sprintf("holds %d samples, %s now holds %d", len(have), filepath.Base(vcf), len(want))
+	}
+
+	return ""
+}
+
+// vcfHeaderValue returns the value of the first ##<key>=<value> line in a VCF
+// header, or "" when the header has none. It stops at #CHROM, so it never
+// touches the records.
+func vcfHeaderValue(vcf, key string) (string, error) {
+	in, cleanup, err := openVCF(vcf)
+	if err != nil {
+		return "", fmt.Errorf("open %q: %w", vcf, err)
+	}
+	defer cleanup()
+
+	prefix := "##" + key + "="
+
+	scanner := bufio.NewScanner(in)
+	// Header lines get long with many samples.
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix), nil
+		}
+		if !strings.HasPrefix(line, "##") {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scanning %s: %w", vcf, err)
+	}
+	return "", nil
 }
 
 // passesDeepVariant applies the DeepVariant threshold profile: site QUAL plus a

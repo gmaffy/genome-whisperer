@@ -51,7 +51,7 @@ var HardFilterVCFsCmd = &cobra.Command{
 			return
 		}
 
-		mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --verbosity %s`, snps, indels, strings.Replace(snps, ".SNP.vcf.gz", ".hard_filtered.vcf.gz", 1), gatkLogLevel)
+		mergeCmdStr := fmt.Sprintf(`gatk MergeVcfs -I %s -I %s -O %s --VERBOSITY %s`, snps, indels, strings.Replace(snps, ".SNP.vcf.gz", ".hard_filtered.vcf.gz", 1), gatkLogLevel)
 
 		var mErr error
 		if verbose {

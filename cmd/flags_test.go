@@ -13,6 +13,7 @@ import (
 	"go/parser"
 	"go/token"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -352,4 +353,58 @@ func flagNamesReadInPackage(t *testing.T) map[string]bool {
 		}
 	}
 	return read
+}
+
+// TestDataDirAlignmentReceivesThePreset guards a hole TestEveryFlagIsRead
+// cannot see.
+//
+// That test only asks whether a flag is read somewhere in this package.
+// --preset was read at the top of AlignReads and then dropped on the data-dir
+// branch, so long-read samples in a directory run silently used pbmm2's own
+// default instead of the one asked for. The flag was "read" the whole time.
+func TestDataDirAlignmentReceivesThePreset(t *testing.T) {
+	args := argIdentsOfCall(t, "RunAlignReadsDir")
+	if len(args) == 0 {
+		t.Fatal("no call to alignmentdir.RunAlignReadsDir found in package cmd")
+	}
+	for _, want := range []string{"preset", "aligner"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("RunAlignReadsDir is called with %v, missing %q", args, want)
+		}
+	}
+}
+
+// argIdentsOfCall returns the bare identifier arguments of the first call to a
+// named function found in the package.
+func argIdentsOfCall(t *testing.T, fnName string) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing cmd package: %v", err)
+	}
+
+	var args []string
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != fnName {
+					return true
+				}
+				for _, arg := range call.Args {
+					if ident, ok := arg.(*ast.Ident); ok {
+						args = append(args, ident.Name)
+					}
+				}
+				return false
+			})
+		}
+	}
+	return args
 }

@@ -62,9 +62,19 @@ func IndexPath(path string) string {
 	return path + ".csi"
 }
 
+// BamToCram encodes a BAM as the CRAM beside it.
+//
+// Written under a temporary name and renamed, like CramToBam and BamIndex. The
+// cram is the sample's durable artefact, so an interrupted encode leaving a
+// truncated file under that name is the worst shape this can fail in: the next
+// run finds something that looks finished, and where the input was an adopted
+// external alignment, recovering means normalising and re-marking the whole
+// thing again.
 func BamToCram(bamPath, refFasta string, threads int, verbose bool) error {
 	cramPath := strings.TrimSuffix(bamPath, filepath.Ext(bamPath)) + ".cram"
-	bamToCramStr := fmt.Sprintf(`samtools view -@ %d -T %s -C --output-fmt cram,version=3.0 -o %s %s`, samThreads(threads), refFasta, cramPath, bamPath)
+	tmpPath := cramPath + ".partial"
+
+	bamToCramStr := fmt.Sprintf(`samtools view -@ %d -T %s -C --output-fmt cram,version=3.0 -o %s %s`, samThreads(threads), refFasta, tmpPath, bamPath)
 	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s ...\n------------------------------------------------------------------\n\n", bamToCramStr)
 	var err error
 	if verbose {
@@ -72,7 +82,11 @@ func BamToCram(bamPath, refFasta string, threads int, verbose bool) error {
 	} else {
 		err = utils.RunBashCmd(bamToCramStr)
 	}
-	return err
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, cramPath)
 }
 
 // CramToBam decodes a CRAM back to a BAM beside it and returns the new path.
@@ -170,27 +184,105 @@ func sortCmd(sortedBam string, threads int) string {
 		samThreads(threads), sortPrefix(sortedBam), sortedBam)
 }
 
-func Pbmm2Align(sePath string, referencePath string, sortedBam string, preset string, threads int, verbose bool) error {
-	_, refIndexErr := os.Stat(referencePath + ".mmi")
-
-	if refIndexErr != nil {
-		fmt.Println("Reference index not found")
-		fmt.Println("Indexing reference ...")
-		indexCmdStr := fmt.Sprintf(`pbmm2 index %s %s`, referencePath, referencePath+".mmi")
-		fmt.Println(indexCmdStr)
-		var indexErr error
-		if verbose {
-			indexErr = utils.RunBashCmdVerbose(indexCmdStr)
-		} else {
-			indexErr = utils.RunBashCmd(indexCmdStr)
-		}
-		if indexErr != nil {
-			fmt.Println("Indexing reference failed")
-			return indexErr
-		}
+// EnsurePbmm2Index returns the reference to hand pbmm2, building the minimizer
+// index once if it is missing.
+//
+// Callers build this before starting any concurrent work. Pbmm2Align used to
+// build it lazily itself, which under the directory pipeline meant N long-read
+// samples racing to write one file and each reading whatever the others had
+// half-written.
+//
+// The name carries the preset because pbmm2 index bakes -k and -w into the
+// index and pbmm2 align does not re-derive them from --preset: aligning HIFI
+// against a SUBREAD-built index does not fail, it warns and seeds wrongly. A
+// silent change in alignment quality is worth two files.
+//
+// A reference this cannot index is not a failed run: pbmm2 accepts a FASTA, so
+// a block-compressed reference or a read-only assembly store falls back to
+// handing it the FASTA and paying an in-memory index build per sample.
+func EnsurePbmm2Index(refFasta, preset string, verbose bool) (string, error) {
+	if utils.IsBgzippedFasta(refFasta) {
+		fmt.Printf("Reference %s is block-compressed: handing pbmm2 the FASTA instead of a .mmi\n", refFasta)
+		return refFasta, nil
 	}
 
-	pbmm2CmdStr := fmt.Sprintf(`pbmm2 align --sort -j %v --preset %s %s %s %s`, threads, preset, referencePath+".mmi", sePath, sortedBam)
+	mmi := fmt.Sprintf("%s.%s.mmi", refFasta, strings.ToUpper(preset))
+	if info, err := os.Stat(mmi); err == nil && info.Size() > 0 {
+		fmt.Printf("Using pbmm2 index: %s\n", mmi)
+		return mmi, nil
+	}
+
+	// An index built before the name carried a preset, or by hand. Reuse it
+	// rather than spending an hour rebuilding what is on disk — indexing a
+	// plant genome is not cheap, and for SUBREAD, CCS and HIFI the minimizer
+	// parameters are the same anyway (-k 19 -w 10). Say that its preset is
+	// unknown, because for ISOSEQ and UNROLLED they are not.
+	legacy := refFasta + ".mmi"
+	if info, err := os.Stat(legacy); err == nil && info.Size() > 0 {
+		fmt.Printf("Using the existing pbmm2 index: %s\n", legacy)
+		fmt.Printf("(built before indexes were named per preset — it may not carry %s's -k/-w;\n", strings.ToUpper(preset))
+		fmt.Printf(" delete it to have one built for this preset)\n")
+		return legacy, nil
+	}
+
+	// Built under a process-unique name and renamed, so two runs sharing a
+	// genomes directory produce identical bytes and the last rename wins
+	// atomically, rather than each writing into the name the other is reading.
+	partial := fmt.Sprintf("%s.partial.%d", mmi, os.Getpid())
+	cmdStr := fmt.Sprintf(`pbmm2 index --preset %s %s %s`, strings.ToUpper(preset), refFasta, partial)
+	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", cmdStr)
+
+	var err error
+	if verbose {
+		err = utils.RunBashCmdVerbose(cmdStr)
+	} else {
+		err = utils.RunBashCmd(cmdStr)
+	}
+	if err != nil {
+		_ = os.Remove(partial)
+		fmt.Printf("Could not build %s: %v\nHanding pbmm2 the FASTA instead; each long-read sample will index in memory\n", mmi, err)
+		return refFasta, nil
+	}
+	if renameErr := os.Rename(partial, mmi); renameErr != nil {
+		_ = os.Remove(partial)
+		return "", fmt.Errorf("installing %s: %w", mmi, renameErr)
+	}
+	return mmi, nil
+}
+
+// pbmm2AlignCmd builds the pbmm2 half of the long-read pipe, plus the sort.
+//
+// Split out so the command string is testable: pbmm2 is not installed
+// everywhere this builds, and the read-group and reference arguments are
+// exactly the things that are wrong in silence rather than loudly.
+func pbmm2AlignCmd(sePath, refIndex, sortedBam, sampleName, libName, preset string, threads int) string {
+	// Stamped at align time, the way the short-read aligners do it, rather than
+	// by a second gatk AddOrReplaceReadGroups pass over a whole-genome BAM.
+	// pbmm2 documents --rg for FASTA/Q input, which is the only input this path
+	// takes. It is not cosmetic: HaplotypeCaller names the gVCF's sample column
+	// from SM.
+	readGroup := fmt.Sprintf(`@RG\tID:%s.1\tSM:%s\tLB:%s\tPL:PACBIO`, sampleName, sampleName, libName)
+
+	// Piped into the repo's own sort rather than pbmm2 --sort. pbmm2 sorts to
+	// its own temporary files in a location this pipeline does not control,
+	// while every GATK step here spills under utils.TmpBase — so concurrent
+	// long-read sorts would fill the directory the short-read MarkDuplicates
+	// and BaseRecalibrator jobs depend on, and scratchDirs could not clean up
+	// what was left behind. Piping also makes -j the whole thread budget:
+	// pbmm2 --sort spends -J sort threads on top of -j.
+	return fmt.Sprintf(`pbmm2 align -j %d --preset %s --rg '%s' %s %s | %s`,
+		threads, strings.ToUpper(preset), readGroup, refIndex, sePath, sortCmd(sortedBam, threads))
+}
+
+// Pbmm2Align aligns one long-read FASTQ to sortedBam.
+//
+// refIndex is the reference to align against — a preset-keyed .mmi, or the
+// FASTA where one could not be built. It is passed in rather than derived:
+// this used to build <ref>.mmi lazily if it was missing, which under the
+// directory pipeline meant every concurrent long-read sample racing to write
+// one file. See alignmentdir.ensurePbmm2Index, which builds it once per run.
+func Pbmm2Align(sePath, refIndex, sortedBam, sampleName, libName, preset string, threads int, verbose bool) error {
+	pbmm2CmdStr := pbmm2AlignCmd(sePath, refIndex, sortedBam, sampleName, libName, preset, threads)
 	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", pbmm2CmdStr)
 	var pbmm2Err error
 	if verbose {
@@ -203,7 +295,7 @@ func Pbmm2Align(sePath string, referencePath string, sortedBam string, preset st
 }
 
 func ReadGroups(sortedBam string, rgBam string, sampleName string, libName string, verbose bool) error {
-	rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s --tmp-dir %s`, sortedBam, rgBam, sampleName, libName, sampleName, WorkTmpDir(rgBam))
+	rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s --TMP_DIR %s`, sortedBam, rgBam, sampleName, libName, sampleName, WorkTmpDir(rgBam))
 	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", rgCmdStr)
 	var rgErr error
 	if verbose {
@@ -257,23 +349,69 @@ func RgmdBamPath(sortedBam string) string {
 	return base + ".RGMD.bam"
 }
 
-func MarkDuplicates(referencePath string, sortedBam string, verbose bool, aligner string, gatkLogLevel string, javaOpts string) error {
+// Duplicate markers, as chosen by the caller rather than inferred from which
+// aligner produced the file.
+const (
+	// DupMarkerGatk is GATK MarkDuplicates: works on any coordinate-sorted BAM,
+	// flags duplicates in place and writes a metrics file.
+	DupMarkerGatk = "gatk"
+	// DupMarkerPbmarkdup is pbmarkdup, for NATIVE PacBio BAM only.
+	//
+	// It needs the per-read tags a PacBio instrument writes — zm, np, rq — and
+	// a BAM aligned from a FASTQ has none of them, because a FASTQ cannot carry
+	// them. Given one it still reports the right duplicate counts and then dies
+	// writing the output ("ERROR: stoul"), leaving a header-only BAM. So this is
+	// only correct where the reads arrived as a PacBio uBAM; the directory
+	// pipeline, whose long-read input is a FASTQ, uses DupMarkerGatk.
+	DupMarkerPbmarkdup = "pbmarkdup"
+)
 
-	rgmdBam := RgmdBamPath(sortedBam)
+// markDupCmd builds the duplicate-marking command and returns it with the file
+// it writes.
+//
+// Split out from MarkDuplicates so the command string can be tested without a
+// subprocess. That is worth a function on its own here: the tool name lives
+// inside a format string, where a wrong one is invisible to every other kind of
+// test and shows up only as a failed run hours in. This branch shipped for a
+// while as "pbmm2 markdup", which is not a pbmm2 subcommand at all — pbmarkdup
+// is a separate binary, which is why cmd/AlignReads.go adds it to the
+// dependency list for that aligner.
+func markDupCmd(referencePath, sortedBam, dupMarker, gatkLogLevel, javaOpts string, threads int) (cmd, rgmdBam string) {
+	rgmdBam = RgmdBamPath(sortedBam)
+
+	if dupMarker == DupMarkerPbmarkdup {
+		// No metrics file: pbmarkdup does not write one. Anything reading
+		// <sample>.RGMD.metrics.txt must tolerate its absence.
+		return fmt.Sprintf(`pbmarkdup -j %d %s %s`, samThreads(threads), sortedBam, rgmdBam), rgmdBam
+	}
+
 	rgmdMetrics := strings.TrimSuffix(rgmdBam, ".bam") + ".metrics.txt"
 
-	var cmd string
-	if aligner == "pbmm2" {
-		cmd = fmt.Sprintf(`pbmm2 markdup %s %s`, sortedBam, rgmdBam)
-	} else {
-		// --TMP_DIR matters as much as the heap: duplicate marking a
-		// whole-genome BAM spills a sorting collection roughly the size of the
-		// read set. SpillTmpDir keeps that off both the mounted data drive the
-		// output lives on and a RAM-backed /tmp — see utils.SpillTmpDir for the
-		// order it picks a disk in.
-		cmd = fmt.Sprintf(`gatk --java-options "%s" MarkDuplicates -R %s -I %s -O %s -M %s --TMP_DIR %s --VERBOSITY %s`,
-			javaOpts, referencePath, sortedBam, rgmdBam, rgmdMetrics, utils.SpillTmpDir(rgmdBam), gatkLogLevel)
+	// --TMP_DIR matters as much as the heap: duplicate marking a
+	// whole-genome BAM spills a sorting collection roughly the size of the
+	// read set. SpillTmpDir keeps that off both the mounted data drive the
+	// output lives on and a RAM-backed /tmp — see utils.SpillTmpDir for the
+	// order it picks a disk in.
+	return fmt.Sprintf(`gatk --java-options "%s" MarkDuplicates -R %s -I %s -O %s -M %s --TMP_DIR %s --VERBOSITY %s`,
+		javaOpts, referencePath, sortedBam, rgmdBam, rgmdMetrics, utils.SpillTmpDir(rgmdBam), gatkLogLevel), rgmdBam
+}
 
+// MarkDuplicates marks duplicates in sortedBam, writing RgmdBamPath(sortedBam).
+//
+// dupMarker is one of the DupMarker* constants. It is passed in rather than
+// derived from the aligner because the two are not the same question: what
+// aligned a file says nothing about whether the file carries the native PacBio
+// tags pbmarkdup needs.
+func MarkDuplicates(referencePath string, sortedBam string, verbose bool, dupMarker string, gatkLogLevel string, javaOpts string, threads int) error {
+	cmd, rgmdBam := markDupCmd(referencePath, sortedBam, dupMarker, gatkLogLevel, javaOpts, threads)
+
+	// pbmarkdup refuses to overwrite an existing output, so a resumed sample
+	// would fail on the file its own previous attempt left behind. GATK
+	// MarkDuplicates overwrites happily, but clearing the target first is the
+	// right thing on both paths: a half-written file from an interrupted run
+	// must never be mistaken for this run's output.
+	if err := os.Remove(rgmdBam); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clearing %s before marking duplicates: %w", rgmdBam, err)
 	}
 
 	fmt.Printf("\n-------------------------------------------------------------------\nRunning: %s\n------------------------------------------------------------------\n\n", cmd)

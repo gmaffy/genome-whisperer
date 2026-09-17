@@ -58,7 +58,7 @@ func TestGatkReadsNeedBamWithoutFai(t *testing.T) {
 // was — the new steps are for the big-contig case only.
 func TestBuildPlanUnchangedWhenCramIsReadable(t *testing.T) {
 	state := SampleBamState{RgmdCram: indexed()}
-	plan, _ := buildPlan(state, true, false)
+	plan, _ := buildPlan(state, planInputs{bqsr: true, gatkNeedsBam: false})
 
 	if stepIndex(plan, ReasonMaterializeRgmdBam) != -1 {
 		t.Fatalf("plan should not decode the cram on a readable reference: %v", plan)
@@ -73,7 +73,7 @@ func TestBuildPlanUnchangedWhenCramIsReadable(t *testing.T) {
 
 func TestBuildPlanDecodesCramWhenItIsTheOnlyCopy(t *testing.T) {
 	state := SampleBamState{RgmdCram: indexed()}
-	plan, needsReads := buildPlan(state, true, true)
+	plan, needsReads := buildPlan(state, planInputs{bqsr: true, gatkNeedsBam: true})
 
 	materialize := stepIndex(plan, ReasonMaterializeRgmdBam)
 	runBQSR := stepIndex(plan, ReasonRunBQSR)
@@ -91,7 +91,7 @@ func TestBuildPlanDecodesCramWhenItIsTheOnlyCopy(t *testing.T) {
 func TestBuildPlanIndexesAnExistingRgmdBam(t *testing.T) {
 	// The bam is right there — decoding the cram again would be wasted hours.
 	state := SampleBamState{RgmdCram: indexed(), RgmdBam: usable()}
-	plan, _ := buildPlan(state, true, true)
+	plan, _ := buildPlan(state, planInputs{bqsr: true, gatkNeedsBam: true})
 
 	if got := stepIndex(plan, ReasonMaterializeRgmdBam); got != -1 {
 		t.Fatalf("should not decode the cram when an rgmd.bam exists: %v", plan)
@@ -104,7 +104,7 @@ func TestBuildPlanIndexesAnExistingRgmdBam(t *testing.T) {
 
 func TestBuildPlanLeavesAnIndexedRgmdBamAlone(t *testing.T) {
 	state := SampleBamState{RgmdCram: indexed(), RgmdBam: indexed()}
-	plan, _ := buildPlan(state, true, true)
+	plan, _ := buildPlan(state, planInputs{bqsr: true, gatkNeedsBam: true})
 
 	if stepIndex(plan, ReasonMaterializeRgmdBam) != -1 || stepIndex(plan, ReasonIndexRgmdBam) != -1 {
 		t.Fatalf("an indexed rgmd.bam needs no preparation: %v", plan)
@@ -114,7 +114,7 @@ func TestBuildPlanLeavesAnIndexedRgmdBamAlone(t *testing.T) {
 func TestBuildPlanIndexesTheBamItIsAboutToWrite(t *testing.T) {
 	// Nothing on disk: the sample aligns from reads, and the rgmd.bam that
 	// MarkDuplicates writes is what BQSR will read, so it needs an index.
-	plan, needsReads := buildPlan(SampleBamState{}, true, true)
+	plan, needsReads := buildPlan(SampleBamState{}, planInputs{bqsr: true, gatkNeedsBam: true})
 
 	if !needsReads {
 		t.Fatal("aligning from scratch needs the FASTQs")
@@ -129,7 +129,7 @@ func TestBuildPlanIndexesTheBamItIsAboutToWrite(t *testing.T) {
 }
 
 func TestBuildPlanAddsNothingWithoutBQSR(t *testing.T) {
-	plan, _ := buildPlan(SampleBamState{RgmdCram: indexed()}, false, true)
+	plan, _ := buildPlan(SampleBamState{RgmdCram: indexed()}, planInputs{gatkNeedsBam: true})
 
 	if stepIndex(plan, ReasonMaterializeRgmdBam) != -1 || stepIndex(plan, ReasonIndexRgmdBam) != -1 {
 		t.Fatalf("no BQSR means no reason to produce a bam: %v", plan)

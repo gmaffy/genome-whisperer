@@ -84,9 +84,8 @@ func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string
 		log.Fatal(err)
 	}
 
-	dictFilePath := utils.DictPath(resolvedFasta)
-	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
-		color.Red("Reference dict file: %s does not exist\n", dictFilePath)
+	if dicfErr := utils.EnsureGatkDict(resolvedFasta); dicfErr != nil {
+		color.Red("%v\n", dicfErr)
 		log.Fatal(dicfErr)
 	}
 

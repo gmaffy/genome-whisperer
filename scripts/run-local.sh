@@ -169,11 +169,8 @@ for read_dir in "${READ_DIRS[@]}"; do
 	sample_dir="$(dirname "$read_dir")"
 	sample="$(basename "$sample_dir")"
 
-	# Long-read samples are skipped by the aligner itself, so there is no point
-	# moving their data across the network.
 	if [[ ${sample^^} == *LR ]]; then
-		warn "skipping $sample (long-read sample, unsupported by AlignReads)"
-		continue
+		info "$sample is a long-read sample (pbmm2)"
 	fi
 	if [[ -n $SAMPLES && ",$SAMPLES," != *",$sample,"* ]]; then
 		continue

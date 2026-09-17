@@ -330,7 +330,7 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 			jlog.Info("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("ALIGNMENT", "PROGRAM", "RG", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 
-			rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s --tmp-dir %s`, sortedBam, rgBam, sampleName, libName, sampleName, WorkTmpDir(rgBam))
+			rgCmdStr := fmt.Sprintf(`gatk AddOrReplaceReadGroups -I %s -O %s -ID %s.1 -LB %s -PL PACBIO -PU BKD -SM %s --TMP_DIR %s`, sortedBam, rgBam, sampleName, libName, sampleName, WorkTmpDir(rgBam))
 			fmt.Printf("%s\n-----------------------------------------------\n\n", rgCmdStr)
 			var rgErr error
 			if verbose {
@@ -356,7 +356,13 @@ func RunAlignReads(referencePath string, forwardPath string, reversePath string,
 		} else {
 			jlog.Info("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
 			slog.Info("ALIGNMENT", "PROGRAM", "PBMARKDUP", "SAMPLE", sampleName, "CHROMOSOME", "ALL", "STATUS", "STARTED")
-			mkdpCmdStr := fmt.Sprintf(`pbmm2 markdup %s %s`, rgBam, rgmdBam)
+			// pbmarkdup, not "pbmm2 markdup": pbmm2 has no markdup subcommand,
+			// and it refuses to overwrite an existing output, so a resumed run
+			// has to clear the target first.
+			if rmErr := os.Remove(rgmdBam); rmErr != nil && !os.IsNotExist(rmErr) {
+				return "", fmt.Errorf("clearing %s before marking duplicates: %w", rgmdBam, rmErr)
+			}
+			mkdpCmdStr := fmt.Sprintf(`pbmarkdup -j %v %s %s`, threads, rgBam, rgmdBam)
 			fmt.Printf("%s\n-----------------------------------------------\n\n", mkdpCmdStr)
 			var mkdpErr error
 			if verbose {

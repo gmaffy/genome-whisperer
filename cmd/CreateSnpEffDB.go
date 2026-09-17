@@ -19,119 +19,81 @@ var CreateSnpEffDBCmd = &cobra.Command{
 	Short: "Creates a snpEff database from a reference genome, protein fasta, cds fasta and gff3 file.",
 	Long:  `Creates a snpEff database from a reference genome, protein fasta, cds fasta and gff3 file.`,
 
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("CreateSnpEffDB called")
-		err := utils.CheckDeps([]string{"gatk", "snpEff", "java"})
+	// RunE, not Run: a returned error makes cobra exit non-zero. With Run the
+	// command printed build failures and still exited 0, so a caller checking $?
+	// carried on as though the database existed.
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := utils.CheckDeps([]string{"gatk", "snpEff", "java"}); err != nil {
+			return fmt.Errorf("dependency check failed: %w", err)
+		}
+
+		flags := cmd.Flags()
+		refFile, err := flags.GetString("reference")
 		if err != nil {
-			return
+			return err
 		}
-		refFile, rErr := cmd.Flags().GetString("reference")
-		if rErr != nil {
-			fmt.Println("Error getting reference flag")
-			return
+		protein, err := flags.GetString("protein")
+		if err != nil {
+			return err
 		}
-
-		protein, pErr := cmd.Flags().GetString("protein")
-		if pErr != nil {
-			fmt.Println("Error getting protein flag")
-			return
+		cds, err := flags.GetString("cds")
+		if err != nil {
+			return err
 		}
-
-		cds, cErr := cmd.Flags().GetString("cds")
-		if cErr != nil {
-			fmt.Println("Error getting cds flag")
-			return
+		gff, err := flags.GetString("gff")
+		if err != nil {
+			return err
 		}
-
-		gff, gErr := cmd.Flags().GetString("gff")
-		if gErr != nil {
-			fmt.Println("Error getting gff flag")
-			return
+		species, err := flags.GetString("species")
+		if err != nil {
+			return err
 		}
-
-		species, sErr := cmd.Flags().GetString("species")
-		if sErr != nil {
-			fmt.Println("Error getting species flag")
-			return
-
+		version, err := flags.GetString("annotation-version")
+		if err != nil {
+			return err
 		}
-
-		version, vErr := cmd.Flags().GetString("annotation-version")
-		if vErr != nil {
-			fmt.Println("Error getting annotation-version flag")
-			return
-		}
-
-		config, cErr := cmd.Flags().GetString("config")
-		if cErr != nil {
-			fmt.Println("Error getting config flag")
-			return
+		config, err := flags.GetString("config")
+		if err != nil {
+			return err
 		}
 
 		if config != "" {
-			_, err := os.Stat(config)
-			if err != nil {
-				fmt.Printf("config file: %s is not a valid file path", config)
-				return
+			if _, sErr := os.Stat(config); sErr != nil {
+				return fmt.Errorf("config file %s is not readable: %w", config, sErr)
 			}
-			er := annotation.CreateCustomDbFromConfig(config, species, version)
-			if er != nil {
-				fmt.Printf("Error creating custom db from config file: %v", er)
-				return
-			}
-
-		} else {
-			fmt.Println("Creating custom db from command line arguments")
-			_, err := os.Stat(refFile)
-			if err != nil {
-				fmt.Printf("Reference file: %s is not a valid file path", refFile)
-				return
-			}
-
-			_, err = os.Stat(protein)
-			if err != nil {
-				fmt.Printf("Protein file: %s is not a valid file path", protein)
-				return
-			}
-
-			_, err = os.Stat(cds)
-			if err != nil {
-				fmt.Printf("CDS file: %s is not a valid file path", cds)
-				return
-			}
-
-			_, err = os.Stat(gff)
-			if err != nil {
-				fmt.Printf("GFF file: %s is not a valid file path", gff)
-				return
-			}
-
-			if species == "" {
-				fmt.Println("Please provide species name")
-				return
-			}
-
-			if version == "" {
-				fmt.Println("Please provide the annotation version with --annotation-version")
-				return
-			}
-
-			fmt.Println("All arguments passed are valid")
-
-			err1 := annotation.CreateCustomDb(refFile, protein, cds, species, gff, version)
-			if err1 != nil {
-				fmt.Printf("Error creating custom db: %v", err1)
-				return
-			}
-
+			return annotation.CreateCustomDbFromConfig(config, species, version)
 		}
+
+		fmt.Println("Creating custom db from command line arguments")
+		for _, f := range []struct{ flag, path string }{
+			{"--reference", refFile},
+			{"--protein", protein},
+			{"--cds", cds},
+			{"--gff", gff},
+		} {
+			if f.path == "" {
+				return fmt.Errorf("%s is required", f.flag)
+			}
+			if _, sErr := os.Stat(f.path); sErr != nil {
+				return fmt.Errorf("%s file %s is not readable: %w", f.flag, f.path, sErr)
+			}
+		}
+		if species == "" {
+			return fmt.Errorf("please provide a species name with --species")
+		}
+		if version == "" {
+			return fmt.Errorf("please provide the annotation version with --annotation-version")
+		}
+
+		fmt.Println("All arguments passed are valid")
+		return annotation.CreateCustomDb(refFile, protein, cds, species, gff, version)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(CreateSnpEffDBCmd)
 	CreateSnpEffDBCmd.Flags().SortFlags = false
-	CreateSnpEffDBCmd.Flags().String("protein", "", "Path to the protein FASTA")
 	CreateSnpEffDBCmd.Flags().String("cds", "", "Path to the CDS FASTA")
-	CreateSnpEffDBCmd.Flags().String("annotation-version", "", "Reference annotation version")
+	// --protein and --annotation-version are persistent flags on the root
+	// command: GetProtPrgTopHits needs both too.
 }

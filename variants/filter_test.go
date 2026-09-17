@@ -1,8 +1,12 @@
 package variants
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/brentp/vcfgo"
 	"github.com/gmaffy/genome-whisperer/utils"
@@ -228,4 +232,223 @@ func TestDeepVariantProfileNeedsParsedSamples(t *testing.T) {
 	}
 	t.Log("confirmed: with lazySamples the GQ check silently passes everything, " +
 		"which is why FilterVcf now parses samples for the DeepVariant profile")
+}
+
+// ---------------------------------------------------------------------------
+// Reuse of an existing filtered VCF
+// ---------------------------------------------------------------------------
+
+// writeStampedVCF writes a VCF carrying a GenomeWhispererHardFilter header line,
+// the shape FilterVcf leaves behind.
+func writeStampedVCF(t *testing.T, path, stamp string, samples []string, records ...string) string {
+	t.Helper()
+	writeVCF(t, path, samples, records...)
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamped := strings.Replace(string(body), "#CHROM",
+		"##"+filterStampKey+"="+stamp+"\n#CHROM", 1)
+	if err := os.WriteFile(path, []byte(stamped), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestFilterStampSeparatesSettings(t *testing.T) {
+	base := filterStamp(gatkDefaults(), "gatk", 20)
+
+	changed := gatkDefaults()
+	changed.SNP_QD_Min = 4.0
+
+	light := gatkDefaults()
+	light.LightFilter = true
+
+	cases := []struct {
+		name  string
+		stamp string
+	}{
+		{"one threshold changed", filterStamp(changed, "gatk", 20)},
+		{"light filtering", filterStamp(light, "gatk", 20)},
+		{"other caller profile", filterStamp(gatkDefaults(), "deepvariant", 20)},
+		{"other minGQ", filterStamp(gatkDefaults(), "gatk", 30)},
+	}
+	for _, c := range cases {
+		if c.stamp == base {
+			t.Errorf("%s: stamp is unchanged (%s), so a rerun would reuse the wrong VCF", c.name, c.stamp)
+		}
+	}
+
+	if filterStamp(gatkDefaults(), "gatk", 20) != base {
+		t.Error("the same settings must stamp identically, or nothing is ever reused")
+	}
+}
+
+func TestStaleFilteredVcf(t *testing.T) {
+	stamp := filterStamp(gatkDefaults(), "gatk", 20)
+	record := "A01\t100\t.\tA\tG\t500\t.\t" + goodInfo + "\tGT\t0/1\t0/0"
+
+	// --skip-verification keeps the check to header reads: the integrity step
+	// shells out to bcftools, which these tests do not depend on.
+	opts := Options{SkipVerification: true}
+
+	cases := []struct {
+		name     string
+		joint    []string // samples in the joint VCF
+		filtered []string // samples in the filtered VCF
+		stamp    string
+		reuse    bool
+	}{
+		{"same samples and settings", []string{"S1", "S2"}, []string{"S1", "S2"}, stamp, true},
+		{"samples in a different order", []string{"S1", "S2"}, []string{"S2", "S1"}, stamp, true},
+		{"a sample was added", []string{"S1", "S2", "S3"}, []string{"S1", "S2"}, stamp, false},
+		{"a sample was dropped", []string{"S1"}, []string{"S1", "S2"}, stamp, false},
+		{"thresholds changed", []string{"S1", "S2"}, []string{"S1", "S2"},
+			filterStamp(gatkDefaults(), "deepvariant", 20), false},
+		{"no stamp at all", []string{"S1", "S2"}, []string{"S1", "S2"}, "", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			jointRecord := "A01\t100\t.\tA\tG\t500\t.\t" + goodInfo + "\tGT" +
+				strings.Repeat("\t0/1", len(c.joint))
+			joint := writeVCF(t, filepath.Join(dir, "cohort.vcf"), c.joint, jointRecord)
+
+			filtered := filepath.Join(dir, "cohort.hard_filtered.vcf")
+			if c.stamp == "" {
+				writeVCF(t, filtered, c.filtered, record)
+			} else {
+				writeStampedVCF(t, filtered, c.stamp, c.filtered, record)
+			}
+
+			why := staleFilteredVcf(opts, joint, filtered, stamp)
+			if c.reuse && why != "" {
+				t.Errorf("expected reuse, got refused: %s", why)
+			}
+			if !c.reuse && why == "" {
+				t.Error("expected the filtered VCF to be rebuilt, but it was accepted for reuse")
+			}
+		})
+	}
+}
+
+// The stamp is only useful if it survives the writer. vcfgo keeps unrecognised
+// ##key=value lines in Header.Extras, and this pins that: append a stamp on the
+// way in, read it back off the file that comes out.
+func TestFilterStampRoundTripsThroughVcfgo(t *testing.T) {
+	dir := t.TempDir()
+	in := writeVCF(t, filepath.Join(dir, "in.vcf"), []string{"S1"},
+		"A01\t100\t.\tA\tG\t500\t.\t"+goodInfo+"\tGT\t0/1")
+
+	r, cleanup, err := openVCF(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	rdr, err := vcfgo.NewReader(r, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stamp := filterStamp(gatkDefaults(), "gatk", 20)
+	rdr.Header.Extras = append(rdr.Header.Extras, "##"+filterStampKey+"="+stamp)
+
+	out := filepath.Join(dir, "out.vcf")
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vcfgo.NewWriter(f, rdr.Header); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	got, err := vcfHeaderValue(out, filterStampKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != stamp {
+		t.Errorf("stamp did not survive the writer:\n got %q\nwant %q", got, stamp)
+	}
+}
+
+func TestVcfHeaderValueMissingKey(t *testing.T) {
+	path := writeVCF(t, filepath.Join(t.TempDir(), "plain.vcf"), []string{"S1"},
+		"A01\t100\t.\tA\tG\t500\t.\t"+goodInfo+"\tGT\t0/1")
+
+	got, err := vcfHeaderValue(path, filterStampKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("expected no stamp, got %q", got)
+	}
+}
+
+// End to end: the reuse check and the stamp FilterVcf writes have to agree, and
+// only a run against the real bgzf/tabix output proves they do. Skipped where
+// the tools are absent, since nothing else in this package needs them.
+func TestFilterVcfReusesItsOwnOutput(t *testing.T) {
+	for _, tool := range []string{"bgzip", "tabix", "bcftools"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not installed", tool)
+		}
+	}
+
+	dir := t.TempDir()
+	plain := writeVCF(t, filepath.Join(dir, "cohort.vcf"), []string{"S1", "S2"},
+		"A01\t100\t.\tA\tG\t500\t.\t"+goodInfo+"\tGT\t0/1\t0/0",
+		"A01\t200\t.\tA\tG\t5\t.\t"+goodInfo+"\tGT\t0/1\t0/0")
+	if out, err := exec.Command("bgzip", "-f", plain).CombinedOutput(); err != nil {
+		t.Fatalf("bgzip: %v\n%s", err, out)
+	}
+	joint := plain + ".gz"
+	if out, err := exec.Command("tabix", "-f", "-p", "vcf", joint).CombinedOutput(); err != nil {
+		t.Fatalf("tabix: %v\n%s", err, out)
+	}
+
+	opts := Options{Caller: "gatk", HardFilter: gatkDefaults(), MinGQ: 20}
+
+	first, err := FilterVcf(opts, joint)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	before := modTime(t, first)
+
+	stamp, err := vcfHeaderValue(first, filterStampKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamp == "" {
+		t.Fatal("FilterVcf wrote no stamp, so no later run can reuse its output")
+	}
+
+	if _, err := FilterVcf(opts, joint); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if got := modTime(t, first); !got.Equal(before) {
+		t.Error("unchanged settings rewrote the filtered VCF instead of reusing it")
+	}
+
+	tighter := opts
+	tighter.HardFilter.SNP_QUAL_Min = 1000
+	if _, err := FilterVcf(tighter, joint); err != nil {
+		t.Fatalf("third run: %v", err)
+	}
+	if got := modTime(t, first); got.Equal(before) {
+		t.Error("a changed threshold reused the previous filtered VCF")
+	}
+}
+
+func modTime(t *testing.T, path string) time.Time {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.ModTime()
 }

@@ -155,7 +155,16 @@ var AlignReadsCmd = &cobra.Command{
 			deps = append(deps, "bowtie2")
 
 		case "pbmm2":
-			deps = append(deps, "pbmm2", "pbmarkdup")
+			deps = append(deps, "pbmm2")
+			// pbmarkdup only marks duplicates on native PacBio BAM — it needs
+			// the per-read tags the instrument writes — so it is required only
+			// on the single-sample route, where the input may be a uBAM. A
+			// data-dir run marks duplicates with GATK and does not need it;
+			// demanding it here would also bury the "--aligner pbmm2 is not
+			// valid in data-dir mode" message under a dependency error.
+			if dataDir == "" {
+				deps = append(deps, "pbmarkdup")
+			}
 
 		default:
 			log.Fatalf("Unsupported aligner: %s. Supported aligners are 'bwa-mem', 'bowtie2', 'pbmm2'", aligner)
@@ -186,7 +195,7 @@ var AlignReadsCmd = &cobra.Command{
 				fmt.Printf("Data directory %s does not exist", dataDir)
 				return
 			}
-			alignmentdir.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, genomesDir, verbose, gatkLogLevel, aligner, quick, skipVerification, bqsr, bootstrap, knownSites, threads)
+			alignmentdir.RunAlignReadsDir(dataDir, speciesName, refVer, referencePath, genomesDir, verbose, gatkLogLevel, aligner, preset, quick, skipVerification, bqsr, bootstrap, knownSites, threads)
 		} else {
 			//fmt.Println("inline ...")
 			_, refErr := os.Stat(referencePath)

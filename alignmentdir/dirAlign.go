@@ -180,6 +180,17 @@ type ProcessingReason string
 const (
 	// ReasonAlignFromReads — no usable intermediates; align fwd/rev reads from scratch.
 	ReasonAlignFromReads ProcessingReason = "align_from_reads"
+	// ReasonAlignLongReads — no usable intermediates; align the sample's single
+	// long-read FASTQ with pbmm2, then mark duplicates. The long-read twin of
+	// ReasonAlignFromReads, kept as its own step so the plan printed for an
+	// operator says which aligner a sample is about to get.
+	ReasonAlignLongReads ProcessingReason = "align_long_reads"
+	// ReasonAdoptExternalAlignment — a long-read sample arrived with an
+	// externally produced alignment (MENINA_LONG_READS.aligned.cram and the
+	// like). Rewrite its read group to this sample and normalise it to
+	// <sample>.sorted.bam so the ordinary markdup → cram chain applies. The
+	// external file is an input: never modified, never removed.
+	ReasonAdoptExternalAlignment ProcessingReason = "adopt_external_alignment"
 	// ReasonMarkDupSortedBam — sorted.bam present; run MarkDuplicates then convert to cram.
 	ReasonMarkDupSortedBam ProcessingReason = "markdup_sorted_bam"
 	// ReasonIndexRgmdBam — rgmd.bam present but has no index; index it before converting.
@@ -208,8 +219,34 @@ type sampleTask struct {
 	cleanReadsDir string
 	fwd           string
 	rev           string
-	state         SampleBamState
-	plan          []ProcessingReason
+	// se is the single long-read FASTQ; empty for a short-read sample.
+	se string
+	// longRead marks a pbmm2 sample: no BQSR, ever.
+	longRead bool
+	// aligner is the aligner THIS sample's steps use — the run's --aligner for a
+	// short-read sample, always "pbmm2" for a long-read one.
+	//
+	// It lives on the task rather than being passed to processSample because a
+	// mixed run has two of them: a function holding both a parameter and a task
+	// field is one typo away from running gatk MarkDuplicates on a PacBio BAM.
+	aligner string
+	// preset and refIndex are the pbmm2 alignment mode and the reference to
+	// hand it (a preset-keyed .mmi, or the fasta where one could not be built).
+	preset   string
+	refIndex string
+	// dupMarker is the duplicate marker for this sample, one of the
+	// alignment.DupMarker* constants. Separate from aligner because the two are
+	// different questions: every sample here is marked with GATK, including the
+	// long-read ones, because pbmarkdup needs the native PacBio per-read tags
+	// (zm, np, rq) that a FASTQ cannot carry and a pbmm2-from-FASTQ BAM
+	// therefore lacks.
+	dupMarker string
+	// external is an externally produced alignment adopted as this sample's
+	// input. It is never written into a SampleBamState slot: those five slots
+	// describe artefacts the pipeline produced, and this is not one.
+	external string
+	state    SampleBamState
+	plan     []ProcessingReason
 }
 
 type sampleResult struct {
@@ -218,7 +255,7 @@ type sampleResult struct {
 	err     error
 }
 
-func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, genomesDir string, verbose bool, gatkLogLevel string, aligner string, quick bool, skipVer bool, bqsr bool, bootstrap bool, knownSites []string, threads int) {
+func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta string, genomesDir string, verbose bool, gatkLogLevel string, aligner string, preset string, quick bool, skipVer bool, bqsr bool, bootstrap bool, knownSites []string, threads int) {
 	dInfo, err := os.Stat(dataDir)
 	if err != nil {
 		fmt.Printf("Error accessing data directory: %s\n", dataDir)
@@ -254,17 +291,31 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		return
 	}
 
-	dictFilePath := utils.DictPath(resolvedFasta)
-	if _, dicfErr := os.Stat(dictFilePath); dicfErr != nil {
-		fmt.Printf("Reference dict file: %s does not exist\n", dictFilePath)
+	if dicfErr := utils.EnsureGatkDict(resolvedFasta); dicfErr != nil {
+		fmt.Printf("%v\n", dicfErr)
 		return
 	}
 
+	// --aligner names the SHORT-read aligner here. Long-read samples are
+	// detected by name and always use pbmm2, so pbmm2 is not a choice to make
+	// for the run: alignPairedReads has no arm for it and would fail every
+	// short-read sample individually, after the scan, hours in.
+	if aligner == "pbmm2" {
+		color.Red("--aligner pbmm2 is not valid in data-dir mode.\n")
+		color.Red("Short-read samples need bwa-mem, bwa-mem2 or bowtie2; long-read samples are\n")
+		color.Red("aligned with pbmm2 automatically, whatever --aligner says.\n")
+		return
+	}
+
+	if presetErr := validatePreset(preset); presetErr != nil {
+		color.Red("%v\n", presetErr)
+		return
+	}
+
+	// BQSR is applied per sample, not per run: short-read samples are
+	// recalibrated and long-read ones never are (see planInputs.longRead), so
+	// the two kinds coexist under one --bqsr.
 	if bqsr {
-		if aligner == "pbmm2" {
-			color.Red("BQSR is not supported for pbmm2. Use bwa-mem2 or disable BQSR.\n")
-			return
-		}
 		if len(knownSites) == 0 && !bootstrap {
 			color.Red("BQSR requested: either provide known-sites or enable bootstrap.\n")
 			return
@@ -293,11 +344,13 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 	}
 	color.Green("Sample dirs found: %d\n", len(cleanReadsDirs))
 	var (
-		tasks           []sampleTask
-		alreadyComplete int
-		scanFailures    []string
-		missingReads    []string
-		longReadSamples []string
+		tasks             []sampleTask
+		alreadyComplete   int
+		scanFailures      []string
+		missingReads      []string
+		missingLongReads  []string
+		longReadSamples   []string
+		ambiguousAdoption []string
 	)
 
 	// Decided once for the run: on a reference with contigs past the BAI limit
@@ -323,57 +376,127 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			continue
 		}
 
+		isLR := IsLongReadSample(sample)
+
+		// Adoption is decided here, from names alone: this loop is serial, so
+		// the header reads and the full validation belong in the worker, inside
+		// ReasonAdoptExternalAlignment.
+		var external string
+		if isLR {
+			candidates := adoptionCandidates(state)
+			if len(candidates) > 1 {
+				// Two movies, or a movie and a stale partial. Picking one
+				// silently drops half a sample's data, so this is a question
+				// for a person; nothing in the directory is touched.
+				color.Red("[%s] More than one externally produced alignment in %s — not choosing between them:\n", sample, bamDir)
+				for _, c := range candidates {
+					color.Red("    %s\n", filepath.Base(c))
+				}
+				ambiguousAdoption = append(ambiguousAdoption, sample)
+				continue
+			}
+			if len(candidates) == 1 {
+				external = candidates[0]
+				color.Blue("[%s] Long read sample with an existing alignment: %s\n", sample, filepath.Base(external))
+			} else {
+				color.Blue("[%s] Long read sample\n", sample)
+			}
+		}
+
 		rgmdCramOK := state.RgmdCram.Present && state.RgmdCram.Valid && state.RgmdCram.IndexPresent && state.RgmdCram.IndexSize > 0
 		bqsrCramOK := state.BqsrCram.Present && state.BqsrCram.Valid && state.BqsrCram.IndexPresent && state.BqsrCram.IndexSize > 0
 
-		if rgmdCramOK && bqsrCramOK && !state.SortedBam.Present && !state.RgmdBam.Present && !state.BqsrBam.Present && len(state.OtherFiles) == 0 {
+		if isLR {
+			// A long-read sample is finished at the rgmd.cram: BQSR is never
+			// run on it, so requiring a bqsr.cram would mean no long-read
+			// sample was ever complete.
+			//
+			// OtherFiles is not required to be empty either. An adopted
+			// alignment stays in the directory permanently — it is an input,
+			// and cleanup will not remove it — so demanding its absence would
+			// re-plan and re-validate every adopted sample on every run, which
+			// on a multi-hundred-gigabyte CRAM is not free.
+			if rgmdCramOK && !state.SortedBam.Present && !state.RgmdBam.Present && !state.BqsrBam.Present {
+				alreadyComplete++
+				color.Green("[%s]- ✅ PASS (long read). Skipping ...\n", sample)
+				continue
+			}
+		} else if rgmdCramOK && bqsrCramOK && !state.SortedBam.Present && !state.RgmdBam.Present && !state.BqsrBam.Present && len(state.OtherFiles) == 0 {
 			alreadyComplete++
 			color.Green("[%s]- ✅ PASS. Skipping ...\n", sample)
 			continue
 		}
 
-		if strings.HasSuffix(strings.ToUpper(sample), "LR") {
-			color.Blue("[%s] Long reads sample ..\n", sample)
-			longReadSamples = append(longReadSamples, sample)
-			continue
-		}
-
 		// Build the full ordered plan from the current state so processSample
 		// can execute every step without re-scanning the filesystem.
-		plan, needsReads := buildPlan(state, bqsr, gatkNeedsBam)
+		plan, needsReads := buildPlan(state, planInputs{
+			bqsr:         bqsr && !isLR,
+			gatkNeedsBam: gatkNeedsBam,
+			longRead:     isLR,
+			external:     external != "",
+		})
 
-		var fwd, rev string
+		var fwd, rev, se string
 		if needsReads {
-			fwdReads, revReads, readsErr := GetReadsPE(cleanReadsDir)
-			if readsErr != nil || len(fwdReads) != 1 || len(revReads) != 1 {
-				color.Red("[%s] Forward and reverse reads not found in %s\n", sample, cleanReadsDir)
-				missingReads = append(missingReads, sample)
-				continue
+			if isLR {
+				longRead, readsErr := GetReadsLong(cleanReadsDir)
+				if readsErr != nil {
+					color.Red("[%s] %v\n", sample, readsErr)
+					missingLongReads = append(missingLongReads, sample)
+					continue
+				}
+				se = longRead
+			} else {
+				fwdReads, revReads, readsErr := GetReadsPE(cleanReadsDir)
+				if readsErr != nil || len(fwdReads) != 1 || len(revReads) != 1 {
+					color.Red("[%s] Forward and reverse reads not found in %s\n", sample, cleanReadsDir)
+					missingReads = append(missingReads, sample)
+					continue
+				}
+				fwd = fwdReads[0]
+				rev = revReads[0]
 			}
-			fwd = fwdReads[0]
-			rev = revReads[0]
 		}
 
-		color.Yellow("[%s] Sample queued — %d steps: %v\n\n", sample, len(plan), plan)
+		sampleAligner := aligner
+		if isLR {
+			sampleAligner = "pbmm2"
+			longReadSamples = append(longReadSamples, sample)
+		}
+
+		color.Yellow("[%s] Sample queued (%s) — %d steps: %v\n\n", sample, sampleAligner, len(plan), plan)
 		tasks = append(tasks, sampleTask{
 			sample:        sample,
 			bamDir:        bamDir,
 			cleanReadsDir: cleanReadsDir,
 			fwd:           fwd,
 			rev:           rev,
+			se:            se,
+			longRead:      isLR,
+			aligner:       sampleAligner,
+			dupMarker:     alignment.DupMarkerGatk,
+			preset:        preset,
+			external:      external,
 			state:         state,
 			plan:          plan,
 		})
 	}
 
 	color.Green("Samples complete: %d\n", alreadyComplete)
-	color.Green("Samples queued:   %d\n", len(tasks))
+	color.Green("Samples queued:   %d (%d short-read, %d long-read)\n",
+		len(tasks), len(tasks)-len(longReadSamples), len(longReadSamples))
 	fmt.Printf("\n-------------------------------------- Queued Samples --------------------------------------\n")
 	for _, task := range tasks {
-		color.Yellow("%s\n", task.sample)
+		color.Yellow("%s (%s)\n", task.sample, task.aligner)
 		fmt.Printf("\nTo DO:\n-------------------------------------------------\n\n")
 		for _, reason := range task.plan {
 			fmt.Printf("%s\n", reason)
+		}
+		if task.external != "" {
+			// Named because it changes what the sample costs: the adopted file,
+			// the bam it is normalised into, the rgmd.bam and the rgmd.cram are
+			// all on disk at once until cleanup runs at the end.
+			fmt.Printf("\nadopting: %s (kept — this pipeline did not create it)\n", task.external)
 		}
 		fmt.Printf("\n\n================================================================\n\n")
 	}
@@ -381,9 +504,6 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 
 	if len(scanFailures) > 0 {
 		color.Red("Scan failures:    %d\n", len(scanFailures))
-	}
-	if len(longReadSamples) > 0 {
-		color.Yellow("Long read samples:      %d\n\n", len(longReadSamples))
 	}
 
 	if len(tasks) == 0 {
@@ -400,33 +520,85 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		threads = totalCores
 	}
 
-	sem := make(chan struct{}, maxParallelJobs)
-	results := make([]sampleResult, len(tasks))
-	var wg sync.WaitGroup
+	// pbmm2's tools are only required once the scan says the tree actually
+	// holds long reads, which is why this is checked here rather than from the
+	// --aligner flag: a mixed run asks for bwa-mem2 and still needs them.
+	needsPbmm2 := false
+	for _, task := range tasks {
+		if containsReason(task.plan, ReasonAlignLongReads) {
+			needsPbmm2 = true
+			break
+		}
+	}
+	if needsPbmm2 {
+		// pbmm2 only: duplicate marking here is GATK's, including for long-read
+		// samples. pbmarkdup cannot write a BAM aligned from a FASTQ — it needs
+		// the native PacBio per-read tags a FASTQ cannot carry.
+		if depErr := utils.CheckDeps([]string{"pbmm2"}); depErr != nil {
+			color.Red("Long-read samples are queued but their tools are missing: %v\n", depErr)
+			return
+		}
+		// Built once, here, while the run is still single-threaded. Building it
+		// lazily inside the aligner meant every concurrent long-read sample
+		// racing to write the same file.
+		refIndex, idxErr := alignment.EnsurePbmm2Index(resolvedFasta, preset, verbose)
+		if idxErr != nil {
+			color.Red("Could not prepare the pbmm2 reference index: %v\n", idxErr)
+			return
+		}
+		for i := range tasks {
+			if tasks[i].longRead {
+				tasks[i].refIndex = refIndex
+			}
+		}
+	}
 
+	results := make([]sampleResult, len(tasks))
 	opts := newRuntimeOpts(threads, maxParallelJobs)
 
 	color.Cyan("Processing %d samples using %d threads each (Max parallel jobs: %d)\n", len(tasks), threads, maxParallelJobs)
 	color.Cyan("GATK: %d JVM slots, %s per sample step, %s per shard, %d interval shards, %d pair-HMM threads\n\n",
 		cap(gatkSlots), opts.javaOpts, opts.shardJava, opts.shardCount, opts.pairHmm)
-	for i, task := range tasks {
-		wg.Add(1)
-		go func(idx int, task sampleTask) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
 
-			fmt.Printf("\nProcessing sample: %s ....\n\n", task.sample)
-			results[idx] = processSample(task, resolvedFasta, gatkLogLevel, aligner, verbose, quick, skipVer, bqsr, bootstrap, knownSites, opts)
-			if results[idx].success {
-				color.Green("[%s] done\n", task.sample)
-				return
+	// Short-read and long-read samples run in separate waves rather than
+	// together. maxParallelJobs is derived from core count alone, and
+	// newRuntimeOpts sizes the JVM heaps from the memory available *before* any
+	// aligner index is resident. Overlapping the two kinds would hold a
+	// bwa-mem2 index and a pbmm2 index in memory at the same time, several
+	// copies each, against heaps sized as though neither existed. Long-read
+	// samples are few in a normal estate, so the wall-clock cost is small.
+	runWave := func(label string, want func(sampleTask) bool) {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, maxParallelJobs)
+		queued := 0
+		for i, task := range tasks {
+			if !want(task) {
+				continue
 			}
-			color.Red("[%s] failed: %v\n", task.sample, results[idx].err)
-		}(i, task)
+			queued++
+			wg.Add(1)
+			go func(idx int, task sampleTask) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				fmt.Printf("\nProcessing sample: %s ....\n\n", task.sample)
+				results[idx] = processSample(task, resolvedFasta, gatkLogLevel, verbose, quick, skipVer, bootstrap, knownSites, opts)
+				if results[idx].success {
+					color.Green("[%s] done\n", task.sample)
+					return
+				}
+				color.Red("[%s] failed: %v\n", task.sample, results[idx].err)
+			}(i, task)
+		}
+		if queued > 0 {
+			color.Cyan("\n--------------------- %s wave: %d sample(s) ---------------------\n\n", label, queued)
+		}
+		wg.Wait()
 	}
 
-	wg.Wait()
+	runWave("Short read", func(t sampleTask) bool { return !t.longRead })
+	runWave("Long read", func(t sampleTask) bool { return t.longRead })
 
 	var failed []string
 	var successfulSampes []string
@@ -448,13 +620,16 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 		color.Red("Failed samples:        %s\n", strings.Join(failed, ", "))
 	}
 	if len(missingReads) > 0 {
-		color.Yellow("Skipped missing reads: %s\n", strings.Join(missingReads, ", "))
+		color.Yellow("Skipped missing reads:      %s\n", strings.Join(missingReads, ", "))
 	}
-	if len(longReadSamples) > 0 {
-		color.Yellow("Skipped unsupported:   %s\n", strings.Join(longReadSamples, ", "))
+	if len(missingLongReads) > 0 {
+		color.Yellow("Skipped missing long reads: %s\n", strings.Join(missingLongReads, ", "))
+	}
+	if len(ambiguousAdoption) > 0 {
+		color.Yellow("Skipped, more than one existing alignment: %s\n", strings.Join(ambiguousAdoption, ", "))
 	}
 	if len(scanFailures) > 0 {
-		color.Red("Scan failures:         %s\n", strings.Join(scanFailures, ", "))
+		color.Red("Scan failures:              %s\n", strings.Join(scanFailures, ", "))
 	}
 }
 
@@ -478,12 +653,29 @@ func getPathsWithCleanReadsDir(dataDir, species string) ([]string, error) {
 	return roots, nil
 }
 
+// planInputs is everything buildPlan decides from beyond the file state.
+//
+// A struct rather than a tail of bools: buildPlan(state, true, false) was
+// already hard to read at its call sites, and long-read support would have made
+// it four of them.
+type planInputs struct {
+	bqsr         bool
+	gatkNeedsBam bool
+	// longRead marks a pbmm2 sample. BQSR is never applied to one, so the
+	// caller passes bqsr && !longRead and this only has to pick the aligner
+	// step — but it is carried explicitly so the rule is stated in one place.
+	longRead bool
+	// external says an adoptable externally produced alignment was found, so
+	// the sample needs normalising rather than aligning.
+	external bool
+}
+
 // buildPlan inspects the current SampleBamState and returns the complete
 // ordered list of steps still required to finish the sample, plus a bool
-// indicating whether paired FASTQ reads must be located before queuing.
+// indicating whether input FASTQs must be located before queuing.
 // Steps are determined once from the snapshot; processSample executes them
 // in order without any further filesystem re-scans between steps.
-func buildPlan(state SampleBamState, bqsr, gatkNeedsBam bool) ([]ProcessingReason, bool) {
+func buildPlan(state SampleBamState, in planInputs) ([]ProcessingReason, bool) {
 	var plan []ProcessingReason
 	needsReads := false
 
@@ -502,7 +694,19 @@ func buildPlan(state SampleBamState, bqsr, gatkNeedsBam bool) ([]ProcessingReaso
 			}
 			plan = append(plan, ReasonConvertRgmdBam)
 		case isUsable(state.SortedBam):
+			// Also the resume path for an adopted sample: <sample>.sorted.bam is
+			// what adoption wrote, so a run that died after it picks up here
+			// rather than normalising a hundred-gigabyte cram a second time.
 			plan = append(plan, ReasonMarkDupSortedBam, ReasonConvertRgmdBam)
+		case in.external:
+			// Ranked below a usable sorted.bam and above aligning, and reached
+			// whether or not a FASTQ exists — an adopted sample often has no
+			// reads on disk at all. An unusable sorted.bam lands here too:
+			// falling through to the aligner would be certain failure.
+			plan = append(plan, ReasonAdoptExternalAlignment, ReasonMarkDupSortedBam, ReasonConvertRgmdBam)
+		case in.longRead:
+			plan = append(plan, ReasonAlignLongReads, ReasonConvertRgmdBam)
+			needsReads = true
 		default:
 			plan = append(plan, ReasonAlignFromReads, ReasonConvertRgmdBam)
 			needsReads = true
@@ -511,7 +715,12 @@ func buildPlan(state SampleBamState, bqsr, gatkNeedsBam bool) ([]ProcessingReaso
 		plan = append(plan, ReasonIndexRgmdCram)
 	}
 
-	if bqsr {
+	// Never on a long-read sample: GATK's recalibration model is built for
+	// short-read cycle/context covariates, and a PacBio sample carrying both a
+	// .RGMD.cram and a .RGMD_bqsr.cram would additionally make
+	// variants.selectAlignments ambiguous — both names contain "rgmd" — which
+	// drops the sample from the call set without saying so.
+	if in.bqsr && !in.longRead {
 		if !isUsable(state.BqsrCram) {
 			if isUsable(state.BqsrBam) {
 				plan = append(plan, ReasonConvertBqsrBam)
@@ -519,7 +728,7 @@ func buildPlan(state SampleBamState, bqsr, gatkNeedsBam bool) ([]ProcessingReaso
 				// Where GATK cannot read an indexed cram, the recalibration
 				// steps read the rgmd.bam instead, so the plan has to guarantee
 				// an indexed one is in place by the time BQSR starts.
-				if gatkNeedsBam {
+				if in.gatkNeedsBam {
 					switch {
 					case containsReason(plan, ReasonAlignFromReads), containsReason(plan, ReasonMarkDupSortedBam):
 						// A fresh rgmd.bam is about to be written. Converting it
@@ -559,7 +768,13 @@ func containsReason(plan []ProcessingReason, want ProcessingReason) bool {
 	return false
 }
 
-func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verbose, quick, skipVer, bqsr, bootstrap bool, knownSites []string, opts runtimeOpts) sampleResult {
+// processSample executes one sample's plan.
+//
+// It takes no aligner argument on purpose. A mixed run has two of them, and the
+// one a step must use is a property of the sample, not of the run — so it is
+// read from task.aligner and nowhere else. A function holding both would be one
+// typo away from running gatk MarkDuplicates on a PacBio BAM.
+func processSample(task sampleTask, refFasta, gatkLogLevel string, verbose, quick, skipVer, bootstrap bool, knownSites []string, opts runtimeOpts) sampleResult {
 	if err := os.MkdirAll(task.bamDir, 0o755); err != nil {
 		return sampleResult{sample: task.sample, err: err}
 	}
@@ -572,10 +787,24 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 
 	// Live paths: updated in-place as each step produces a new file, so later
 	// steps always have the correct path without any filesystem re-scan.
+	//
+	// sortedBamPath is live for the same reason the others are: the adopt step
+	// writes it, the align steps write it, and MarkDuplicates reads it. Reading
+	// task.state.SortedBam.Path directly instead — as ReasonMarkDupSortedBam
+	// used to — is a null path on the adoption route, where nothing was in the
+	// sorted slot when the plan was built.
+	sortedBamPath := task.state.SortedBam.Path
 	rgmdBamPath := task.state.RgmdBam.Path
 	rgmdCramPath := task.state.RgmdCram.Path
 	bqsrBamPath := task.state.BqsrBam.Path
 	bqsrCramPath := task.state.BqsrCram.Path
+
+	// Everything this run wrote, so cleanup can tell its own intermediates from
+	// files it must not touch. See cleanupSampleOutputs.
+	var produced []string
+	wrote := func(paths ...string) {
+		produced = append(produced, paths...)
+	}
 
 	color.Cyan("[%s] Plan (%d steps): %v\n", sn, len(task.plan), task.plan)
 
@@ -607,20 +836,22 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				color.Green("[%s] Reverse reads are valid\n", sn)
 			}
 
-			sortedBam := filepath.Join(task.bamDir, sn+".sorted.bam")
-			color.Cyan("[%s] Aligning PE reads → %s using %s ...\n", sn, sortedBam, aligner)
-			if err := alignPairedReads(task.fwd, task.rev, refFasta, sortedBam, sn, aligner, opts.threads, verbose); err != nil {
+			sortedBamPath = filepath.Join(task.bamDir, sn+".sorted.bam")
+			color.Cyan("[%s] Aligning PE reads → %s using %s ...\n", sn, sortedBamPath, task.aligner)
+			if err := alignPairedReads(task.fwd, task.rev, refFasta, sortedBamPath, sn, task.aligner, opts.threads, verbose); err != nil {
 				color.Red("[%s] Alignment failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
-			color.Green("[%s] Alignment done: %s\n", sn, sortedBam)
+			wrote(sortedBamPath)
+			color.Green("[%s] Alignment done: %s\n", sn, sortedBamPath)
 
-			rgmdBamPath = alignment.RgmdBamPath(sortedBam)
+			rgmdBamPath = alignment.RgmdBamPath(sortedBamPath)
 			color.Cyan("[%s] MarkDuplicates: sorted.bam → rgmd.bam ...\n", sn)
-			if err := alignment.MarkDuplicates(refFasta, sortedBam, verbose, aligner, gatkLogLevel, opts.javaOpts); err != nil {
+			if err := alignment.MarkDuplicates(refFasta, sortedBamPath, verbose, task.dupMarker, gatkLogLevel, opts.javaOpts, opts.threads); err != nil {
 				color.Red("[%s] MarkDuplicates failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
+			wrote(rgmdBamPath)
 			color.Green("[%s] MarkDuplicates done: %s\n", sn, rgmdBamPath)
 
 			// The next step (ReasonConvertRgmdBam) is always in the plan after
@@ -628,14 +859,106 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
 
 		// ------------------------------------------------------------------ //
+		// Align the single long-read FASTQ with pbmm2 → sorted.bam → rgmd.bam //
+		// ------------------------------------------------------------------ //
+		case ReasonAlignLongReads:
+			if task.se == "" {
+				return sampleResult{sample: sn, err: fmt.Errorf("no usable alignment intermediates or long-read FASTQ found")}
+			}
+			if !skipVer {
+				// ValidateFastqGz is gzip-based in both its quick and its full
+				// form, so it can only speak for a compressed file. A plain
+				// .fastq is a real layout, not an error, so say what was
+				// skipped rather than inventing a check for it.
+				if strings.HasSuffix(strings.ToLower(task.se), ".gz") {
+					color.Cyan("[%s] Validating long reads: %s\n", sn, task.se)
+					if err := utils.ValidateFastqGz(task.se, verbose, quick); err != nil {
+						color.Red("[%s] Long read validation failed: %v\n", sn, err)
+						return sampleResult{sample: sn, err: fmt.Errorf("long read validation failed: %w", err)}
+					}
+					color.Green("[%s] Long reads are valid\n", sn)
+				} else {
+					color.Yellow("[%s] %s is not gzipped — skipping the integrity check\n", sn, task.se)
+				}
+			}
+
+			sortedBamPath = filepath.Join(task.bamDir, sn+".sorted.bam")
+			color.Cyan("[%s] Aligning long reads → %s using pbmm2 (preset %s) ...\n", sn, sortedBamPath, task.preset)
+			if err := alignLongReads(task.se, task.refIndex, sortedBamPath, sn, task.preset, opts.threads, verbose); err != nil {
+				color.Red("[%s] Alignment failed: %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			wrote(sortedBamPath)
+			color.Green("[%s] Alignment done: %s\n", sn, sortedBamPath)
+
+			rgmdBamPath = alignment.RgmdBamPath(sortedBamPath)
+			color.Cyan("[%s] Marking duplicates: sorted.bam → rgmd.bam ...\n", sn)
+			if err := alignment.MarkDuplicates(refFasta, sortedBamPath, verbose, task.dupMarker, gatkLogLevel, opts.javaOpts, opts.threads); err != nil {
+				color.Red("[%s] Duplicate marking failed: %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			wrote(rgmdBamPath)
+			if err := checkMarkedDuplicates(rgmdBamPath); err != nil {
+				color.Red("[%s] %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			color.Green("[%s] Duplicate marking done: %s\n", sn, rgmdBamPath)
+
+			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
+
+		// ------------------------------------------------------------------ //
+		// Adopt an externally produced alignment → sorted.bam                 //
+		// ------------------------------------------------------------------ //
+		case ReasonAdoptExternalAlignment:
+			if task.external == "" {
+				return sampleResult{sample: sn, err: fmt.Errorf("adoption planned but no external alignment was recorded")}
+			}
+			color.Cyan("[%s] Adopting externally produced alignment: %s\n", sn, task.external)
+
+			// Strict, and stricter than checkAlignmentContigs: adoption is new
+			// trust in a file this pipeline never made, so a cram aligned to a
+			// different build of a same-named assembly must not slip through on
+			// a name-subset match.
+			if err := verifyAdoptable(task.external, refFasta); err != nil {
+				color.Red("[%s] %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			if !skipVer {
+				color.Cyan("[%s] Validating %s ...\n", sn, filepath.Base(task.external))
+				if err := utils.ValidateBam(task.external, refFasta, verbose, quick); err != nil {
+					color.Red("[%s] Adopted alignment failed validation: %v\n", sn, err)
+					return sampleResult{sample: sn, err: fmt.Errorf("adopted alignment %s failed validation: %w", task.external, err)}
+				}
+				color.Green("[%s] Adopted alignment is valid\n", sn)
+			}
+
+			sortedBamPath = filepath.Join(task.bamDir, sn+".sorted.bam")
+			if err := normaliseAdoptedAlignment(task.external, sortedBamPath, refFasta, sn, opts.threads, verbose); err != nil {
+				color.Red("[%s] Adoption failed: %v\n", sn, err)
+				return sampleResult{sample: sn, err: err}
+			}
+			wrote(sortedBamPath)
+			color.Green("[%s] Adopted as %s (%s left untouched)\n", sn, filepath.Base(sortedBamPath), filepath.Base(task.external))
+
+		// ------------------------------------------------------------------ //
 		// sorted.bam → rgmd.bam → rgmd.cram (MarkDuplicates path)            //
 		// ------------------------------------------------------------------ //
 		case ReasonMarkDupSortedBam:
-			rgmdBamPath = alignment.RgmdBamPath(task.state.SortedBam.Path)
+			if sortedBamPath == "" {
+				return sampleResult{sample: sn, err: fmt.Errorf("no sorted.bam to mark duplicates on")}
+			}
+			rgmdBamPath = alignment.RgmdBamPath(sortedBamPath)
 			color.Cyan("[%s] MarkDuplicates: sorted.bam → rgmd.bam ...\n", sn)
-			if err := alignment.MarkDuplicates(refFasta, task.state.SortedBam.Path, verbose, aligner, gatkLogLevel, opts.javaOpts); err != nil {
+			if err := alignment.MarkDuplicates(refFasta, sortedBamPath, verbose, task.dupMarker, gatkLogLevel, opts.javaOpts, opts.threads); err != nil {
 				color.Red("[%s] MarkDuplicates failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
+			}
+			wrote(rgmdBamPath)
+			if task.longRead {
+				if err := checkMarkedDuplicates(rgmdBamPath); err != nil {
+					color.Red("[%s] %v\n", sn, err)
+					return sampleResult{sample: sn, err: err}
+				}
 			}
 			color.Green("[%s] MarkDuplicates done: %s\n", sn, rgmdBamPath)
 			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
@@ -661,6 +984,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				return sampleResult{sample: sn, err: err}
 			}
 			rgmdCramPath = strings.TrimSuffix(rgmdBamPath, filepath.Ext(rgmdBamPath)) + ".cram"
+			wrote(rgmdCramPath)
 			color.Green("[%s] rgmd.cram created: %s\n", sn, rgmdCramPath)
 
 		// ------------------------------------------------------------------ //
@@ -685,6 +1009,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				return sampleResult{sample: sn, err: err}
 			}
 			rgmdBamPath = decoded
+			wrote(rgmdBamPath)
 			color.Cyan("[%s] Indexing rgmd.bam: %s ...\n", sn, rgmdBamPath)
 			if err := alignment.BamIndex(rgmdBamPath, opts.threads, verbose); err != nil {
 				color.Red("[%s] rgmd.bam index failed: %v\n", sn, err)
@@ -728,6 +1053,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				return sampleResult{sample: sn, err: err}
 			}
 			bqsrBamPath = outBam
+			wrote(bqsrBamPath)
 			color.Green("[%s] BQSR done: %s\n", sn, bqsrBamPath)
 
 		// ------------------------------------------------------------------ //
@@ -740,6 +1066,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 				return sampleResult{sample: sn, err: err}
 			}
 			bqsrCramPath = strings.TrimSuffix(bqsrBamPath, filepath.Ext(bqsrBamPath)) + ".cram"
+			wrote(bqsrCramPath)
 			color.Green("[%s] bqsr.cram created: %s\n", sn, bqsrCramPath)
 
 		// ------------------------------------------------------------------ //
@@ -761,7 +1088,7 @@ func processSample(task sampleTask, refFasta, gatkLogLevel, aligner string, verb
 		// ------------------------------------------------------------------ //
 		case ReasonCleanup:
 			color.Cyan("[%s] Cleaning up intermediate files in %s ...\n", sn, task.bamDir)
-			if err := cleanupSampleOutputs(task.bamDir, rgmdCramPath, bqsrCramPath, bqsr); err != nil {
+			if err := cleanupSampleOutputs(task.bamDir, sn, produced, rgmdCramPath, bqsrCramPath); err != nil {
 				color.Red("[%s] Cleanup failed: %v\n", sn, err)
 				return sampleResult{sample: sn, err: err}
 			}
@@ -801,27 +1128,20 @@ func inspectSampleBamDir(sample, bamDir, refFasta string, verbose, quick bool) (
 		}
 
 		name := entry.Name()
-		lowerName := strings.ToLower(name)
 		fullPath := filepath.Join(bamDir, name)
 
-		switch {
-		case strings.HasSuffix(lowerName, "sorted.bam"):
-			state.SortedBam = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
-		case strings.HasSuffix(lowerName, "rgmd.bam"):
-			state.RgmdBam = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
-		case strings.HasSuffix(lowerName, "rgmd.cram"):
-			state.RgmdCram = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
-		case strings.HasSuffix(lowerName, "bqsr.bam"):
-			state.BqsrBam = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
-		case strings.HasSuffix(lowerName, "bqsr.cram"):
-			state.BqsrCram = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
-		case strings.HasSuffix(lowerName, ".bai"), strings.HasSuffix(lowerName, ".csi"), strings.HasSuffix(lowerName, ".crai"),
-			strings.HasSuffix(lowerName, ".pdf"), strings.HasSuffix(lowerName, ".txt"), strings.HasSuffix(lowerName, ".list"):
+		// classifyAlignmentFile (exports.go) holds the suffix rules, shared
+		// with InspectBamDirMetadata so a scan and the pipeline cannot
+		// disagree about what an RGMD cram is.
+		slot := classifyAlignmentFile(name)
+		if slot == slotIgnore {
 			continue
-		default:
-			fileInfo, err := entry.Info()
+		}
+
+		if slot == slotOther {
+			fileInfo, iErr := entry.Info()
 			size := int64(0)
-			if err == nil {
+			if iErr == nil {
 				size = fileInfo.Size()
 			}
 			state.OtherFiles = append(state.OtherFiles, FileInfo{
@@ -829,6 +1149,11 @@ func inspectSampleBamDir(sample, bamDir, refFasta string, verbose, quick bool) (
 				Size:    size,
 				Present: true,
 			})
+			continue
+		}
+
+		if field := state.slotField(slot); field != nil {
+			*field = getAlignmentFileInfo(fullPath, refFasta, verbose, quick)
 		}
 	}
 
@@ -878,19 +1203,12 @@ func getAlignmentFileInfo(path, refFasta string, verbose, quick bool) FileInfo {
 }
 
 func alignPairedReads(fwd, rev, refFasta, sortedBam, sample, aligner string, threads int, verbose bool) error {
-	if err := removeIfExists(sortedBam); err != nil {
-		return err
-	}
-
-	// Inline removal of index files for sortedBam
-	var idxCandidates []string
-	if strings.HasSuffix(strings.ToLower(sortedBam), ".bam") {
-		idxCandidates = []string{strings.TrimSuffix(sortedBam, filepath.Ext(sortedBam)) + ".bai"}
-	} else if strings.HasSuffix(strings.ToLower(sortedBam), ".cram") {
-		stem := strings.TrimSuffix(sortedBam, filepath.Ext(sortedBam))
-		idxCandidates = []string{stem + ".crai", sortedBam + ".crai"}
-	}
-	if err := removeIfExists(idxCandidates...); err != nil {
+	// Clear the target and every index spelling beside it. This used to remove
+	// only a .bai for a BAM, which BamIndex has not written since it moved to
+	// CSI: the stale .csi survived the re-alignment, and findIndex validates
+	// and reuses an index it finds, against whatever data is now under that
+	// name.
+	if err := clearAlignment(sortedBam); err != nil {
 		return err
 	}
 
@@ -1137,14 +1455,66 @@ func createBootstrapKnownSitesOld(refFasta, input, gatkLogLevel string, verbose 
 	return []string{filteredSNP, filteredINDEL}, nil
 }
 
-// cleanupSampleOutputs removes all files in bamDir except:
-//   - rgmd.cram and its index
-//   - bqsr.cram and its index when present
-//   - any .txt or .pdf files (logs, recal tables, plots)
+// pipelineIntermediates lists the basenames this pipeline writes for one sample
+// on the way to its durable CRAMs.
 //
-// rgmdCramPath is the live path produced by the pipeline.
-// bqsrCramPath is the final bqsr.cram path when available.
-func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrCramPath string, requireBQSR bool) error {
+// Only these names, for this sample, are collectable by cleanup. It is a
+// closed list rather than a pattern because it is the allow-list for deletion:
+// anything not derivable from the sample's own name is, by definition, not
+// something this pipeline produced.
+func pipelineIntermediates(sample string) []string {
+	stems := []string{
+		sample + ".sorted.bam",
+		sample + ".sorted.partial.bam",
+		sample + ".RGMD.bam",
+		sample + ".RGMD_bqsr.bam",
+		sample + ".RGMD.cram.partial",
+	}
+
+	names := make([]string, 0, len(stems)*5)
+	for _, stem := range stems {
+		names = append(names, stem)
+		// The index spellings the pipeline might have written beside it, and
+		// the .partial an interrupted index or decode leaves behind.
+		for _, idx := range indexCandidates(stem) {
+			names = append(names, idx, idx+".partial")
+		}
+		names = append(names, stem+".partial")
+	}
+	return names
+}
+
+// cleanupSampleOutputs removes this sample's intermediates from bamDir, leaving
+// the durable CRAMs — and anything the pipeline did not create.
+//
+// It deletes a file only when this run produced it, or when its name is one
+// this pipeline writes for this sample (pipelineIntermediates). Everything else
+// is left in place and reported.
+//
+// That polarity is the whole point, and it is not merely tidiness. A bams
+// directory can hold data the pipeline did not create: a long-read sample may
+// arrive with an externally produced MENINA_LONG_READS.aligned.cram, which is
+// adopted as *input* and — where no long-read FASTQ was kept — is the only copy
+// of that sample's reads in existence. The previous rule was "keep four paths,
+// delete every other regular file", which removed it. Worse, it removed it on
+// the *second* run: a finished sample is re-queued with a cleanup-only plan, so
+// the deletion happened a run after the adoption.
+//
+// produced is what this process actually wrote, accumulated by processSample as
+// each step succeeded. rgmdCramPath and bqsrCramPath are the durable outputs to
+// keep; an empty rgmdCramPath means the sample never produced one, which is a
+// refusal rather than a licence to delete.
+func cleanupSampleOutputs(bamDir, sample string, produced []string, rgmdCramPath, bqsrCramPath string) error {
+	// Refuse to clean a directory whose outcome was never established. Without
+	// this, a bug that left rgmdCramPath empty turned cleanup into "delete
+	// everything", which is the most destructive thing this pipeline can do.
+	if rgmdCramPath == "" {
+		return fmt.Errorf("refusing to clean %s: no rgmd.cram was produced for %s", bamDir, sample)
+	}
+	if _, err := os.Stat(rgmdCramPath); err != nil {
+		return fmt.Errorf("refusing to clean %s: rgmd.cram %s is not there: %w", bamDir, rgmdCramPath, err)
+	}
+
 	keep := make(map[string]struct{})
 
 	addWithIndex := func(cramPath string) {
@@ -1156,11 +1526,24 @@ func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrCramPath string, requireBQSR
 		}
 	}
 
-	if rgmdCramPath != "" {
-		addWithIndex(rgmdCramPath)
-	}
+	addWithIndex(rgmdCramPath)
 	if bqsrCramPath != "" {
 		addWithIndex(bqsrCramPath)
+	}
+
+	// Collectable: written by this run, or a name only this pipeline writes for
+	// this sample. The second clause is what keeps an interrupted earlier run's
+	// leftovers collectable, so a sample can reach the "already complete" state
+	// again.
+	collectable := make(map[string]struct{})
+	for _, p := range produced {
+		collectable[filepath.Base(p)] = struct{}{}
+		for _, idx := range indexCandidates(p) {
+			collectable[filepath.Base(idx)] = struct{}{}
+		}
+	}
+	for _, name := range pipelineIntermediates(sample) {
+		collectable[name] = struct{}{}
 	}
 
 	entries, err := os.ReadDir(bamDir)
@@ -1168,22 +1551,37 @@ func cleanupSampleOutputs(bamDir, rgmdCramPath, bqsrCramPath string, requireBQSR
 		return err
 	}
 
+	var left []string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		fullPath := filepath.Join(bamDir, entry.Name())
+		name := entry.Name()
+		fullPath := filepath.Join(bamDir, name)
 		if _, ok := keep[fullPath]; ok {
 			continue
 		}
 		// Always preserve log/report files.
-		lower := strings.ToLower(entry.Name())
+		lower := strings.ToLower(name)
 		if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".pdf") {
+			continue
+		}
+		if _, ok := collectable[name]; !ok {
+			left = append(left, name)
 			continue
 		}
 		if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("removing %s: %w", fullPath, err)
 		}
+	}
+
+	// Said out loud because the safe choice is also the one that silently
+	// accumulates disk: an operator who wants these gone has to know they are
+	// there, and has to be the one to decide.
+	if len(left) > 0 {
+		sort.Strings(left)
+		color.Yellow("[%s] left %d file(s) in %s that this run did not produce: %s\n",
+			sample, len(left), bamDir, strings.Join(left, ", "))
 	}
 
 	// Scratch directories are skipped by the loop above because they are
@@ -1217,8 +1615,13 @@ func removeIfExists(paths ...string) error {
 func runBash(cmdStr string, verbose bool) error {
 	cmd := exec.Command("bash", "-c", cmdStr)
 	if verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		// Not os.Stdout: os/exec hands an *os.File straight to the child, whose
+		// writes then reach the terminal without passing through anything a
+		// progress bar can coordinate with. See utils.LogWriter.
+		out := utils.LogWriter()
+		defer out.Close()
+		cmd.Stdout = out
+		cmd.Stderr = out
 	}
 	return cmd.Run()
 }

@@ -352,3 +352,31 @@ func TestFindExistingGvcfsGroupsByChromosome(t *testing.T) {
 		t.Error("A02 should be detected as incomplete")
 	}
 }
+
+// A long-read sample processed by the directory pipeline ends up holding both
+// the externally produced alignment it was adopted from — kept deliberately,
+// because this pipeline did not create it — and the <sample>.RGMD.cram it
+// produced. The produced one must win.
+//
+// (Same naming note as the tests above: t.TempDir() embeds the test name in the
+// path and selectAlignments matches the whole path, so this name carries
+// neither "rgmd" nor "bqsr".)
+func TestFindSampleAlignmentsDataDirLongReadAdoptedSourceIsNotPreferred(t *testing.T) {
+	root := t.TempDir()
+	const species, refVer = "cotton", "AD1.1"
+	touch(t, alignmentPath(root, species, "proj1", "S1lr", refVer, "MENINA_LONG_READS.aligned.cram"))
+	touch(t, alignmentPath(root, species, "proj1", "S1lr", refVer, "S1lr.RGMD.cram"))
+
+	samples, skipped, err := FindSampleAlignments(Options{
+		DataDir: root, Species: species, RefVer: refVer, Caller: "gatk", SkipVerification: true,
+	})
+	if err != nil {
+		t.Fatalf("FindSampleAlignments: %v", err)
+	}
+	if len(samples) != 1 {
+		t.Fatalf("expected 1 sample, got %d: %+v (skipped=%v)", len(samples), samples, skipped)
+	}
+	if !strings.Contains(samples[0].Cram, "S1lr.RGMD.cram") {
+		t.Errorf("should call from the pipeline's own alignment, got %s", samples[0].Cram)
+	}
+}

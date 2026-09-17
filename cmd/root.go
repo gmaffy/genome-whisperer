@@ -97,7 +97,7 @@ func init() {
 
 	// ---------------------------------------- Alignment --------------------------------------- //
 	pf.String("aligner", "bwa-mem2", "Aligner: bwa-mem, bwa-mem2, bowtie2 or pbmm2")
-	pf.String("preset", "HIFI", "pbmm2 preset: SUBREAD, CSS, HIFI, ISOSEQ or UNROLLED")
+	pf.String("preset", "HIFI", "pbmm2 preset: SUBREAD, CCS, HIFI, ISOSEQ or UNROLLED")
 	pf.Bool("bootstrap", false, "Bootstrap the BQSR known-sites set")
 	pf.StringSliceP("known-sites", "k", []string{}, "Path to a known-sites VCF (repeatable)")
 
@@ -114,4 +114,6 @@ func init() {
 	pf.Bool("bsaseq", false, "Emit BSAseq columns")
 	pf.String("gene-description-tsv", "", "Gene description TSV (gene_id, gene_description)")
 	pf.String("prg", "", "PRG BLAST results file")
+	pf.String("protein", "", "Path to the protein FASTA")
+	pf.String("annotation-version", "", "Reference annotation version")
 }

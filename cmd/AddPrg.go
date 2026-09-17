@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/gmaffy/genome-whisperer/annotation"
@@ -17,45 +16,43 @@ var AddPrgCmd = &cobra.Command{
 	Use:   "AddPrg",
 	Short: "Adds protein hits stats  to the PRG",
 	Long:  `Takes blast output and adds protein hits stats to the PRG`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("AddPrg called")
-		fmt.Println("Adding gene descriptions to vcf files ................")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Println("Adding PRG blast hits to vcf files ................")
 		vcfs, vErr := cmd.Flags().GetStringSlice("variant")
 		if vErr != nil {
-			fmt.Println("Error getting variant flag")
+			return fmt.Errorf("reading variant: %w", vErr)
 		}
-		descFile, dErr := cmd.Flags().GetString("gene-description-tsv")
-		if dErr != nil {
-			fmt.Println("Error getting gene-description flag")
+		// The second parameter of annotation.AddPrg is the PRG blast file, so
+		// this is --prg. It used to be handed --gene-description-tsv, which made
+		// the command unable to do the one thing it is named for; gene
+		// descriptions are AddGeneDescriptions' job.
+		prgFile, pErr := cmd.Flags().GetString("prg")
+		if pErr != nil {
+			return fmt.Errorf("reading prg: %w", pErr)
 		}
 		bsaseq, bErr := cmd.Flags().GetBool("bsaseq")
 		if bErr != nil {
-			fmt.Println("Error getting bsaseq flag")
+			return fmt.Errorf("reading bsaseq: %w", bErr)
 		}
-		//fmt.Println(bsaseq)
-		//fmt.Println(vcfs)
-		//fmt.Println(descFile)
-		if descFile == "" {
-			fmt.Println("Please provide a gene description TSV with --gene-description-tsv")
-			return
+		if prgFile == "" {
+			return fmt.Errorf("provide a PRG blast file with --prg. Create one with: genome-whisperer GetProtPrgTopHits")
+		}
+		if _, err := os.Stat(prgFile); err != nil {
+			return fmt.Errorf("PRG blast file %s is not readable: %w", prgFile, err)
 		}
 		if len(vcfs) == 0 {
-			fmt.Println("Please provide at least one vcf file")
-			return
+			return fmt.Errorf("provide at least one vcf file with --variant")
 		}
 		for i := range vcfs {
-			_, err := os.Stat(vcfs[i])
-			if err != nil {
-				fmt.Printf("Vcf file: %s is not a valid file path", vcfs[i])
-				log.Fatal(err)
+			if _, err := os.Stat(vcfs[i]); err != nil {
+				return fmt.Errorf("vcf file %s is not a valid file path: %w", vcfs[i], err)
 			}
 		}
 
-		err, _ := annotation.AddPrg(vcfs, descFile, bsaseq)
-		if err != nil {
-			fmt.Println(err)
-			return
+		if err, _ := annotation.AddPrg(vcfs, prgFile, bsaseq); err != nil {
+			return err
 		}
+		return nil
 	},
 }
 

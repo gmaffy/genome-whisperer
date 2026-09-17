@@ -14,7 +14,7 @@ import (
 	"sync"
 
 	"github.com/fatih/color"
-	"github.com/schollz/progressbar/v3"
+	"github.com/gmaffy/genome-whisperer/utils"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -485,7 +485,8 @@ func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLi
 		genes = append(genes, gene)
 	}
 
-	bar := progressbar.Default(int64(len(genes)), "Processing genes")
+	bar := utils.NewBar(int64(len(genes)), "Processing genes")
+	defer utils.AttachBar(bar)()
 
 	// --- 4. Process genes concurrently with a fixed worker pool. ---
 	workCh := make(chan string, len(genes))
