@@ -211,6 +211,8 @@ func splitEffColumns(effFile string) (error, string) {
 	}
 	defer inputFile.Close()
 	scanner := bufio.NewScanner(inputFile)
+	buf := make([]byte, 0, 1024*1024)
+	scanner.Buffer(buf, 100*1024*1024)
 
 	if !scanner.Scan() {
 		return fmt.Errorf("input file %s is empty or has no header", effFile), ""
