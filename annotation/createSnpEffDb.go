@@ -69,17 +69,19 @@ func (m multiCloser) Close() error {
 	return first
 }
 
-// transcriptIDs returns the set of mRNA/transcript IDs declared in a GFF3.
-// These are the IDs snpEff will use as transcript identifiers, so they are what
-// the CDS and protein FASTA names have to agree with.
-func transcriptIDs(gff string) (map[string]bool, error) {
+// transcriptIDs maps every name a GFF3 transcript is known by to its ID. The ID
+// is what snpEff uses as the transcript identifier, so it is what the CDS and
+// protein FASTA names have to agree with. GWH (CNCB Genome Warehouse) GFF3s
+// also carry the accession their FASTA files are named by in Accession=, so
+// that is mapped back to the ID as well.
+func transcriptIDs(gff string) (map[string]string, error) {
 	rc, err := openMaybeGz(gff)
 	if err != nil {
 		return nil, err
 	}
 	defer rc.Close()
 
-	ids := make(map[string]bool)
+	ids := make(map[string]string)
 	sc := bufio.NewScanner(rc)
 	sc.Buffer(make([]byte, 0, 1024*1024), 16*1024*1024)
 	for sc.Scan() {
@@ -96,11 +98,21 @@ func transcriptIDs(gff string) (map[string]bool, error) {
 		default:
 			continue
 		}
+		var id, acc string
 		for _, attr := range strings.Split(cols[8], ";") {
-			if v, ok := strings.CutPrefix(strings.TrimSpace(attr), "ID="); ok {
-				ids[v] = true
-				break
+			attr = strings.TrimSpace(attr)
+			if v, ok := strings.CutPrefix(attr, "ID="); ok {
+				id = v
+			} else if v, ok := strings.CutPrefix(attr, "Accession="); ok {
+				acc = v
 			}
+		}
+		if id == "" {
+			continue
+		}
+		ids[id] = id
+		if _, taken := ids[acc]; acc != "" && !taken {
+			ids[acc] = id
 		}
 	}
 	return ids, sc.Err()
@@ -111,10 +123,13 @@ func transcriptIDs(gff string) (map[string]bool, error) {
 //
 // Phytozome ships GFF3 IDs like Phvul.001G000400.1.v2.1 but names the matching
 // FASTA record Phvul.001G000400.1, with the full ID only in an ID= key on the
-// header. snpEff matches on the record name, so left alone every transcript
-// fails its CDS and protein check and the build aborts. When a record name is
-// already a known transcript ID this is a byte-for-byte copy.
-func stageFasta(src, dst string, txIDs map[string]bool) (renamed int, err error) {
+// header. GWH uses its own accessions in the GFF3 Accession= and as FASTA
+// record names, with the GFF3 ID in OriID= (CDS) or OriTrascriptID= (protein),
+// and names protein records by protein accession. snpEff matches on the record
+// name, so left alone every transcript fails its CDS and protein check and the
+// build aborts. When a record name is already a GFF3 ID this is a byte-for-byte
+// copy.
+func stageFasta(src, dst string, txIDs map[string]string) (renamed int, err error) {
 	rc, err := openMaybeGz(src)
 	if err != nil {
 		return 0, fmt.Errorf("opening %s: %w", src, err)
@@ -145,17 +160,9 @@ func stageFasta(src, dst string, txIDs map[string]bool) (renamed int, err error)
 			}
 			continue
 		}
-		fields := strings.Fields(line[1:])
-		if len(fields) > 0 && !txIDs[fields[0]] {
-			// Name is unknown to the GFF3; adopt the header's ID= when it is a
-			// transcript we know about.
-			for _, f := range fields[1:] {
-				if v, ok := strings.CutPrefix(f, "ID="); ok && txIDs[v] {
-					line = ">" + v
-					renamed++
-					break
-				}
-			}
+		if id, ok := headerTranscriptID(line[1:], txIDs); ok {
+			line = ">" + id
+			renamed++
 		}
 		if _, wErr := bw.WriteString(line + "\n"); wErr != nil {
 			return renamed, wErr
@@ -165,6 +172,31 @@ func stageFasta(src, dst string, txIDs map[string]bool) (renamed int, err error)
 		return renamed, sErr
 	}
 	return renamed, bw.Flush()
+}
+
+// headerTranscriptID resolves a FASTA header to the GFF3 transcript ID it
+// belongs to. ok is false when the record name already is a GFF3 ID, or when
+// nothing in the header resolves, and the header is left alone either way.
+// The record name is tried first, then the value of each key=value field.
+func headerTranscriptID(header string, txIDs map[string]string) (id string, ok bool) {
+	fields := strings.Fields(header)
+	if len(fields) == 0 {
+		return "", false
+	}
+	if id, known := txIDs[fields[0]]; known {
+		if id == fields[0] {
+			return "", false
+		}
+		return id, true
+	}
+	for _, f := range fields[1:] {
+		if _, v, found := strings.Cut(f, "="); found {
+			if id, known := txIDs[v]; known {
+				return id, true
+			}
+		}
+	}
+	return "", false
 }
 
 func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
@@ -256,13 +288,19 @@ func CreateCustomDb(ref, prot, cds, species, gff, version string) error {
 	fmt.Printf("Copied %s -> %s (building with %s)\n\n", gff, dbDir, buildFmt)
 
 	// ------------------------- CDS and protein, ID-reconciled -------------------- //
-	var txIDs map[string]bool
+	var txIDs map[string]string
 	if buildFmt == "-gff3" {
 		txIDs, err = transcriptIDs(gff)
 		if err != nil {
 			return fmt.Errorf("reading transcript IDs from %s: %w", gff, err)
 		}
-		fmt.Printf("Found %d transcript IDs in %s\n", len(txIDs), gff)
+		n := 0
+		for name, id := range txIDs {
+			if name == id {
+				n++
+			}
+		}
+		fmt.Printf("Found %d transcript IDs in %s\n", n, gff)
 	}
 
 	for _, f := range []struct{ src, name string }{{prot, "protein.fa"}, {cds, "cds.fa"}} {

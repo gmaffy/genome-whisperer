@@ -112,6 +112,41 @@ func TestCleanupRemovesItsOwnIntermediatesFromAnEarlierRun(t *testing.T) {
 	}
 }
 
+func TestCleanupRemovesBootstrapKnownSites(t *testing.T) {
+	// --bootstrap writes its known-sites VCFs beside the rgmd alignment. They
+	// were never on the allow-list, so every bootstrapped sample kept 14 of
+	// them and cleanup reported them as files it did not produce.
+	dir := t.TempDir()
+
+	rgmdCram := filepath.Join(dir, "ON1708.RGMD.cram")
+	bqsrCram := filepath.Join(dir, "ON1708.RGMD_bqsr.cram")
+	touchFile(t, rgmdCram)
+	touchFile(t, bqsrCram)
+	for _, stem := range bootstrapVCFStems {
+		for _, name := range []string{
+			"ON1708.RGMD" + stem + ".vcf.gz",
+			"ON1708.RGMD" + stem + ".vcf.gz.tbi",
+			"ON1708.RGMD" + stem + ".vcf",
+			"ON1708.RGMD" + stem + ".vcf.idx",
+		} {
+			touchFile(t, filepath.Join(dir, name))
+		}
+	}
+	// Another sample's bootstrap VCF is not this sample's to delete.
+	other := "ON2086.RGMD.raw.vcf.gz"
+	touchFile(t, filepath.Join(dir, other))
+
+	if err := cleanupSampleOutputs(dir, "ON1708", nil, rgmdCram, bqsrCram); err != nil {
+		t.Fatalf("cleanupSampleOutputs: %v", err)
+	}
+
+	want := []string{"ON1708.RGMD.cram", "ON1708.RGMD_bqsr.cram", other}
+	sort.Strings(want)
+	if got := dirNames(t, dir); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("after cleanup the directory holds %v, want %v", got, want)
+	}
+}
+
 func TestCleanupRefusesWithoutAnRgmdCram(t *testing.T) {
 	// An empty rgmdCramPath used to mean an empty keep-set, which turned
 	// cleanup into "delete everything in this directory".

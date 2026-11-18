@@ -75,6 +75,10 @@ func TestMarkDupCmdUsesGatkByDefault(t *testing.T) {
 		if !strings.Contains(cmd, "--TMP_DIR ") {
 			t.Errorf("%s: command = %q, want --TMP_DIR", aligner, cmd)
 		}
+		// The pair map ignores --TMP_DIR and spills to java.io.tmpdir.
+		if !strings.Contains(cmd, "-Djava.io.tmpdir=") {
+			t.Errorf("%s: command = %q, want -Djava.io.tmpdir", aligner, cmd)
+		}
 		if !strings.Contains(cmd, "-M /data/bams/ON1708.RGMD.metrics.txt") {
 			t.Errorf("%s: command = %q, want the metrics file beside the rgmd bam", aligner, cmd)
 		}

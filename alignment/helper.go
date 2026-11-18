@@ -392,8 +392,17 @@ func markDupCmd(referencePath, sortedBam, dupMarker, gatkLogLevel, javaOpts stri
 	// read set. SpillTmpDir keeps that off both the mounted data drive the
 	// output lives on and a RAM-backed /tmp — see utils.SpillTmpDir for the
 	// order it picks a disk in.
-	return fmt.Sprintf(`gatk --java-options "%s" MarkDuplicates -R %s -I %s -O %s -M %s --TMP_DIR %s --VERBOSITY %s`,
-		javaOpts, referencePath, sortedBam, rgmdBam, rgmdMetrics, utils.SpillTmpDir(rgmdBam), gatkLogLevel), rgmdBam
+	//
+	// java.io.tmpdir has to point there too. --TMP_DIR covers the sorting
+	// collections, but the pair map (htsjdk CoordinateSortedPairInfoMap, the
+	// CSPI.tmp* directories) is created with IOUtil.createTempDir, which reads
+	// java.io.tmpdir and so lands in /tmp. On a tmpfs /tmp that spill — tens of
+	// GB for a deep BSA bulk — fails with "No space left on device", or, when
+	// two samples run at once, with "Value was put into PairInfoMap more than
+	// once" from a spill file truncated by the full disk.
+	spill := utils.SpillTmpDir(rgmdBam)
+	return fmt.Sprintf(`gatk --java-options "%s -Djava.io.tmpdir=%s" MarkDuplicates -R %s -I %s -O %s -M %s --TMP_DIR %s --VERBOSITY %s`,
+		javaOpts, spill, referencePath, sortedBam, rgmdBam, rgmdMetrics, spill, gatkLogLevel), rgmdBam
 }
 
 // MarkDuplicates marks duplicates in sortedBam, writing RgmdBamPath(sortedBam).

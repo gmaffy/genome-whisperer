@@ -1324,6 +1324,8 @@ func createBootstrapKnownSites(refFasta, input, bamDir, gatkLogLevel string, opt
 	// Bgzip everywhere it works, uncompressed where a .tbi cannot address the
 	// contigs — the two filtered files at the end are read back by
 	// BaseRecalibrator, which needs an index it can query. See variantSuffixes.
+	//
+	// Every name below must also be in bootstrapVCFStems, or cleanup leaves it.
 	vcfExt, idxExt := variantSuffixes(refFasta)
 	rawVCF := base + ".raw" + vcfExt
 	snpVCF := base + ".raw.SNP" + vcfExt
@@ -1481,7 +1483,30 @@ func pipelineIntermediates(sample string) []string {
 		}
 		names = append(names, stem+".partial")
 	}
+
+	// The known-sites VCFs --bootstrap calls from the rgmd alignment. Both
+	// spellings, because variantSuffixes picks one per reference and cleanup
+	// is not told which reference the directory was run against.
+	for _, stem := range bootstrapVCFStems {
+		for _, ext := range [][2]string{{".vcf.gz", ".tbi"}, {".vcf", ".idx"}} {
+			vcf := sample + ".RGMD" + stem + ext[0]
+			names = append(names, vcf, vcf+ext[1])
+		}
+	}
 	return names
+}
+
+// bootstrapVCFStems are the names createBootstrapKnownSites writes after the
+// rgmd stem and before the VCF extension. Listed here so cleanup can collect
+// them; a step added there without a name here is left behind on every run.
+var bootstrapVCFStems = []string{
+	".raw",
+	".raw.SNP",
+	".raw.INDEL",
+	".raw.SNP.columns",
+	".raw.INDEL.columns",
+	".raw.SNP.hard_filtered",
+	".raw.INDEL.hard_filtered",
 }
 
 // cleanupSampleOutputs removes this sample's intermediates from bamDir, leaving
