@@ -22,6 +22,11 @@ var BQSRCmd = &cobra.Command{
     2. gatk ApplyBQSR
 
 If no known-sites file is provided, a bootstrap method of generating one is run`,
+	Example: `  # With a known-sites VCF
+  genome-whisperer BQSR --bam S1.rgmd.bam --reference genome.fa --known-sites known.vcf.gz
+
+  # Bootstrap the known sites from the data
+  genome-whisperer BQSR --bam S1.rgmd.bam --reference genome.fa --bootstrap`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("BQSR called")
 		configFile, cErr := cmd.Flags().GetString("config")

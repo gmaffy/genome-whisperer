@@ -22,6 +22,8 @@ written under the name GATK derives for itself — genome.fa and genome.fa.gz
 both give genome.dict — since the GATK engine tools accept no other spelling.
 A genome prepared by an older version, carrying only genome.fa.gz.dict, is
 migrated in place by re-running this command.`,
+	Example: `  genome-whisperer PrepareFastaFile --reference genome.fa --aligner bwa-mem2
+  genome-whisperer PrepareFastaFile --reference genome.fa.gz --aligner pbmm2`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("PrepareFastaFile called")
 		refFile, rErr := cmd.Flags().GetString("reference")

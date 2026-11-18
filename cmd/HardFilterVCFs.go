@@ -19,6 +19,8 @@ var HardFilterVCFsCmd = &cobra.Command{
 	Use:   "HardFilterVCFs",
 	Short: "Hard filter all variants (snps and indels)",
 	Long:  `Filters both SNPs and INDELs using GATK recommended parameters and merges them to hard filtered VCF ... `,
+	Example: `  # Split, filter SNPs and INDELs separately, and merge
+  genome-whisperer HardFilterVCFs -V joint.vcf.gz`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("HardFilterVCFs called")
 		variant, vErr := cmd.Flags().GetString("variant")

@@ -16,6 +16,8 @@ var GetVariantTypeCmd = &cobra.Command{
 	Use:   "GetVariantType",
 	Short: "Filters a vcf file to only include variants of a given type, e.g. SNPs, INDELs, MNPs, etc.",
 	Long:  `Filters a vcf file to only include variants of a given type, e.g. SNPs, INDELs, MNPs, etc.`,
+	Example: `  genome-whisperer GetVariantType -V joint.vcf.gz --variant-type SNP
+  genome-whisperer GetVariantType -V joint.vcf.gz --variant-type INDEL`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("GetVariantType called")
 

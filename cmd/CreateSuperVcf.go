@@ -31,6 +31,13 @@ var CreateSuperVcfCmd = &cobra.Command{
 
 Hard filtering uses the default thresholds for the chosen caller. Use
 VariantCalling followed by VariantAnnotation if you need to tune them.`,
+	Example: `  genome-whisperer CreateSuperVcf --data-dir /data --species squash --ref-version v1.1 \
+      --genomes-dir /genomes --database squash_v1.1 --prg SQUASHV1.1_PRG_TOP_HITS.txt
+
+  # With gene descriptions and BSA-seq columns
+  genome-whisperer CreateSuperVcf --config config.txt --species squash --ref-version v1.1 \
+      --database squash_v1.1 --prg SQUASHV1.1_PRG_TOP_HITS.txt \
+      --gene-description-tsv desc.tsv --bsaseq`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts, err := variantOptions(cmd)
 		if err != nil {

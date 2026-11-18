@@ -13,9 +13,10 @@ import (
 
 // HardFilterINDELsCmd represents the HardFilterINDELs command
 var HardFilterINDELsCmd = &cobra.Command{
-	Use:   "HardFilterINDELs",
-	Short: "Hard Filter Indels",
-	Long:  `Hard Filter Indels`,
+	Use:     "HardFilterINDELs",
+	Short:   "Hard Filter Indels",
+	Long:    `Hard Filter Indels`,
+	Example: `  genome-whisperer HardFilterINDELs -V joint.indels.vcf.gz`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("HardFilterINDELs called")
 		variant, vErr := cmd.Flags().GetString("variant")

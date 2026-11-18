@@ -376,65 +376,36 @@ func RunAlignReadsDir(dataDir string, species string, refVer string, refFasta st
 			continue
 		}
 
-		isLR := IsLongReadSample(sample)
+		// assessSample (scanAlignments.go) is shared with ScanAlignments, so
+		// the scan report and this run cannot disagree about a sample.
+		a := assessSample(state, bqsr, gatkNeedsBam)
+		isLR, external := a.LongRead, a.External
 
-		// Adoption is decided here, from names alone: this loop is serial, so
-		// the header reads and the full validation belong in the worker, inside
-		// ReasonAdoptExternalAlignment.
-		var external string
-		if isLR {
-			candidates := adoptionCandidates(state)
-			if len(candidates) > 1 {
-				// Two movies, or a movie and a stale partial. Picking one
-				// silently drops half a sample's data, so this is a question
-				// for a person; nothing in the directory is touched.
-				color.Red("[%s] More than one externally produced alignment in %s — not choosing between them:\n", sample, bamDir)
-				for _, c := range candidates {
-					color.Red("    %s\n", filepath.Base(c))
-				}
-				ambiguousAdoption = append(ambiguousAdoption, sample)
-				continue
+		if len(a.AmbiguousExternal) > 0 {
+			color.Red("[%s] More than one externally produced alignment in %s — not choosing between them:\n", sample, bamDir)
+			for _, c := range a.AmbiguousExternal {
+				color.Red("    %s\n", filepath.Base(c))
 			}
-			if len(candidates) == 1 {
-				external = candidates[0]
+			ambiguousAdoption = append(ambiguousAdoption, sample)
+			continue
+		}
+		if isLR {
+			if external != "" {
 				color.Blue("[%s] Long read sample with an existing alignment: %s\n", sample, filepath.Base(external))
 			} else {
 				color.Blue("[%s] Long read sample\n", sample)
 			}
 		}
-
-		rgmdCramOK := state.RgmdCram.Present && state.RgmdCram.Valid && state.RgmdCram.IndexPresent && state.RgmdCram.IndexSize > 0
-		bqsrCramOK := state.BqsrCram.Present && state.BqsrCram.Valid && state.BqsrCram.IndexPresent && state.BqsrCram.IndexSize > 0
-
-		if isLR {
-			// A long-read sample is finished at the rgmd.cram: BQSR is never
-			// run on it, so requiring a bqsr.cram would mean no long-read
-			// sample was ever complete.
-			//
-			// OtherFiles is not required to be empty either. An adopted
-			// alignment stays in the directory permanently — it is an input,
-			// and cleanup will not remove it — so demanding its absence would
-			// re-plan and re-validate every adopted sample on every run, which
-			// on a multi-hundred-gigabyte CRAM is not free.
-			if rgmdCramOK && !state.SortedBam.Present && !state.RgmdBam.Present && !state.BqsrBam.Present {
-				alreadyComplete++
-				color.Green("[%s]- ✅ PASS (long read). Skipping ...\n", sample)
-				continue
-			}
-		} else if rgmdCramOK && bqsrCramOK && !state.SortedBam.Present && !state.RgmdBam.Present && !state.BqsrBam.Present && len(state.OtherFiles) == 0 {
+		if a.Complete {
 			alreadyComplete++
-			color.Green("[%s]- ✅ PASS. Skipping ...\n", sample)
+			if isLR {
+				color.Green("[%s]- ✅ PASS (long read). Skipping ...\n", sample)
+			} else {
+				color.Green("[%s]- ✅ PASS. Skipping ...\n", sample)
+			}
 			continue
 		}
-
-		// Build the full ordered plan from the current state so processSample
-		// can execute every step without re-scanning the filesystem.
-		plan, needsReads := buildPlan(state, planInputs{
-			bqsr:         bqsr && !isLR,
-			gatkNeedsBam: gatkNeedsBam,
-			longRead:     isLR,
-			external:     external != "",
-		})
+		plan, needsReads := a.Plan, a.NeedsReads
 
 		var fwd, rev, se string
 		if needsReads {

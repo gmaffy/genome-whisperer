@@ -22,6 +22,11 @@ var CreateSnpEffDBCmd = &cobra.Command{
 	// RunE, not Run: a returned error makes cobra exit non-zero. With Run the
 	// command printed build failures and still exited 0, so a caller checking $?
 	// carried on as though the database existed.
+	Example: `  genome-whisperer CreateSnpEffDB --reference genome.fa --gff genes.gff3 --protein proteins.fa \
+      --cds cds.fa --species squash --annotation-version v1.1
+
+  # Inputs from the config file (Reference, gff, proteins, cds)
+  genome-whisperer CreateSnpEffDB --config config.txt --species squash --annotation-version v1.1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := utils.CheckDeps([]string{"gatk", "snpEff", "java"}); err != nil {
 			return fmt.Errorf("dependency check failed: %w", err)

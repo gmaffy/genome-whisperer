@@ -1,11 +1,7 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
-	"fmt"
-	"log"
+	"os"
 
 	"github.com/gmaffy/genome-whisperer/alignmentdir"
 	"github.com/spf13/cobra"
@@ -14,67 +10,55 @@ import (
 // ScanAlignmentsCmd represents the ScanAlignments command
 var ScanAlignmentsCmd = &cobra.Command{
 	Use:   "ScanAlignments",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Report the state of alignment files in the data directory",
+	Long: `ScanAlignments walks the standard data directory
+  <data-dir>/<species>/<project>/<sample>/reference_genomes/<ref-version>/bams/
+and reports, for every sample, which alignment files are present, whether each
+is valid and indexed, which other files are lying around, and the steps
+AlignReads would still run. It uses the same file rules and the same planning
+as AlignReads, so the two never disagree. Nothing is changed.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("ScanAlignments called")
-		referencePath, rErr := cmd.Flags().GetString("reference")
-		if rErr != nil {
-			log.Fatalf("Error getting reference flag: %v", rErr)
-		}
+Each sample gets one status:
+  COMPLETE   finished, nothing to do
+  CLEANUP    outputs done, only intermediates to remove
+  RESUME     an alignment exists, later steps remain
+  ALIGN      nothing usable, must align from reads
+  AMBIGUOUS  several external alignments (long reads), needs a person
+  ERROR      the bams directory could not be read
 
-		dataDir, dErr := cmd.Flags().GetString("data-dir")
-		if dErr != nil {
-			log.Fatalf("Error getting data-dir flag: %v", dErr)
-		}
-		speciesName, sErr := cmd.Flags().GetString("species")
-		if sErr != nil {
-			log.Fatalf("Error getting species flag: %v", sErr)
-		}
-		refVer, vErr := cmd.Flags().GetString("ref-version")
-		if vErr != nil {
-			log.Fatalf("Error getting reference version flag: %v", vErr)
-		}
+Plans assume AlignReads --bqsr (the default here); pass --bqsr=false to see the
+plan for a run without recalibration. --quick checks headers only; the default
+reads each file fully.
 
-		quick, qErr := cmd.Flags().GetBool("quick")
-		if qErr != nil {
-			log.Fatalf("Error getting quick flag: %v", qErr)
+The reference comes from --reference or from --genomes-dir.`,
+	Example: `  genome-whisperer ScanAlignments --data-dir /data --species squash --ref-version v1.1 \
+      --genomes-dir /genomes
+
+  # Header-only checks (faster)
+  genome-whisperer ScanAlignments --data-dir /data --species squash --ref-version v1.1 \
+      --genomes-dir /genomes --quick`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		referencePath, _ := cmd.Flags().GetString("reference")
+		dataDir, _ := cmd.Flags().GetString("data-dir")
+		species, _ := cmd.Flags().GetString("species")
+		refVer, _ := cmd.Flags().GetString("ref-version")
+		genomesDir, _ := cmd.Flags().GetString("genomes-dir")
+		quick, _ := cmd.Flags().GetBool("quick")
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		bqsr, _ := cmd.Flags().GetBool("bqsr")
+
+		report, err := alignmentdir.ScanAlignments(dataDir, species, refVer, genomesDir, referencePath, bqsr, verbose, quick)
+		if err != nil {
+			return err
 		}
-
-		genomesDir, gErr := cmd.Flags().GetString("genomes-dir")
-		if gErr != nil {
-			log.Fatalf("Error getting genomes-dir flag: %v", gErr)
-		}
-
-		verbose, vErr := cmd.Flags().GetBool("verbose")
-		if vErr != nil {
-			log.Fatalf("Error getting verbose flag: %v", vErr)
-		}
-		result, _ := alignmentdir.ScanAlignments(dataDir, speciesName, refVer, genomesDir, referencePath, verbose, quick)
-
-		fmt.Println(result)
-
-		//for _, bamState := range result {
-		//	if bamState.BqsrCram.Valid && bamState.RgmdCram.Valid && bamState.BqsrCram.IndexPresent && bamState.RgmdCram.IndexPresent {
-		//		if !bamState.SortedBam.Present || !bamState.RgmdBam.Present || !bamState.BqsrBam.Present || len(bamState.OtherFiles)  == 0 {
-		//			color.Green("[%s] PASS - CLEAN")
-		//		} else {
-		//			color.Cyan("[%s] PASS - DIRTY")
-		//		}
-		//	} else if bamState.BqsrCram.Valid && !bamState.BqsrCram.IndexPresent {
-		//		color.Yellow(["[%s] resume from indexing bqsr"])
-		//	}
-		//}
+		cmd.SilenceUsage = true
+		alignmentdir.WriteScanReport(os.Stdout, report)
+		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(ScanAlignmentsCmd)
 	ScanAlignmentsCmd.Flags().SortFlags = false
-	// Every flag this command reads is a persistent flag on the root command.
+	ScanAlignmentsCmd.Flags().Bool("bqsr", true, "Run base quality score recalibration")
 }

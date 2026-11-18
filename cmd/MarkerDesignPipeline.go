@@ -19,6 +19,9 @@ var MarkerDesignPipelineCmd = &cobra.Command{
 the marker DB, simplify genotypes to one-letter codes, keep sites where resistant and
 susceptible lines differ (RES_NOT_SUS, SUS_NOT_RES), and add 50 bp flanks wobbled with
 every variant in --gvcf. Writes per-QTL TSV and coloured Excel files to --out-dir.`,
+	Example: `  genome-whisperer MarkerDesignPipeline -V cohort_SUPER_VCF.tsv --qtls qtls.xlsx \
+      --res-lines R1,R2 --sus-lines S1,S2 --gvcf joint.vcf.gz --marker-db markers.xlsx \
+      --crop Cmos --trait pc --reference genome.fa -o markers`,
 	Run: func(cmd *cobra.Command, args []string) {
 		superVcf, _ := cmd.Flags().GetString("variant")
 		qtls, _ := cmd.Flags().GetString("qtls")

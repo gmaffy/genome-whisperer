@@ -21,6 +21,15 @@ var GoBSAseqCmd = &cobra.Command{
 	1. Two bulks only: provide --high-bulk (-A) and --low-bulk (-B) without parents
 	2. Two bulks with one/two parents: provide --high-parent (-H), --low-parent (-L), --high-bulk (-A) and --low-bulk (-B)
 	3. One bulk with one/two parents: provide --high-parent (-H), --low-parent (-L) and one of --high-bulk / --low-bulk`,
+	Example: `  # Two bulks and two parents from a VCF
+  genome-whisperer GoBSAseq -V cohort.vcf.gz -H ResParent -L SusParent -A ResBulk -B SusBulk \
+      -n 20 -m 20 -p F2 -o bsa_out
+
+  # Two bulks only
+  genome-whisperer GoBSAseq -V cohort.vcf.gz -A ResBulk -B SusBulk -o bsa_out
+
+  # From reads or bams listed in a config file
+  genome-whisperer GoBSAseq --config config.txt -H ResParent -L SusParent -A ResBulk -B SusBulk -o bsa_out`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("GoBSAseq called")
 		fmt.Printf("Dependencies OK\n\n----------------------------------------------------------\n\n")

@@ -16,6 +16,8 @@ var GoPanCmd = &cobra.Command{
 	Use:   "GoPan",
 	Short: "Creates a pangenome using the iterative mapping approach",
 	Long:  `Creates a pangenome using the iterative mapping approach. Inputs are short reads and reference genome`,
+	Example: `  genome-whisperer GoPan --config config.txt --assembler mac
+  genome-whisperer GoPan --config config.txt --assembler megahit`,
 	Run: func(cmd *cobra.Command, args []string) {
 
 		fmt.Printf("Checking dependencies ...\n\n")

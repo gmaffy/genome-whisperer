@@ -880,8 +880,51 @@ func inputDetection(variantFile string, bsaseq bool) (error, string, string) {
 	return nil, snpEffTsv, outputFileName
 }
 
+// readGeneDescriptions reads a gene_id<TAB>description file.
+func readGeneDescriptions(desc string) (map[string]string, error) {
+	descFile, err := os.Open(desc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open description file %s: %w", desc, err)
+	}
+	defer descFile.Close()
+
+	descScanner := bufio.NewScanner(descFile)
+	descScanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+
+	geneDesc := make(map[string]string)
+	for descScanner.Scan() {
+		fields := strings.Split(descScanner.Text(), "\t")
+		if len(fields) < 2 {
+			return nil, fmt.Errorf("description file %s invalid format", desc)
+		}
+		geneDesc[fields[0]] = fields[1]
+	}
+	if err := descScanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading description file %s: %w", desc, err)
+	}
+	return geneDesc, nil
+}
+
+// CreateSuperVcf runs snpEff on the variants and adds PRG hits and, when desc is
+// non-empty, gene descriptions. Without desc the Description column is kept
+// (so the table layout never changes) and filled with NA.
 func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgBlastFile string) (error, []string) {
 	fmt.Println("Variants: ", variants)
+
+	// The description file is optional. When given, read it before snpEff runs
+	// so a bad path or format fails fast instead of after the slow step.
+	var geneDesc map[string]string
+	if desc == "" {
+		fmt.Print("No --gene-description-tsv given: skipping gene descriptions (Description column will be NA)\n\n")
+	} else {
+		fmt.Printf("Reading description file: %s ...............................\n", desc)
+		var dErr error
+		geneDesc, dErr = readGeneDescriptions(desc)
+		if dErr != nil {
+			return dErr, nil
+		}
+		fmt.Printf("Loaded %d gene descriptions\n-------------------------------------------------\n\n", len(geneDesc))
+	}
 
 	// =============================================== Run SnpEff =================================================== //
 	fmt.Println("Running SnpEff ...")
@@ -891,34 +934,6 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 		fmt.Printf("SnpEff failed with error: %s\n...", err)
 		return err, []string{}
 	}
-
-	// ========================================== Read description file ============================================= //
-	fmt.Printf("Reading description file: %s ...............................\n", desc)
-
-	descFile, err := os.Open(desc)
-	if err != nil {
-		return fmt.Errorf("failed to open description file %s: %w", desc, err), nil
-	}
-	defer descFile.Close()
-
-	descScanner := bufio.NewScanner(descFile)
-
-	descBuf := make([]byte, 0, 1024*1024)
-	descScanner.Buffer(descBuf, 10*1024*1024)
-
-	geneDesc := make(map[string]string)
-
-	for descScanner.Scan() {
-		fields := strings.Split(descScanner.Text(), "\t")
-
-		if len(fields) < 2 {
-			return fmt.Errorf("description file %s invalid format", desc), nil
-		}
-
-		geneDesc[fields[0]] = fields[1]
-	}
-
-	fmt.Printf("Loaded %d gene descriptions\n-------------------------------------------------\n\n", len(geneDesc))
 
 	// ========================================== Read PRG blast file ============================================= //
 	fmt.Printf("Reading PRG blast file: %s ...............................\n", prgBlastFile)
@@ -1122,18 +1137,19 @@ func CreateSuperVcf(variants []string, db string, bsaseq bool, desc string, prgB
 			return fmt.Errorf("no overlap between variant gene/transcript IDs and PRG QseqID"), nil
 		}
 
-		var descIdx int
+		descIdx := -1 // -1: no description file, every row gets NA
 		switch {
+		case geneDesc == nil:
 		case descGeneOverlap > 0:
 			fmt.Println("Description file uses GENE NAMES ... using SNPEFF_GENE_NAME ...")
 			descIdx = geneIdx
-		case prgTransOverlap > 0:
+		case descTransOverlap > 0:
 			fmt.Println("Description file uses TRANSCRIPT IDs ... using SNPEFF_TRANSCRIPT_ID ...")
 			descIdx = transIdx
 		default:
 			fmt.Println("YOUR Description FILE GENES ARE IN A DIFFERENT FORMAT TO THE FORMAT OF YOUR VCF GENES ...")
 			fmt.Println("Re format your Description FILE gene names to match those in GATK VCF file ...")
-			return fmt.Errorf("no overlap between variant gene/transcript IDs and PRG QseqID"), nil
+			return fmt.Errorf("no overlap between variant gene/transcript IDs and description file IDs"), nil
 		}
 		// ----------------------------------------------- Write output ------------------------------------------- //
 

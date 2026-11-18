@@ -148,6 +148,12 @@ var CreateGvcfsCmd = &cobra.Command{
         - Takes bams from the standard data directory (--data-dir), a config file
           (--config) or explicit paths (--bam)
         - Reuses gVCFs that already exist and are valid, and re-creates corrupt ones`,
+	Example: `  # Standard data directory
+  genome-whisperer CreateGvcfs --data-dir /data --species cotton --ref-version AD1.1 --genomes-dir /genomes
+
+  # Inline bams with DeepVariant
+  genome-whisperer CreateGvcfs --bam s1.cram --bam s2.cram --reference ref.fa --out-dir vcfs \
+      --species cotton --ref-version AD1.1 --caller deepvariant --merger glnexus`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts, err := variantOptions(cmd)
 		if err != nil {

@@ -21,6 +21,11 @@ var MergeGvcfsCmd = &cobra.Command{
         - Finds gVCFs in the standard data directory (--data-dir), or takes them
           from a config file (--config) or explicit paths (--gvcf)
         - Reuses a joint VCF that is valid and already holds the expected samples`,
+	Example: `  genome-whisperer MergeGvcfs --gvcf s1.g.vcf.gz --gvcf s2.g.vcf.gz --reference ref.fa \
+      --out-dir vcfs --species cotton --ref-version AD1.1
+
+  # GLnexus as the merger, gVCFs from the config file
+  genome-whisperer MergeGvcfs --config config.txt --species cotton --ref-version AD1.1 --merger glnexus`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts, err := variantOptions(cmd)
 		if err != nil {

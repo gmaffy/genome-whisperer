@@ -1,6 +1,3 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -13,13 +10,21 @@ import (
 // CreateTemplateCmd represents the CreateTemplate command
 var CreateTemplateCmd = &cobra.Command{
 	Use:   "CreateTemplate",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Write a config.txt template for the config-file input mode",
+	Long: `CreateTemplate writes config.txt in the current directory. Fill it in and
+pass it to other commands with --config.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+The file lists the output directory, the reference and its annotation (gff,
+proteins, cds), and the inputs: read pairs or single-end reads with sample and
+library names, bams, BSA-seq bams with their role, VCFs and gVCFs. Repeat a line
+once per file. For BSA-seq the library name is HIGH_PARENT, LOW_PARENT,
+HIGH_BULK or LOW_BULK.
+
+Flags given on the command line win over values in the file.
+
+An existing config.txt in the current directory is overwritten.`,
+	Example: `  # Write config.txt in the current directory, then fill it in
+  genome-whisperer CreateTemplate`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("CreateTemplate called")
 		templateFile, err := os.Create("config.txt")

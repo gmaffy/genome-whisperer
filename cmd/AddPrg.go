@@ -16,6 +16,8 @@ var AddPrgCmd = &cobra.Command{
 	Use:   "AddPrg",
 	Short: "Adds protein hits stats  to the PRG",
 	Long:  `Takes blast output and adds protein hits stats to the PRG`,
+	Example: `  # Add PRG hit columns (PercIdent, QLEN/MATCH_LEN, Eval) to a snpEff table
+  genome-whisperer AddPrg -V joint.snpEff_EFF.tsv --prg SQUASHV1.1_PRG_TOP_HITS.txt`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Adding PRG blast hits to vcf files ................")
 		vcfs, vErr := cmd.Flags().GetStringSlice("variant")

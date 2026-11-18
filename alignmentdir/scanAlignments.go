@@ -2,9 +2,10 @@ package alignmentdir
 
 import (
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/fatih/color"
@@ -34,188 +35,6 @@ type SampleBamState struct {
 	OtherFiles []FileInfo
 }
 
-type ScanResult struct {
-	Samples []SampleBamState
-	Errors  []ScanError
-}
-
-type ScanError struct {
-	Sample string
-	Err    error
-}
-
-// --------------------------- Function to give details of files in bam directory ----------------------------------- //
-
-func ScanAlignments(dataDir, species, refVer, genomesDir string, refFasta string, verbose, quick bool) ([]SampleBamState, error) {
-	// Returns a list of sample structs. Each sample structs tell weather certain bams/crams are present or not
-	// Imported alignment files are listed in SampleBamState
-	color.Cyan("\n=================== STARTING ALIGNMENT SCAN ===================\n")
-	fmt.Println("Checking paths ...")
-
-	dInfo, err := os.Stat(dataDir)
-	if err != nil {
-		color.Red("Error accessing data directory: %s\n", dataDir)
-		log.Fatal(err)
-	}
-	if !dInfo.IsDir() {
-		color.Red("Data directory %s is not a directory\n", dataDir)
-		log.Fatal(err)
-	}
-	dataDirAbs, err := filepath.Abs(dataDir)
-	if err != nil {
-		color.Red("Error getting absolute path for data directory: %s\n", dataDir)
-		log.Fatal(err)
-	}
-
-	if species == "" || refVer == "" {
-		color.Red("Please provide species name and reference version name")
-		log.Fatal("Missing species or refVer")
-	}
-
-	resolvedFasta, resolveErr := resolveRefFasta(refFasta, genomesDir, species, refVer)
-	if resolveErr != nil {
-		color.Red("Could not resolve reference fasta: %v\n", resolveErr)
-		log.Fatal(resolveErr)
-	}
-
-	fastaInfo, err := os.Stat(resolvedFasta)
-	if err != nil || !fastaInfo.Mode().IsRegular() {
-		color.Red("Reference fasta file: %s is not a valid regular file\n", resolvedFasta)
-		log.Fatal(err)
-	}
-
-	if dicfErr := utils.EnsureGatkDict(resolvedFasta); dicfErr != nil {
-		color.Red("%v\n", dicfErr)
-		log.Fatal(dicfErr)
-	}
-
-	// ---- 1. Discover sample bam-dirs ---- //
-	pattern := filepath.Join(dataDirAbs, species, "*", "*", "reference_genomes", refVer, "bams")
-	color.Yellow("Scanning with Glob Pattern: %s\n", pattern)
-
-	matches, _ := filepath.Glob(pattern)
-	color.Green("Found %d matching 'bams' directories.\n", len(matches))
-
-	if len(matches) == 0 {
-		color.Red("No matching 'bams' directories found.\n")
-		return []SampleBamState{}, fmt.Errorf("no matching 'bams' directories found")
-	}
-
-	var scanResult []SampleBamState
-	for _, bamDir := range matches {
-		cleanBamDir := filepath.Clean(bamDir)
-		// Extract sample name safely: <dataDirAbs>/<species>/<group>/<sample>/reference_genomes/<refVer>/bams
-		sampleName := filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(cleanBamDir))))
-		color.Green("Sample: %s: %s\n", sampleName, bamDir)
-
-		sampleState := SampleBamState{Sample: sampleName}
-		dirEntries, err := os.ReadDir(bamDir)
-
-		if err != nil {
-			color.Red("Error reading directory: %s\n", bamDir)
-			return []SampleBamState{}, err
-		}
-
-		for _, de := range dirEntries {
-			if de.IsDir() {
-				color.Green("Found a dir: %s\n", de.Name())
-			}
-			name := de.Name()
-			bamPath := filepath.Join(bamDir, name)
-
-			info, infoErr := de.Info()
-			bamSize := int64(0)
-			if infoErr == nil {
-				bamSize = info.Size()
-			}
-			if strings.HasSuffix(name, "sorted.bam") {
-				sampleState.SortedBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
-
-				valErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
-				if valErr == nil {
-					sampleState.SortedBam.Valid = true
-					//color.Green("[%s] has VALID sorted bam: %s\n", sampleName, bamPath)
-				} else {
-					sampleState.SortedBam.Valid = false
-					//color.Yellow("[%s] has INVALID sorted bam: %s\n", sampleName, bamPath)
-				}
-				sampleState.SortedBam.ValidateErr = valErr
-				setIndexInfo(&sampleState.SortedBam, verbose)
-
-			} else if strings.HasSuffix(name, "rgmd.bam") || strings.HasSuffix(name, "RGMD.bam") {
-				sampleState.RgmdBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
-
-				valErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
-				if valErr == nil {
-					sampleState.RgmdBam.Valid = true
-					//color.Green("[%s] has VALID rgmd bam: %s\n", sampleName, bamPath)
-				} else {
-					sampleState.RgmdBam.Valid = false
-					//color.Yellow("[%s] has INVALID rgmd bam: %s\n", sampleName, bamPath)
-				}
-				sampleState.RgmdBam.ValidateErr = valErr
-				setIndexInfo(&sampleState.RgmdBam, verbose)
-
-			} else if strings.HasSuffix(name, "rgmd.cram") || strings.HasSuffix(name, "RGMD.cram") {
-				sampleState.RgmdCram = FileInfo{Path: bamPath, Size: bamSize, Present: true}
-
-				valErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
-				if valErr == nil {
-					sampleState.RgmdCram.Valid = true
-					//color.Green("[%s] has VALID rgmd cram: %s\n", sampleName, bamPath)
-				}
-				sampleState.RgmdCram.ValidateErr = valErr
-				setIndexInfo(&sampleState.RgmdCram, verbose)
-
-			} else if strings.HasSuffix(name, "bqsr.bam") || strings.HasSuffix(name, "BQSR.bam") {
-				sampleState.BqsrBam = FileInfo{Path: bamPath, Size: bamSize, Present: true}
-
-				varErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
-				if varErr == nil {
-					sampleState.BqsrBam.Valid = true
-					color.Green("[%s] has VALID bqsr bam: %s\n", sampleName, bamPath)
-				}
-
-				setIndexInfo(&sampleState.BqsrBam, verbose)
-
-			} else if strings.HasSuffix(name, "bqsr.cram") || strings.HasSuffix(name, "BQSR.cram") {
-				sampleState.BqsrCram = FileInfo{Path: bamPath, Size: bamSize, Present: true}
-
-				varErr := utils.ValidateBam(bamPath, resolvedFasta, verbose, quick)
-				if varErr == nil {
-					sampleState.BqsrCram.Valid = true
-					color.Green("[%s] has VALID bqsr cram: %s\n", sampleName, bamPath)
-				}
-				setIndexInfo(&sampleState.BqsrCram, verbose)
-			} else {
-				if !strings.HasSuffix(name, ".bai") && !strings.HasSuffix(name, ".csi") && !strings.HasSuffix(name, ".crai") && !strings.HasSuffix(name, ".pdf") {
-					color.Blue("[%s] Random artifact found: %s\n", sampleName, bamPath)
-					sampleState.OtherFiles = append(sampleState.OtherFiles, FileInfo{Path: bamPath, Size: bamSize, Present: true})
-
-				}
-
-			}
-		}
-		scanResult = append(scanResult, sampleState)
-
-	}
-
-	return scanResult, nil
-}
-
-// ------------------------------- For each sample list steps needed to get perfect dir ----------------------------- //
-
-type Step struct {
-	Program string   // e.g. "samtools", "gatk", "bwa-mem"
-	Inputs  []string // arguments, input files, flags, etc.
-}
-
-type Action struct {
-	Sample  string
-	Steps   []Step
-	Perfect bool
-}
-
 func isUsable(f FileInfo) bool {
 	return f.Present && f.Valid
 }
@@ -224,160 +43,356 @@ func hasIndex(f FileInfo) bool {
 	return f.IndexPresent && f.IndexSize > 0
 }
 
-func GetSampleActions(s SampleBamState) Action {
-	var steps []Step
+// ------------------------------------ Shared completeness / plan decision ----------------------------------------- //
 
-	// --- Check terminal goal ---
-	bqsrCramOK := isUsable(s.BqsrCram) && hasIndex(s.BqsrCram)
-	rgmdCramOK := isUsable(s.RgmdCram) && hasIndex(s.RgmdCram)
+// SampleAssessment is what AlignReads (data-directory mode) would decide about a
+// sample: whether it is finished, and if not, the steps it would run.
+type SampleAssessment struct {
+	Sample   string
+	LongRead bool
+	Complete bool
+	// External is the externally produced alignment a long-read sample would
+	// adopt, if any.
+	External string
+	// AmbiguousExternal lists the candidates when there is more than one;
+	// AlignReads refuses to choose and skips the sample.
+	AmbiguousExternal []string
+	Plan              []ProcessingReason
+	NeedsReads        bool
+}
 
-	// --- If already perfect ---
-	if bqsrCramOK && rgmdCramOK &&
-		!s.SortedBam.Present &&
-		!s.RgmdBam.Present &&
-		!s.BqsrBam.Present &&
-		len(s.OtherFiles) == 0 {
+// assessSample decides whether a sample is complete and, if not, plans its
+// remaining steps. RunAlignReadsDir and ScanAlignments both call it, so the
+// scan report always matches what a run would do.
+func assessSample(state SampleBamState, bqsr, gatkNeedsBam bool) SampleAssessment {
+	a := SampleAssessment{Sample: state.Sample, LongRead: IsLongReadSample(state.Sample)}
 
-		return Action{
-			Sample: s.Sample,
-			Steps: []Step{
-				{
-					Program: "Skip",
-					Inputs:  []string{"✅PASS - All required cram files present"},
-				},
-			},
-			Perfect: true,
+	// Adoption is decided from names alone; the header reads and the full
+	// validation belong in the worker, inside ReasonAdoptExternalAlignment.
+	if a.LongRead {
+		candidates := adoptionCandidates(state)
+		if len(candidates) > 1 {
+			// Two movies, or a movie and a stale partial. Picking one silently
+			// drops half a sample's data, so this is a question for a person;
+			// nothing in the directory is touched.
+			a.AmbiguousExternal = candidates
+			return a
 		}
-
-	}
-
-	// --- Ensure rgmd.cram ---
-	if !rgmdCramOK {
-		if isUsable(s.RgmdBam) {
-			steps = append(steps, Step{
-				Program: "bam_to_cram",
-				Inputs:  []string{s.RgmdBam.Path},
-			})
-		} else if isUsable(s.SortedBam) {
-			//steps = append(steps, "Run markdup: sorted.bam → rgmd.bam")
-
-			steps = append(steps, Step{
-				Program: "markdup",
-				Inputs:  []string{s.SortedBam.Path},
-			})
-
-			//steps = append(steps, "Convert rgmd.bam → rgmd.cram")
-			steps = append(steps, Step{
-				Program: "bam_to_cram",
-				Inputs:  []string{s.RgmdBam.Path},
-			})
-		} else {
-			//steps = append(steps, "Missing sorted.bam → must rerun alignment (bwa-mem)")
-			steps = append(steps, Step{
-				Program: "scratch",
-				Inputs:  []string{s.Sample},
-			})
+		if len(candidates) == 1 {
+			a.External = candidates[0]
 		}
 	}
 
-	// --- Ensure rgmd.cram index ---
-	if isUsable(s.RgmdCram) && !hasIndex(s.RgmdCram) {
-		//steps = append(steps, "Index rgmd.cram")
-		steps = append(steps, Step{
-			Program: "indexBam",
-			Inputs:  []string{s.RgmdBam.Path},
-		})
+	rgmdCramOK := isUsable(state.RgmdCram) && hasIndex(state.RgmdCram)
+	bqsrCramOK := isUsable(state.BqsrCram) && hasIndex(state.BqsrCram)
+	noIntermediates := !state.SortedBam.Present && !state.RgmdBam.Present && !state.BqsrBam.Present
+
+	if a.LongRead {
+		// A long-read sample is finished at the rgmd.cram: BQSR is never run on
+		// it, so requiring a bqsr.cram would mean no long-read sample was ever
+		// complete.
+		//
+		// OtherFiles is not required to be empty either. An adopted alignment
+		// stays in the directory permanently — it is an input, and cleanup will
+		// not remove it — so demanding its absence would re-plan and
+		// re-validate every adopted sample on every run, which on a
+		// multi-hundred-gigabyte CRAM is not free.
+		a.Complete = rgmdCramOK && noIntermediates
+	} else {
+		a.Complete = rgmdCramOK && bqsrCramOK && noIntermediates && len(state.OtherFiles) == 0
+	}
+	if a.Complete {
+		return a
 	}
 
-	// --- Ensure bqsr.cram ---
-	if !bqsrCramOK {
-		if isUsable(s.BqsrBam) {
-			steps = append(steps, Step{
-				Program: "bam_to_cram",
-				Inputs:  []string{s.BqsrBam.Path},
-			})
+	// Build the full ordered plan from the current state so processSample can
+	// execute every step without re-scanning the filesystem.
+	a.Plan, a.NeedsReads = buildPlan(state, planInputs{
+		bqsr:         bqsr && !a.LongRead,
+		gatkNeedsBam: gatkNeedsBam,
+		longRead:     a.LongRead,
+		external:     a.External != "",
+	})
+	return a
+}
 
-		} else if isUsable(s.RgmdBam) {
-			//steps = append(steps, "Run BQSR → bqsr.bam")
-			//steps = append(steps, "Convert bqsr.bam → bqsr.cram")
-			if !isUsable(s.RgmdCram) {
-				steps = append(steps, Step{
-					Program: "bam_to_cram",
-					Inputs:  []string{s.RgmdBam.Path},
-				})
-			}
-			steps = append(steps, Step{
-				Program: "bqsr",
-				Inputs:  []string{s.RgmdBam.Path},
-			})
-		} else if isUsable(s.RgmdCram) {
-			steps = append(steps, Step{
-				Program: "bqsr",
-				Inputs:  []string{s.RgmdBam.Path},
-			})
-			//steps = append(steps, "Cannot run BQSR: missing rgmd input")
-		} else {
-			steps = append(steps, Step{
-				Program: "scratch",
-				Inputs:  []string{s.Sample},
-			})
-		}
-	}
+// ------------------------------------------------- Scan ----------------------------------------------------------- //
 
-	// --- Ensure bqsr.cram index ---
-	if isUsable(s.BqsrCram) && !hasIndex(s.BqsrCram) {
-		//steps = append(steps, "Index bqsr.cram")
-		steps = append(steps, Step{
-			Program: "indexBam",
-			Inputs:  []string{s.BqsrBam.Path},
-		})
-	}
+// SampleStatus is the one-word verdict on a sample in a scan report.
+type SampleStatus string
 
-	// --- Cleanup phase ---
-	if bqsrCramOK && rgmdCramOK {
-		if s.SortedBam.Present {
-			//steps = append(steps, "Delete sorted.bam")
-			steps = append(steps, Step{
-				Program: "rm",
-				Inputs:  []string{s.SortedBam.Path},
-			})
-		}
-		if s.RgmdBam.Present {
-			//steps = append(steps, "Delete rgmd.bam")
-			steps = append(steps, Step{
-				Program: "rm",
-				Inputs:  []string{s.RgmdBam.Path},
-			})
-		}
-		if s.BqsrBam.Present {
-			//steps = append(steps, "Delete bqsr.bam")
-			steps = append(steps, Step{
-				Program: "rm",
-				Inputs:  []string{s.BqsrBam.Path},
-			})
-		}
-		if len(s.OtherFiles) > 0 {
-			//steps = append(steps, "Remove unexpected extra files")
-			for _, file := range s.OtherFiles {
-				steps = append(steps, Step{
-					Program: "rm",
-					Inputs:  []string{file.Path},
-				})
-			}
-		}
-	}
+const (
+	StatusComplete  SampleStatus = "COMPLETE"
+	StatusCleanup   SampleStatus = "CLEANUP"   // outputs are done; only cleanup remains
+	StatusResume    SampleStatus = "RESUME"    // an alignment exists; later steps remain
+	StatusAlign     SampleStatus = "ALIGN"     // nothing usable; must align from reads
+	StatusAmbiguous SampleStatus = "AMBIGUOUS" // several external alignments; needs a person
+	StatusError     SampleStatus = "ERROR"     // the bams directory could not be read
+)
 
-	return Action{
-		Sample:  s.Sample,
-		Steps:   steps,
-		Perfect: false,
+// SampleReport is one sample in a scan.
+type SampleReport struct {
+	SampleAssessment
+	Project string
+	BamDir  string
+	State   SampleBamState
+	Err     error
+}
+
+// Status summarises the sample in one word.
+func (r SampleReport) Status() SampleStatus {
+	switch {
+	case r.Err != nil:
+		return StatusError
+	case len(r.AmbiguousExternal) > 0:
+		return StatusAmbiguous
+	case r.Complete:
+		return StatusComplete
+	case containsReason(r.Plan, ReasonAlignFromReads), containsReason(r.Plan, ReasonAlignLongReads):
+		return StatusAlign
+	case len(r.Plan) == 1 && r.Plan[0] == ReasonCleanup:
+		return StatusCleanup
+	default:
+		return StatusResume
 	}
 }
 
-//func EvaluateAll(samples []SampleBamState) []Action {
-//	results := make([]Action, 0, len(samples))
-//	for _, s := range samples {
-//		results = append(results, evaluateSample(s))
-//	}
-//	return results
-//}
+// ScanReport is the result of ScanAlignments.
+type ScanReport struct {
+	DataDir      string
+	Species      string
+	RefVer       string
+	Reference    string
+	BQSR         bool
+	GatkNeedsBam bool
+	Samples      []SampleReport
+}
+
+// ScanAlignments inspects every sample's bams directory under
+//
+//	<dataDir>/<species>/<project>/<sample>/reference_genomes/<refVer>/bams/
+//
+// with the same file rules and validation AlignReads uses, and reports what
+// AlignReads --bqsr=<bqsr> would do with each sample. It reads files but never
+// changes them (apart from creating the reference's GATK dictionary if it is
+// missing, as every other command does).
+func ScanAlignments(dataDir, species, refVer, genomesDir, refFasta string, bqsr, verbose, quick bool) (ScanReport, error) {
+	report := ScanReport{DataDir: dataDir, Species: species, RefVer: refVer, BQSR: bqsr}
+
+	if dataDir == "" || species == "" || refVer == "" {
+		return report, fmt.Errorf("--data-dir, --species and --ref-version are required")
+	}
+	dInfo, err := os.Stat(dataDir)
+	if err != nil {
+		return report, fmt.Errorf("data directory: %w", err)
+	}
+	if !dInfo.IsDir() {
+		return report, fmt.Errorf("data directory %s is not a directory", dataDir)
+	}
+	dataDirAbs, err := filepath.Abs(dataDir)
+	if err != nil {
+		return report, err
+	}
+
+	resolvedFasta, err := resolveRefFasta(refFasta, genomesDir, species, refVer)
+	if err != nil {
+		return report, fmt.Errorf("could not resolve reference fasta: %w", err)
+	}
+	if fi, err := os.Stat(resolvedFasta); err != nil || !fi.Mode().IsRegular() {
+		return report, fmt.Errorf("reference fasta %s is not a regular file", resolvedFasta)
+	}
+	if err := utils.EnsureGatkDict(resolvedFasta); err != nil {
+		return report, err
+	}
+	report.Reference = resolvedFasta
+	report.GatkNeedsBam = gatkReadsNeedBam(resolvedFasta)
+
+	pattern := filepath.Join(dataDirAbs, species, "*", "*", "reference_genomes", refVer, "bams")
+	matches, _ := filepath.Glob(pattern)
+	if len(matches) == 0 {
+		return report, fmt.Errorf("no bams directories match %s", pattern)
+	}
+	sort.Strings(matches)
+
+	for i, bamDir := range matches {
+		// <dataDirAbs>/<species>/<project>/<sample>/reference_genomes/<refVer>/bams
+		sampleDir := filepath.Dir(filepath.Dir(filepath.Dir(bamDir)))
+		sample := filepath.Base(sampleDir)
+		project := filepath.Base(filepath.Dir(sampleDir))
+		fmt.Fprintf(os.Stderr, "[%d/%d] checking %s/%s\n", i+1, len(matches), project, sample)
+
+		r := SampleReport{Project: project, BamDir: bamDir}
+		r.Sample = sample
+		state, scanErr := inspectSampleBamDir(sample, bamDir, resolvedFasta, verbose, quick)
+		r.State = state
+		if scanErr != nil {
+			r.Err = scanErr
+		} else {
+			r.SampleAssessment = assessSample(state, bqsr, report.GatkNeedsBam)
+		}
+		report.Samples = append(report.Samples, r)
+	}
+	return report, nil
+}
+
+// -------------------------------------------------- Report -------------------------------------------------------- //
+
+var reasonText = map[ProcessingReason]string{
+	ReasonAlignFromReads:         "align reads from clean_reads",
+	ReasonAlignLongReads:         "align long reads with pbmm2",
+	ReasonAdoptExternalAlignment: "adopt the external alignment",
+	ReasonMarkDupSortedBam:       "mark duplicates (sorted.bam to RGMD.bam)",
+	ReasonIndexRgmdBam:           "index RGMD.bam",
+	ReasonConvertRgmdBam:         "convert RGMD.bam to RGMD.cram",
+	ReasonIndexRgmdCram:          "index RGMD.cram",
+	ReasonMaterializeRgmdBam:     "decode RGMD.cram to RGMD.bam for GATK",
+	ReasonRunBQSR:                "run BQSR",
+	ReasonConvertBqsrBam:         "convert bqsr.bam to bqsr.cram",
+	ReasonIndexBqsrCram:          "index bqsr.cram",
+	ReasonCleanup:                "remove intermediates",
+}
+
+func describePlan(plan []ProcessingReason) string {
+	parts := make([]string, len(plan))
+	for i, p := range plan {
+		if t, ok := reasonText[p]; ok {
+			parts[i] = t
+		} else {
+			parts[i] = string(p)
+		}
+	}
+	return strings.Join(parts, " → ")
+}
+
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func describeFile(f FileInfo) string {
+	if !f.Present {
+		return "-"
+	}
+	var s string
+	switch {
+	case !f.Valid && f.ValidateErr != nil:
+		s = "INVALID: " + strings.TrimSpace(f.ValidateErr.Error())
+	case !f.Valid:
+		s = "INVALID"
+	case hasIndex(f):
+		s = "ok, indexed"
+	default:
+		s = "ok, NO INDEX"
+	}
+	return fmt.Sprintf("%-40s %9s  %s", filepath.Base(f.Path), humanSize(f.Size), s)
+}
+
+var statusColor = map[SampleStatus]*color.Color{
+	StatusComplete:  color.New(color.FgGreen, color.Bold),
+	StatusCleanup:   color.New(color.FgCyan, color.Bold),
+	StatusResume:    color.New(color.FgYellow, color.Bold),
+	StatusAlign:     color.New(color.FgMagenta, color.Bold),
+	StatusAmbiguous: color.New(color.FgRed, color.Bold),
+	StatusError:     color.New(color.FgRed, color.Bold),
+}
+
+// WriteScanReport prints a per-sample breakdown followed by totals.
+func WriteScanReport(w io.Writer, r ScanReport) {
+	bqsr := "with BQSR"
+	if !r.BQSR {
+		bqsr = "without BQSR"
+	}
+	fmt.Fprintf(w, "\nAlignment scan: %s / %s (%s)\n", r.Species, r.RefVer, r.DataDir)
+	fmt.Fprintf(w, "Reference: %s\n", r.Reference)
+	fmt.Fprintf(w, "Plans show what AlignReads would do %s.\n", bqsr)
+	if r.GatkNeedsBam {
+		fmt.Fprintln(w, "Reference has contigs past the BAI limit: BQSR reads the RGMD.bam, not the RGMD.cram.")
+	}
+	fmt.Fprintln(w, strings.Repeat("─", 100))
+
+	counts := map[SampleStatus]int{}
+	var blocked []string
+	for _, s := range r.Samples {
+		st := s.Status()
+		counts[st]++
+
+		kind := "short read"
+		if s.LongRead {
+			kind = "long read"
+		}
+		fmt.Fprintf(w, "%s %s/%s (%s)\n", statusColor[st].Sprintf("%-9s", st), s.Project, s.Sample, kind)
+
+		if s.Err != nil {
+			fmt.Fprintf(w, "    error: %v\n\n", s.Err)
+			continue
+		}
+		for _, f := range []struct {
+			label string
+			info  FileInfo
+		}{
+			{"sorted.bam", s.State.SortedBam},
+			{"RGMD.bam", s.State.RgmdBam},
+			{"RGMD.cram", s.State.RgmdCram},
+			{"bqsr.bam", s.State.BqsrBam},
+			{"bqsr.cram", s.State.BqsrCram},
+		} {
+			if f.info.Present {
+				fmt.Fprintf(w, "    %-10s %s\n", f.label, describeFile(f.info))
+			}
+		}
+		for _, o := range s.State.OtherFiles {
+			note := "unrecognised"
+			if o.Path == s.External {
+				note = "external alignment (will be adopted, then kept)"
+			}
+			fmt.Fprintf(w, "    %-10s %-40s %9s  %s\n", "other", filepath.Base(o.Path), humanSize(o.Size), note)
+		}
+
+		switch st {
+		case StatusAmbiguous:
+			fmt.Fprintln(w, "    more than one external alignment; AlignReads will skip this sample until only one remains")
+		case StatusComplete:
+		default:
+			fmt.Fprintf(w, "    next: %s\n", describePlan(s.Plan))
+			if s.NeedsReads {
+				fmt.Fprintln(w, "    needs the sample's reads in clean_reads/")
+			}
+			if !s.LongRead && st == StatusCleanup && len(s.State.OtherFiles) > 0 {
+				// Cleanup removes only the pipeline's own intermediates, so
+				// these files keep the sample from ever counting as complete.
+				fmt.Fprintln(w, "    unrecognised files block completion; cleanup does not remove them — move or delete them by hand")
+				blocked = append(blocked, s.Project+"/"+s.Sample)
+			}
+		}
+		fmt.Fprintln(w)
+	}
+
+	fmt.Fprintln(w, strings.Repeat("─", 100))
+	fmt.Fprintf(w, "Samples: %d\n", len(r.Samples))
+	for _, st := range []struct {
+		s    SampleStatus
+		desc string
+	}{
+		{StatusComplete, "finished, nothing to do"},
+		{StatusCleanup, "outputs done, only intermediates to remove"},
+		{StatusResume, "alignment exists, later steps remain"},
+		{StatusAlign, "nothing usable, align from reads"},
+		{StatusAmbiguous, "several external alignments, needs a person"},
+		{StatusError, "bams directory could not be read"},
+	} {
+		if counts[st.s] > 0 {
+			fmt.Fprintf(w, "  %s %4d  %s\n", statusColor[st.s].Sprintf("%-9s", st.s), counts[st.s], st.desc)
+		}
+	}
+	if len(blocked) > 0 {
+		fmt.Fprintf(w, "\nBlocked by unrecognised files: %s\n", strings.Join(blocked, ", "))
+	}
+}

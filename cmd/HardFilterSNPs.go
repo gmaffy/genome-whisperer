@@ -13,9 +13,10 @@ import (
 
 // HardFilterSNPsCmd represents the HardFilterSNPs command
 var HardFilterSNPsCmd = &cobra.Command{
-	Use:   "HardFilterSNPs",
-	Short: "Hard Filter SNPs",
-	Long:  `Hard Filter SNPs`,
+	Use:     "HardFilterSNPs",
+	Short:   "Hard Filter SNPs",
+	Long:    `Hard Filter SNPs`,
+	Example: `  genome-whisperer HardFilterSNPs -V joint.snps.vcf.gz`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("HardFilterSNPs called")
 		variant, vErr := cmd.Flags().GetString("variant")

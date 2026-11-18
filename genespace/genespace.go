@@ -1,3 +1,13 @@
+// Package genespace ranks the genes in a QTL window as candidates for a trait.
+//
+// Each gene is scored on independent axes and the tier is derived from them:
+//
+//	Variant score  (0-4)  the most damaging variant whose genotypes follow the
+//	                      resistant/susceptible split (dominant or recessive)
+//	Function score (0-3)  PRG hit quality plus description terms from a
+//	                      built-in trait profile
+//
+// Genetic evidence comes first; annotation adjusts the ranking within it.
 package genespace
 
 import (
@@ -5,6 +15,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,62 +29,176 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-func genePosFromGffMap(gff, chrom string, start, stop int) (map[string][2]string, error) {
-	dic := make(map[string][2]string)
+// PRG hit thresholds for a hit to count as a real PRG match. Weaker hits still
+// earn a function score of 1.
+const (
+	PrgMinIdentity = 40.0  // percent identity
+	PrgMinCoverage = 60.0  // alignment length as a percent of query length
+	PrgMaxEvalue   = 1e-10 // e-value
+)
 
+// Options configures a GeneSpace run.
+type Options struct {
+	GFF            string
+	VariantTable   string // superVCF table (genome-whisperer or GoBSAseq)
+	Chrom          string
+	Start, Stop    int
+	ResLines       []string
+	SusLines       []string
+	DescFile       string // optional: id<TAB>description
+	PrgFile        string // optional: PRG top-hits table
+	OutDir         string
+	Trait          string  // built-in profile name
+	MinConcordance float64 // 0 < x <= 1
+	PromoterLength int     // bp upstream of a gene attributed to it; 0 disables
+}
+
+// ─── Genes ───────────────────────────────────────────────────────────────────
+
+// Gene is one gene in the window, with its isoforms collapsed.
+type Gene struct {
+	ID          string
+	Start, Stop int
+	Strand      string
+	Transcripts []string
+}
+
+func parseAttrs(s string) map[string]string {
+	m := make(map[string]string)
+	for _, kv := range strings.Split(s, ";") {
+		k, v, ok := strings.Cut(strings.TrimSpace(kv), "=")
+		if ok && k != "" {
+			m[k] = v
+		}
+	}
+	return m
+}
+
+// loadGenes reads the GFF and returns the genes on chrom that overlap
+// [start, stop], sorted by position. Transcripts (mRNA/transcript rows) are
+// grouped by their Parent gene; if the GFF has no transcript rows, gene rows
+// are used. Malformed lines are skipped.
+func loadGenes(gff, chrom string, start, stop int) ([]Gene, error) {
 	f, err := os.Open(gff)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
+	fromTx := make(map[string]*Gene)
+	fromGene := make(map[string]*Gene)
+
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
 	for scanner.Scan() {
-		fields := strings.Split(scanner.Text(), "\t")
-		if len(fields) < 9 {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
-
-		pos, err := strconv.Atoi(fields[3])
-		if err != nil {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 9 || fields[0] != chrom {
 			continue
 		}
+		s, err1 := strconv.Atoi(fields[3])
+		e, err2 := strconv.Atoi(fields[4])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		attrs := parseAttrs(fields[8])
 
-		if fields[0] == chrom && fields[2] == "mRNA" && pos >= start && pos < stop {
-			gene := strings.SplitN(strings.SplitN(fields[len(fields)-1], ";", 2)[0], "=", 2)[1]
-			dic[gene] = [2]string{fields[3], fields[4]}
+		switch fields[2] {
+		case "mRNA", "transcript":
+			id := attrs["ID"]
+			parent, _, _ := strings.Cut(attrs["Parent"], ",")
+			if parent == "" {
+				parent = id
+			}
+			if parent == "" {
+				continue
+			}
+			g, ok := fromTx[parent]
+			if !ok {
+				g = &Gene{ID: parent, Start: s, Stop: e, Strand: fields[6]}
+				fromTx[parent] = g
+			}
+			g.Start = min(g.Start, s)
+			g.Stop = max(g.Stop, e)
+			if id != "" {
+				g.Transcripts = append(g.Transcripts, id)
+			}
+		case "gene":
+			if id := attrs["ID"]; id != "" {
+				fromGene[id] = &Gene{ID: id, Start: s, Stop: e, Strand: fields[6]}
+			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
 
-	return dic, scanner.Err()
+	src := fromTx
+	if len(src) == 0 {
+		src = fromGene
+	}
+	var genes []Gene
+	for _, g := range src {
+		if g.Start <= stop && g.Stop >= start {
+			genes = append(genes, *g)
+		}
+	}
+	sort.Slice(genes, func(i, j int) bool {
+		if genes[i].Start != genes[j].Start {
+			return genes[i].Start < genes[j].Start
+		}
+		return genes[i].ID < genes[j].ID
+	})
+	return genes, nil
 }
+
+// ─── Descriptions and PRG hits ───────────────────────────────────────────────
 
 func geneDescMap(descFile string) (map[string]string, error) {
 	dic := make(map[string]string)
+	if descFile == "" {
+		return dic, nil
+	}
 	f, err := os.Open(descFile)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
 	for scanner.Scan() {
-		fields := strings.Split(scanner.Text(), "\t")
-		if len(fields) < 2 {
+		id, desc, ok := strings.Cut(scanner.Text(), "\t")
+		if !ok {
 			continue
 		}
-		dic[fields[0]] = fields[1]
+		desc, _, _ = strings.Cut(desc, "\t")
+		dic[id] = strings.TrimSpace(desc)
 	}
 	return dic, scanner.Err()
 }
 
-type PrgMatches struct {
-	PercIdent    float64
-	MatchLenQlen string
-	Eval         float64
+// PrgHit is the best PRGdb BLAST hit for one protein.
+type PrgHit struct {
+	PercIdent float64
+	Coverage  float64 // Length / Qlen, percent
+	Length    int
+	Qlen      int
+	Eval      float64
 }
 
-func genePrgMap(prgFile string) (map[string]PrgMatches, error) {
-	dic := make(map[string]PrgMatches)
+// Pass reports whether the hit clears all three PRG thresholds.
+func (h PrgHit) Pass() bool {
+	return h.PercIdent >= PrgMinIdentity && h.Coverage >= PrgMinCoverage && h.Eval <= PrgMaxEvalue
+}
+
+func genePrgMap(prgFile string) (map[string]PrgHit, error) {
+	dic := make(map[string]PrgHit)
+	if prgFile == "" {
+		return dic, nil
+	}
 	f, err := os.Open(prgFile)
 	if err != nil {
 		return nil, err
@@ -83,24 +208,25 @@ func genePrgMap(prgFile string) (map[string]PrgMatches, error) {
 	r := csv.NewReader(f)
 	r.Comma = '\t'
 	r.LazyQuotes = true
+	r.FieldsPerRecord = -1
 
 	header, err := r.Read()
 	if err != nil {
 		return nil, fmt.Errorf("reading header: %w", err)
 	}
-
 	idx := make(map[string]int)
 	for i, h := range header {
 		idx[h] = i
 	}
-
-	seqIdIdx, okS := idx["QseqID"]
-	lengthIdx, okL := idx["Length"]
-	qlenIdx, okQ := idx["Qlen"]
-	percIdentIdx, okP := idx["PercIdent"]
-	evalIdx, okE := idx["Eval"]
-	if !okS || !okL || !okQ || !okP || !okE {
-		return nil, fmt.Errorf("Blast table missing required columns (QseqID, PercIdent, Qlen, Length, Eval)")
+	cols := []string{"QseqID", "PercIdent", "Length", "Qlen", "Eval"}
+	for _, c := range cols {
+		if _, ok := idx[c]; !ok {
+			return nil, fmt.Errorf("PRG table missing required columns (%s)", strings.Join(cols, ", "))
+		}
+	}
+	maxIdx := 0
+	for _, c := range cols {
+		maxIdx = max(maxIdx, idx[c])
 	}
 
 	for {
@@ -111,66 +237,95 @@ func genePrgMap(prgFile string) (map[string]PrgMatches, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading row: %w", err)
 		}
-
-		percIdent, _ := strconv.ParseFloat(row[percIdentIdx], 64)
-		eval, _ := strconv.ParseFloat(row[evalIdx], 64)
-		mlenQlen := row[lengthIdx] + "/" + row[qlenIdx]
-		rec := PrgMatches{
-			PercIdent:    percIdent,
-			MatchLenQlen: mlenQlen,
-			Eval:         eval,
+		if len(row) <= maxIdx {
+			continue
 		}
-
-		if _, exists := dic[row[seqIdIdx]]; !exists {
-			dic[row[seqIdIdx]] = rec
+		pi, _ := strconv.ParseFloat(row[idx["PercIdent"]], 64)
+		ev, err := strconv.ParseFloat(row[idx["Eval"]], 64)
+		if err != nil {
+			continue
+		}
+		length, _ := strconv.Atoi(row[idx["Length"]])
+		qlen, _ := strconv.Atoi(row[idx["Qlen"]])
+		hit := PrgHit{PercIdent: pi, Length: length, Qlen: qlen, Eval: ev}
+		if qlen > 0 {
+			hit.Coverage = 100 * float64(length) / float64(qlen)
+		}
+		id := row[idx["QseqID"]]
+		if old, ok := dic[id]; !ok || hit.Eval < old.Eval {
+			dic[id] = hit
 		}
 	}
 	return dic, nil
 }
 
-type VCFRecord struct {
-	CHROM        string
-	POS          int
-	SNPEffEffect string
-	Genotypes    map[string]string
+// ─── Variant table ───────────────────────────────────────────────────────────
+
+// Variant is one row of the superVCF table.
+type Variant struct {
+	POS       int
+	Effect    string
+	Impact    string
+	Genotypes map[string]string // "<sample>.GT" -> genotype
 }
 
-func getQtlRecords(path, chrom string, start, stop int) ([]VCFRecord, []string, error) {
+// readVariants reads the variants on chrom within [start, stop] from a superVCF
+// table, sorted by position. Only CHROM, POS and the *.GT columns are required;
+// SNPEFF_EFFECT and SNPEFF_IMPACT are used when present (matched
+// case-insensitively, since genome-whisperer writes "SNPEff_IMPACT").
+func readVariants(path, chrom string, start, stop int) ([]Variant, []string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("opening VCF table: %w", err)
+		return nil, nil, fmt.Errorf("opening variant table: %w", err)
 	}
 	defer f.Close()
 
 	r := csv.NewReader(f)
 	r.Comma = '\t'
 	r.LazyQuotes = true
+	r.FieldsPerRecord = -1
+	r.ReuseRecord = true
 
 	header, err := r.Read()
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading header: %w", err)
 	}
+	header = slices.Clone(header)
 
-	idx := make(map[string]int)
-	for i, h := range header {
-		idx[h] = i
+	col := func(name string) int {
+		for i, h := range header {
+			if strings.EqualFold(strings.TrimSpace(h), name) {
+				return i
+			}
+		}
+		return -1
 	}
-
-	chromIdx, okC := idx["CHROM"]
-	posIdx, okP := idx["POS"]
-	effIdx, okE := idx["SNPEFF_EFFECT"]
-	if !okC || !okP || !okE {
-		return nil, nil, fmt.Errorf("VCF table missing required columns (CHROM, POS, SNPEFF_EFFECT)")
+	chromIdx, posIdx := col("CHROM"), col("POS")
+	if chromIdx < 0 || posIdx < 0 {
+		return nil, nil, fmt.Errorf("variant table missing required columns (CHROM, POS)")
 	}
+	effIdx, impIdx := col("SNPEFF_EFFECT"), col("SNPEFF_IMPACT")
 
 	var gtCols []string
-	for _, h := range header {
+	var gtIdx []int
+	for i, h := range header {
 		if strings.HasSuffix(h, ".GT") {
 			gtCols = append(gtCols, h)
+			gtIdx = append(gtIdx, i)
 		}
 	}
+	if len(gtCols) == 0 {
+		return nil, nil, fmt.Errorf("variant table has no <sample>.GT columns")
+	}
 
-	var records []VCFRecord
+	field := func(row []string, i int) string {
+		if i < 0 || i >= len(row) {
+			return ""
+		}
+		return row[i]
+	}
+
+	var out []Variant
 	for {
 		row, err := r.Read()
 		if err == io.EOF {
@@ -179,626 +334,657 @@ func getQtlRecords(path, chrom string, start, stop int) ([]VCFRecord, []string, 
 		if err != nil {
 			return nil, nil, fmt.Errorf("reading row: %w", err)
 		}
-
-		pos, _ := strconv.Atoi(row[posIdx])
-		if row[chromIdx] != chrom || pos < start || pos > stop {
+		if field(row, chromIdx) != chrom {
 			continue
 		}
-		rec := VCFRecord{
-			CHROM:        row[chromIdx],
-			POS:          pos,
-			SNPEffEffect: row[effIdx],
-			Genotypes:    make(map[string]string),
-		}
-		for _, col := range gtCols {
-			rec.Genotypes[col] = row[idx[col]]
-		}
-		records = append(records, rec)
-	}
-	return records, gtCols, nil
-}
-
-func resNotSus(resGTs, susGTs []string) bool {
-	unphase := func(gt string) string { return strings.ReplaceAll(gt, "|", "/") }
-
-	// Derive the single sus genotype without allocating a map.
-	var singleSus string
-	for _, g := range susGTs {
-		u := unphase(g)
-		if u == "./." {
+		pos, err := strconv.Atoi(field(row, posIdx))
+		if err != nil || pos < start || pos > stop {
 			continue
 		}
-		if singleSus == "" {
-			singleSus = u
-		} else if u != singleSus {
-			return false // more than one distinct sus genotype
+		v := Variant{
+			POS:       pos,
+			Effect:    field(row, effIdx),
+			Impact:    field(row, impIdx),
+			Genotypes: make(map[string]string, len(gtCols)),
 		}
-	}
-	if singleSus == "" {
-		return false // all sus calls are missing
-	}
-
-	// Sus must be homozygous.
-	if a, b, ok := strings.Cut(singleSus, "/"); ok && a != b {
-		return false
-	}
-
-	// All res must be non-missing and differ from sus.
-	for _, g := range resGTs {
-		if u := unphase(g); u == "./." || u == singleSus {
-			return false
+		for k, c := range gtCols {
+			v.Genotypes[c] = field(row, gtIdx[k])
 		}
+		out = append(out, v)
 	}
-	return true
+	sort.SliceStable(out, func(i, j int) bool { return out[i].POS < out[j].POS })
+	return out, gtCols, nil
 }
 
-type GeneSpaceRow struct {
-	Gene             string
-	Start            int
-	Stop             int
-	PRGPerc          float64
-	PRGMatchLen      string
-	PRGEval          float64
-	GeneDescription  string
-	NumSNPs          int
-	NumSigSNPs       int
-	NumResNotSusSNPs int
+// sampleGTCols maps line names (e.g. "R1", or "R1.GT") to their genotype
+// column headers ("R1.GT"). Names are trimmed and blanks skipped; a name with
+// no matching column in the variant table is an error, so a typo can't
+// silently yield zero concordant SNPs.
+func sampleGTCols(lines, gtCols []string) ([]string, error) {
+	var cols, missing []string
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		col := strings.TrimSuffix(l, ".GT") + ".GT"
+		if !slices.Contains(gtCols, col) {
+			missing = append(missing, l)
+			continue
+		}
+		cols = append(cols, col)
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("no genotype column for %s (available: %s)",
+			strings.Join(missing, ", "), strings.Join(gtCols, ", "))
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("no line names given")
+	}
+	return cols, nil
 }
 
-// Priority describes the candidate priority tier for a gene row.
-type Priority struct {
-	Level    int    // 1 (lowest) … 5 (highest)
-	Category string // human-readable label
-	HexColor string // RRGGBB fill colour for Excel
+// ─── Genotype concordance ────────────────────────────────────────────────────
+
+// normGT parses a diploid genotype into sorted alleles. Phasing is dropped,
+// "1/0" becomes "0/1", a haploid call "1" becomes "1/1", and any missing
+// allele makes the whole call missing (ok == false).
+func normGT(gt string) (a, b string, ok bool) {
+	gt = strings.ReplaceAll(strings.TrimSpace(gt), "|", "/")
+	parts := strings.Split(gt, "/")
+	switch len(parts) {
+	case 1:
+		a, b = parts[0], parts[0]
+	case 2:
+		a, b = parts[0], parts[1]
+	default:
+		return "", "", false
+	}
+	if a == "" || a == "." || b == "" || b == "." {
+		return "", "", false
+	}
+	if a > b {
+		a, b = b, a
+	}
+	return a, b, true
 }
 
-// resistanceKeywords are searched (case-insensitively) in the gene description
-// to assign priority tier 2 and above.
-// resistanceKeywords are matched (case-insensitively) against the gene
-// description to flag defence-related candidates.  Terms are derived from
-// observed gene-description patterns in the dataset.
-var resistanceKeywords = []string{
-	// Classical R-gene / NLR terms
-	"NBS-LRR", "NBS", "NLR", "LRR",
-	"CC-NBS", "TIR-NBS",
-	"leucine-rich repeat receptor",              // e.g. "Leucine-rich repeat receptor-like protein kinase"
-	"leucine-rich repeat receptor-like",         // LRR-RLK family
-	"plant intracellular ras-group-related lrr", // PIRL proteins
-
-	// Named R-genes / well-known resistance loci seen in the data
-	"ZAR1", // receptor protein kinase-like protein ZAR1
-	"CDR1", // aspartic proteinase CDR1 (constitutive disease resistance)
-	"RGA",  // R-gene analog
-	"RGH",
-	"RPM", "RPS",
-	"MSP1", // leucine-rich repeat receptor protein kinase MSP1
-
-	// Broad defence / immunity vocabulary
-	"resistance", "resistant",
-	"disease resistance",
-	"defense", "defence",
-	"pathogen", "pathogenesis-related",
-	"immune", "immunity",
-	"innate immun",
-
-	// Oxidative burst — key early defence response
-	"respiratory burst oxidase", // e.g. "respiratory burst oxidase homolog protein E"
-
-	// PR-proteins and related
-	"pathogenesis-related protein", // "basic form of pathogenesis-related protein 1-like"
-	"thaumatin",                    // PR-5 family
-	"chitinase",
-	"glucanase",
-	"(1->3)-beta-glucan endohydrolase", // beta-1,3-glucanase (PR-2)
-	"peroxidase",                       // class III peroxidases — HR / lignification
-
-	// Defence signalling
-	"lipoxygenase",            // JA biosynthesis / wound response
-	"4-coumarate--coa ligase", // phenylpropanoid / lignin pathway
-	"cysteine protease", "cysteine proteinase", "cysteinase",
-	"aspartic proteinase", "aspartyl protease",
-	"subtilisin-like protease",
-
-	// Receptor kinases broadly involved in pattern-triggered immunity
-	"receptor protein kinase",
-	"receptor-like serine/threonine-protein kinase",
-	"leucine-rich repeat receptor-like serine/threonine-protein kinase",
-	"lysm domain receptor-like kinase", // chitin / MAMP perception
-
-	// Ubiquitin / proteasome — critical for R-protein turnover
-	"ring-type e3 ubiquitin",
-	"u-box domain",
-	"f-box",
-
-	// Late-stage / stress-associated
-	"late embryogenesis abundant",     // LEA proteins — stress tolerance
-	"early-responsive to dehydration", // ERD proteins
-	"detoxification",
-	"multidrug resistance protein abc transporter",
+// SNPTest is the result of testing one variant against the R/S split.
+type SNPTest struct {
+	Concordance float64 // 0-1, balanced between the R and S groups
+	Mode        string  // "DOM", "REC", "DOM/REC" or "" when untestable
+	Allele      string  // the allele that marks the resistant group
+	Testable    bool
 }
 
-// transcriptionFactorKeywords are searched to identify tier-5 (TF) candidates.
-// Terms are grounded in the TF families observed in the dataset.
-var transcriptionFactorKeywords = []string{
-	// Generic labels seen verbatim in descriptions
-	"transcription factor",
-	"transcriptional activator",
-	"transcription repressor",
-	"transcriptional regulator",
-	"transcription elongation regulator",
-	"rna polymerase ii transcription", // mediator subunits / coactivators
-	"corepressor",                     // dr1-associated corepressor
-	"coactivator",
-
-	// Major plant TF families present in the data
-	"WRKY", // WRKY DNA-binding protein — major defence TF family
-	"MYB",  // R2R3-MYB, MYB1R1, MYB117, MYB124, myb-like
-	"NAC",  // NAC domain-containing — stress & senescence TFs
-	"bHLH", // basic helix-loop-helix (bHLH30, bHLH49, BHLH)
-	"bZIP", // basic leucine zipper (bZIP43)
-	"basic leucine zipper",
-	"AP2", // AP2/ERF superfamily
-	"ERF", // ethylene response factor (ERF118, ESR2, WRI1)
-	"ethylene-responsive transcription factor",
-	"TCP",  // TCP family (TCP8, CYCLOIDEA)
-	"MADS", // MADS-box / AGL proteins
-	"agamous-like mads-box",
-	"squamosa promoter-binding",     // SPL family
-	"trihelix transcription factor", // trihelix / GT factors (ASIL2, PTL, ASR3)
-	"homeobox",                      // homeobox-leucine zipper (ATHB, knotted)
-	"homeobox-leucine zipper",
-	"homeobox protein knotted",
-	"zinc finger homeodomain",
-	"zinc finger transcription factor",
-	"GATA transcription factor",
-	"B3 domain-containing",  // B3 superfamily (RAV1, ARF)
-	"auxin response factor", // ARF — auxin signalling TFs
-	"auxin-responsive",
-	"YABBY", // axial regulator YABBY
-	"DOF",   // cyclic dof factor
-	"cyclic dof factor",
-	"GAGA-binding transcriptional activator",
-	"heat-inducible transcription repressor",
-	"t-box transcription factor",
-	"myb-like transcription factor",
-	"HTH myb-type",
-	"DELLA protein",                 // DELLA — GA signalling master regulator
-	"mediator of rna polymerase ii", // Mediator complex subunits
-}
-
-// ClassifyPriority assigns a Priority tier to a GeneSpaceRow using the
-// following rules (higher tier wins when multiple conditions match):
+// testSNP tests a variant under both inheritance modes, for every allele seen
+// (the reference allele included, since the reference genome may itself be
+// resistant):
 //
-//	1 – PRG database match only   (PRGPerc > 0, no keyword match)
-//	2 – Resistance keywords       (keyword match, no PRG)
-//	3 – PRG + R-gene associated   (PRGPerc > 0 AND resistance keyword)
-//	4 – STRONG candidates         (ResNotSus SNPs present AND (PRG or keyword))
-//	5 – Transcription factors     (any TF keyword in description)
-func ClassifyPriority(row GeneSpaceRow) Priority {
-	desc := strings.ToLower(row.GeneDescription)
+//	DOM: resistant lines carry the allele, susceptible lines don't.
+//	REC: resistant lines are homozygous for it, susceptible lines aren't.
+//
+// Concordance is the mean of the R and S match fractions, so a large group
+// can't hide a mismatch in a small one. Missing calls are ignored, but the
+// variant is untestable unless both groups have a call and at least half of
+// all lines are called.
+func testSNP(resGTs, susGTs []string) SNPTest {
+	type call struct{ a, b string }
+	parse := func(gts []string) []call {
+		var out []call
+		for _, g := range gts {
+			if a, b, ok := normGT(g); ok {
+				out = append(out, call{a, b})
+			}
+		}
+		return out
+	}
+	rc, sc := parse(resGTs), parse(susGTs)
+	if len(rc) == 0 || len(sc) == 0 || 2*(len(rc)+len(sc)) < len(resGTs)+len(susGTs) {
+		return SNPTest{}
+	}
 
-	hasPRG := row.PRGPerc > 0
-	hasResKeyword := false
-	for _, kw := range resistanceKeywords {
-		if strings.Contains(desc, strings.ToLower(kw)) {
-			hasResKeyword = true
-			break
+	alleleSet := make(map[string]struct{})
+	for _, c := range append(slices.Clone(rc), sc...) {
+		alleleSet[c.a] = struct{}{}
+		alleleSet[c.b] = struct{}{}
+	}
+	alleles := make([]string, 0, len(alleleSet))
+	for a := range alleleSet {
+		alleles = append(alleles, a)
+	}
+	sort.Strings(alleles)
+
+	frac := func(calls []call, pred func(call) bool) float64 {
+		n := 0
+		for _, c := range calls {
+			if pred(c) {
+				n++
+			}
+		}
+		return float64(n) / float64(len(calls))
+	}
+
+	best := SNPTest{Testable: true}
+	const eps = 1e-9
+	for _, al := range alleles {
+		carries := func(c call) bool { return c.a == al || c.b == al }
+		hom := func(c call) bool { return c.a == al && c.b == al }
+
+		dom := (frac(rc, carries) + frac(sc, func(c call) bool { return !carries(c) })) / 2
+		rec := (frac(rc, hom) + frac(sc, func(c call) bool { return !hom(c) })) / 2
+
+		score, mode := dom, "DOM"
+		switch {
+		case math.Abs(dom-rec) < eps:
+			mode = "DOM/REC"
+		case rec > dom:
+			score, mode = rec, "REC"
+		}
+		if score > best.Concordance+eps {
+			best.Concordance, best.Mode, best.Allele = score, mode, al
 		}
 	}
-	hasTF := false
-	for _, kw := range transcriptionFactorKeywords {
-		if strings.Contains(desc, strings.ToLower(kw)) {
-			hasTF = true
-			break
+	return best
+}
+
+// ─── Scoring ─────────────────────────────────────────────────────────────────
+
+var (
+	highEffects = []string{
+		"STOP_GAINED", "STOP_LOST", "START_LOST", "FRAME_SHIFT",
+		"SPLICE_SITE_ACCEPTOR", "SPLICE_SITE_DONOR", "EXON_DELETED", "RARE_AMINO_ACID",
+	}
+	moderateEffects = []string{
+		"NON_SYNONYMOUS_CODING", "NON_SYNONYMOUS_START", "CODON_CHANGE",
+		"CODON_INSERTION", "CODON_DELETION",
+		"CODON_CHANGE_PLUS_CODON_INSERTION", "CODON_CHANGE_PLUS_CODON_DELETION",
+		"UTR_5_DELETED", "UTR_3_DELETED", "SPLICE_SITE_BRANCH_U12",
+	}
+	regulatoryEffects = []string{
+		"UTR_5_PRIME", "UTR_3_PRIME", "SPLICE_SITE_REGION", "START_GAINED", "NON_SYNONYMOUS_STOP",
+	}
+	silentEffects = []string{"SYNONYMOUS_CODING", "SYNONYMOUS_STOP", "SYNONYMOUS_START"}
+)
+
+// impactScore scores one concordant variant:
+//
+//	4 HIGH · 3 MODERATE · 2 UTR / splice region / other LOW · 1 upstream · 0 other
+//
+// Synonymous changes score 0 even though snpEff calls them LOW. A variant that
+// only reaches the gene through its promoter window scores at most 1. When the
+// table has no impact column, the class is derived from the effect name.
+func impactScore(impact, effect string, upstream bool) int {
+	eff := strings.ToUpper(strings.TrimSpace(effect))
+	if upstream {
+		return 1
+	}
+	if slices.Contains(silentEffects, eff) {
+		return 0
+	}
+	switch strings.ToUpper(strings.TrimSpace(impact)) {
+	case "HIGH":
+		return 4
+	case "MODERATE":
+		return 3
+	case "LOW":
+		return 2
+	}
+	switch {
+	case slices.Contains(highEffects, eff):
+		return 4
+	case slices.Contains(moderateEffects, eff):
+		return 3
+	case slices.Contains(regulatoryEffects, eff):
+		return 2
+	case eff == "UPSTREAM":
+		return 1
+	}
+	return 0
+}
+
+// Tier is a candidate class, A (best) to D.
+type Tier struct {
+	Rank  int // 1 = A … 4 = D, for sorting
+	Code  string
+	Label string
+	Hex   string // row fill colour
+}
+
+var (
+	TierA = Tier{1, "A", "Lead candidate", "FF9900"}
+	TierB = Tier{2, "B", "Strong", "FFD966"}
+	TierC = Tier{3, "C", "Plausible", "9DC3E6"}
+	TierD = Tier{4, "D", "Positional only", "FFFFFF"}
+)
+
+// ClassifyTier combines the scores:
+//
+//	A  variant >= 3 and function >= 2
+//	B  variant >= 2, or (any concordant variant and function >= 2)
+//	C  function >= 2
+//	D  everything else
+func ClassifyTier(variantScore, functionScore, numConcordant int) Tier {
+	switch {
+	case variantScore >= 3 && functionScore >= 2:
+		return TierA
+	case variantScore >= 2 || (numConcordant > 0 && functionScore >= 2):
+		return TierB
+	case functionScore >= 2:
+		return TierC
+	default:
+		return TierD
+	}
+}
+
+// functionScore scores how plausible a gene is for the trait:
+//
+//	3 PRG pass and strong term · 2 PRG pass or strong term
+//	1 weak term, weak PRG hit or TF · 0 nothing
+func functionScore(prg *PrgHit, strong, weak, tf []string) int {
+	prgPass := prg != nil && prg.Pass()
+	switch {
+	case prgPass && len(strong) > 0:
+		return 3
+	case prgPass || len(strong) > 0:
+		return 2
+	case prg != nil || len(weak) > 0 || len(tf) > 0:
+		return 1
+	}
+	return 0
+}
+
+// GeneSpaceRow is one gene in the output.
+type GeneSpaceRow struct {
+	Gene        string
+	Start, Stop int
+	Strand      string
+
+	NumVariants     int     // gene body + promoter window
+	VariantsPerKb   float64 // gene body only
+	NumConcordant   int
+	BestConcordance float64 // over all testable variants
+	BestMode        string  // mode of the top concordant variant
+	TopEffect       string  // effect of the top concordant variant
+	VariantScore    int
+
+	PRG           *PrgHit // nil when no hit
+	Description   string
+	MatchedTerms  []string
+	IsTF          bool
+	FunctionScore int
+
+	Tier Tier
+}
+
+// scoreGene attributes variants to g and scores it. variants must be sorted.
+func scoreGene(g Gene, variants []Variant, resCols, susCols []string, minConc float64, promoter int,
+	desc string, prg *PrgHit, prof Profile) GeneSpaceRow {
+
+	lo, hi := g.Start, g.Stop
+	switch g.Strand {
+	case "+":
+		lo -= promoter
+	case "-":
+		hi += promoter
+	}
+	i := sort.Search(len(variants), func(i int) bool { return variants[i].POS >= lo })
+	j := sort.Search(len(variants), func(i int) bool { return variants[i].POS > hi })
+
+	row := GeneSpaceRow{Gene: g.ID, Start: g.Start, Stop: g.Stop, Strand: g.Strand,
+		Description: desc, PRG: prg}
+
+	bodyVariants := 0
+	bestConc := -1.0
+	resGTs := make([]string, len(resCols))
+	susGTs := make([]string, len(susCols))
+	for _, v := range variants[i:j] {
+		row.NumVariants++
+		upstream := v.POS < g.Start || v.POS > g.Stop
+		if !upstream {
+			bodyVariants++
+		}
+		for k, c := range resCols {
+			resGTs[k] = v.Genotypes[c]
+		}
+		for k, c := range susCols {
+			susGTs[k] = v.Genotypes[c]
+		}
+		t := testSNP(resGTs, susGTs)
+		if !t.Testable {
+			continue
+		}
+		row.BestConcordance = max(row.BestConcordance, t.Concordance)
+		if t.Concordance+1e-9 < minConc {
+			continue
+		}
+		row.NumConcordant++
+		s := impactScore(v.Impact, v.Effect, upstream)
+		if s > row.VariantScore || (s == row.VariantScore && t.Concordance > bestConc) || row.NumConcordant == 1 {
+			row.VariantScore = s
+			bestConc = t.Concordance
+			row.BestMode = t.Mode
+			row.TopEffect = v.Effect
+			if upstream {
+				row.TopEffect = "UPSTREAM (promoter window)"
+			}
 		}
 	}
-	isStrong := row.NumResNotSusSNPs > 0 && (hasPRG || hasResKeyword)
+	if kb := float64(g.Stop-g.Start+1) / 1000; kb > 0 {
+		row.VariantsPerKb = math.Round(float64(bodyVariants)/kb*100) / 100
+	}
+
+	strong := matchTerms(prof.Strong, desc)
+	weak := matchTerms(prof.Weak, desc)
+	tf := matchTerms(prof.TF, desc)
+	row.MatchedTerms = append(append(append([]string{}, strong...), weak...), tf...)
+	row.IsTF = len(tf) > 0
+	row.FunctionScore = functionScore(prg, strong, weak, tf)
+	row.Tier = ClassifyTier(row.VariantScore, row.FunctionScore, row.NumConcordant)
+	return row
+}
+
+// SortRows orders rows best-first: tier, variant score, function score, best
+// concordance, number of concordant variants, then position.
+func SortRows(rows []GeneSpaceRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		switch {
+		case a.Tier.Rank != b.Tier.Rank:
+			return a.Tier.Rank < b.Tier.Rank
+		case a.VariantScore != b.VariantScore:
+			return a.VariantScore > b.VariantScore
+		case a.FunctionScore != b.FunctionScore:
+			return a.FunctionScore > b.FunctionScore
+		case a.BestConcordance != b.BestConcordance:
+			return a.BestConcordance > b.BestConcordance
+		case a.NumConcordant != b.NumConcordant:
+			return a.NumConcordant > b.NumConcordant
+		case a.Start != b.Start:
+			return a.Start < b.Start
+		}
+		return a.Gene < b.Gene
+	})
+}
+
+// ─── Run ─────────────────────────────────────────────────────────────────────
+
+func (o *Options) validate() error {
+	switch {
+	case o.GFF == "" || o.VariantTable == "" || o.Chrom == "":
+		return fmt.Errorf("--gff, --variant and --chrom are required")
+	case o.Start < 0 || o.Stop < o.Start:
+		return fmt.Errorf("invalid window %d-%d", o.Start, o.Stop)
+	case o.MinConcordance <= 0 || o.MinConcordance > 1:
+		return fmt.Errorf("--min-concordance must be in (0, 1], got %g", o.MinConcordance)
+	case o.PromoterLength < 0:
+		return fmt.Errorf("--promoter-length must be >= 0, got %d", o.PromoterLength)
+	}
+	if o.OutDir == "" {
+		o.OutDir = "."
+	}
+	if o.Trait == "" {
+		o.Trait = DefaultProfile
+	}
+	return nil
+}
+
+// GeneSpace scores every gene in the window and writes the Excel report. It
+// returns the rows (best first) and the path written.
+func GeneSpace(opts Options) ([]GeneSpaceRow, string, error) {
+	if err := opts.validate(); err != nil {
+		return nil, "", err
+	}
+	prof, err := GetProfile(opts.Trait)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := os.MkdirAll(opts.OutDir, 0755); err != nil {
+		return nil, "", fmt.Errorf("creating output directory %s: %w", opts.OutDir, err)
+	}
+	if opts.DescFile == "" {
+		color.Yellow("⚠ No --gene-description-tsv given: description terms will not be scored")
+	}
+	if opts.PrgFile == "" {
+		color.Yellow("⚠ No --prg given: PRG hits will not be scored")
+	}
+
+	color.Green("▶ GeneSpace %s:%d-%d (trait profile: %s)", opts.Chrom, opts.Start, opts.Stop, prof.Name)
+
+	// Load the reference files while the variant table loads.
+	var (
+		wg               sync.WaitGroup
+		genes            []Gene
+		descs            map[string]string
+		prgs             map[string]PrgHit
+		gErr, dErr, pErr error
+	)
+	wg.Add(3)
+	go func() { defer wg.Done(); genes, gErr = loadGenes(opts.GFF, opts.Chrom, opts.Start, opts.Stop) }()
+	go func() { defer wg.Done(); descs, dErr = geneDescMap(opts.DescFile) }()
+	go func() { defer wg.Done(); prgs, pErr = genePrgMap(opts.PrgFile) }()
+
+	// Read past the window edges so promoter windows of edge genes are complete.
+	variants, gtCols, vErr := readVariants(opts.VariantTable, opts.Chrom,
+		max(0, opts.Start-opts.PromoterLength), opts.Stop+opts.PromoterLength)
+	wg.Wait()
 
 	switch {
-	case hasTF:
-		return Priority{5, "Transcription factor", "C5A0FF"} // purple
-	case isStrong:
-		return Priority{4, "STRONG candidate", "FF9900"} // orange
-	case hasPRG && hasResKeyword:
-		return Priority{3, "PRG + R-gene associated", "9DC3E6"} // light blue
-	case hasResKeyword:
-		return Priority{2, "Resistance keywords (no PRG)", "FFFF99"} // light yellow
-	case hasPRG:
-		return Priority{1, "PRG database match only", "92D050"} // light green
-	default:
-		return Priority{0, "No match", "FFFFFF"}
-	}
-}
-
-func GeneSpace(gffPath, vcfTable, chrom string, start, stop int, resLines, susLines []string, descFile, prgFile string, outDir string) ([]GeneSpaceRow, error) {
-
-	color.Green("▶ Starting GeneSpace analysis for chromosome %s (%d - %d)", chrom, start, stop)
-
-	// --- 1. Load all three reference files concurrently while VCF loads on
-	//        the main goroutine, overlapping all four I/O operations. ---
-	type gffResult struct {
-		data map[string][2]string
-		err  error
-	}
-	type descResult struct {
-		data map[string]string
-		err  error
-	}
-	type prgResult struct {
-		data map[string]PrgMatches
-		err  error
+	case vErr != nil:
+		return nil, "", fmt.Errorf("reading variant table: %w", vErr)
+	case gErr != nil:
+		return nil, "", fmt.Errorf("reading GFF file: %w", gErr)
+	case dErr != nil:
+		return nil, "", fmt.Errorf("reading gene description file: %w", dErr)
+	case pErr != nil:
+		return nil, "", fmt.Errorf("reading PRG file: %w", pErr)
 	}
 
-	gffCh := make(chan gffResult, 1)
-	descCh := make(chan descResult, 1)
-	prgCh := make(chan prgResult, 1)
-
-	go func() {
-		d, err := genePosFromGffMap(gffPath, chrom, start, stop)
-		gffCh <- gffResult{d, err}
-	}()
-	go func() {
-		d, err := geneDescMap(descFile)
-		descCh <- descResult{d, err}
-	}()
-	go func() {
-		d, err := genePrgMap(prgFile)
-		prgCh <- prgResult{d, err}
-	}()
-
-	// FIX: gtCols is now captured rather than discarded, preserving the caller's ability to know which sample columns were present.
-	qtlRecords, gtCols, err := getQtlRecords(vcfTable, chrom, start, stop)
+	resCols, err := sampleGTCols(opts.ResLines, gtCols)
 	if err != nil {
-		return nil, fmt.Errorf("reading VCF table: %w", err)
+		return nil, "", fmt.Errorf("--res-lines: %w", err)
 	}
-	_ = gtCols // available for callers that need it; not used internally here
-
-	gffRes := <-gffCh
-	if gffRes.err != nil {
-		return nil, fmt.Errorf("reading GFF file: %w", gffRes.err)
+	susCols, err := sampleGTCols(opts.SusLines, gtCols)
+	if err != nil {
+		return nil, "", fmt.Errorf("--sus-lines: %w", err)
 	}
-	descRes := <-descCh
-	if descRes.err != nil {
-		return nil, fmt.Errorf("reading gene description file: %w", descRes.err)
-	}
-	prgRes := <-prgCh
-	if prgRes.err != nil {
-		return nil, fmt.Errorf("reading PRG blast file: %w", prgRes.err)
+	if len(genes) == 0 {
+		return nil, "", fmt.Errorf("no genes found on %s between %d and %d in %s", opts.Chrom, opts.Start, opts.Stop, opts.GFF)
 	}
 
-	gencPos := gffRes.data
-	geneDesc := descRes.data
-	genePrg := prgRes.data
-
-	// --- 2. Sort qtlRecords by position once so each worker can binary-search
-	//        its gene window instead of scanning the entire slice. ---
-	// FIX: reduces per-gene SNP scan from O(all SNPs) to O(log n + hits).
-	sort.Slice(qtlRecords, func(i, j int) bool {
-		return qtlRecords[i].POS < qtlRecords[j].POS
-	})
-
-	synonymousEffects := []string{"UPSTREAM", "DOWNSTREAM", "SYNONYMOUS_CODING", "SYNONYMOUS_STOP", "INTRON"}
-
-	// --- 3. Collect gene names and set up progress bar. ---
-	genes := make([]string, 0, len(gencPos))
-	for gene := range gencPos {
-		genes = append(genes, gene)
-	}
-
-	bar := utils.NewBar(int64(len(genes)), "Processing genes")
-	defer utils.AttachBar(bar)()
-
-	// --- 4. Process genes concurrently with a fixed worker pool. ---
-	workCh := make(chan string, len(genes))
+	bar := utils.NewBar(int64(len(genes)), "Scoring genes")
+	release := utils.AttachBar(bar)
+	rows := make([]GeneSpaceRow, 0, len(genes))
 	for _, g := range genes {
-		workCh <- g
-	}
-	close(workCh)
-
-	var (
-		mu            sync.Mutex
-		geneSpaceRows []GeneSpaceRow
-		wg            sync.WaitGroup
-	)
-
-	// Progress updates are handled by a single goroutine to avoid
-	// concurrent writes to the progress bar interfering with log output.
-	progressCh := make(chan struct{}, len(genes))
-	var wgBar sync.WaitGroup
-
-	wgBar.Add(1)
-	go func() {
-		defer wgBar.Done()
-		for range progressCh {
-			_ = bar.Add(1)
-		}
-		_ = bar.Finish()
-		fmt.Fprint(os.Stderr, "\n")
-	}()
-
-	const numWorkers = 8
-	wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		go func() {
-			defer wg.Done()
-			for gene := range workCh {
-				// Workers do not log each gene to avoid interfering with the single
-				// progress bar. The bar reflects overall progress in real time.
-
-				pos := gencPos[gene]
-				geneStart, _ := strconv.Atoi(pos[0])
-				geneStop, _ := strconv.Atoi(pos[1])
-
-				// Binary-search the sorted qtlRecords for this gene's window.
-				lo := sort.Search(len(qtlRecords), func(i int) bool { return qtlRecords[i].POS >= geneStart })
-				hi := sort.Search(len(qtlRecords), func(i int) bool { return qtlRecords[i].POS > geneStop })
-
-				numOfSnps := 0
-				sigSnps := 0
-				resNotSusCount := 0
-
-				if len(resLines) > 0 && len(susLines) > 0 {
-					for _, rec := range qtlRecords[lo:hi] {
-						numOfSnps++
-						if !slices.Contains(synonymousEffects, rec.SNPEffEffect) {
-							sigSnps++
-						}
-						resGTs := make([]string, len(resLines))
-						for i, r := range resLines {
-							resGTs[i] = rec.Genotypes[r]
-						}
-						susGTs := make([]string, len(susLines))
-						for i, s := range susLines {
-							susGTs[i] = rec.Genotypes[s]
-						}
-						if resNotSus(resGTs, susGTs) {
-							resNotSusCount++
-						}
-					}
-
-				}
-
-
-				desc, okDesc := geneDesc[gene]
-				if !okDesc {
-					desc = "NA"
-				}
-				prg, okPrg := genePrg[gene]
-				if !okPrg {
-					prg = PrgMatches{PercIdent: -1, MatchLenQlen: "NA", Eval: -1}
-				}
-
-				row := GeneSpaceRow{
-					Gene:             gene,
-					Start:            geneStart,
-					Stop:             geneStop,
-					PRGPerc:          prg.PercIdent,
-					PRGMatchLen:      prg.MatchLenQlen,
-					PRGEval:          prg.Eval,
-					GeneDescription:  desc,
-					NumSNPs:          numOfSnps,
-					NumSigSNPs:       sigSnps,
-					NumResNotSusSNPs: resNotSusCount,
-				}
-
-				mu.Lock()
-				geneSpaceRows = append(geneSpaceRows, row)
-				mu.Unlock()
-
-				// Progress update.
-				progressCh <- struct{}{}
+		ids := append([]string{g.ID}, g.Transcripts...)
+		desc := ""
+		for _, id := range ids {
+			if d, ok := descs[id]; ok && d != "" {
+				desc = d
+				break
 			}
-		}()
+		}
+		var prg *PrgHit
+		for _, id := range ids {
+			if h, ok := prgs[id]; ok && (prg == nil || h.Eval < prg.Eval) {
+				h := h
+				prg = &h
+			}
+		}
+		rows = append(rows, scoreGene(g, variants, resCols, susCols, opts.MinConcordance, opts.PromoterLength, desc, prg, prof))
+		_ = bar.Add(1)
 	}
+	_ = bar.Finish()
+	release()
+	fmt.Fprintln(os.Stderr)
 
-	wg.Wait()
-	close(progressCh)
-	wgBar.Wait()
+	SortRows(rows)
 
-	color.Cyan("✔ GeneSpace analysis complete")
-	color.Green("\n========================================== Write to excel ==========================================\n\n")
-	// Ensure output directory exists.
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return nil, fmt.Errorf("creating output directory %s: %w", outDir, err)
+	counts := map[string]int{}
+	for _, r := range rows {
+		counts[r.Tier.Code]++
 	}
-	excelPath := filepath.Join(outDir, fmt.Sprintf("GoBSAseq_%s_%d-%d.xlsx", chrom, start, stop))
-	if err = WriteGeneSpaceExcel(geneSpaceRows, excelPath); err != nil {
-		return nil, fmt.Errorf("writing Excel file: %w", err)
+	color.Cyan("✔ Scored %d genes, %d variants: A=%d B=%d C=%d D=%d",
+		len(rows), len(variants), counts["A"], counts["B"], counts["C"], counts["D"])
+
+	excelPath := filepath.Join(opts.OutDir, fmt.Sprintf("GeneSpace_%s_%d-%d.xlsx", opts.Chrom, opts.Start, opts.Stop))
+	if err := WriteGeneSpaceExcel(rows, prof, excelPath); err != nil {
+		return nil, "", fmt.Errorf("writing Excel file: %w", err)
 	}
-	return geneSpaceRows, nil
+	return rows, excelPath, nil
 }
 
 // ─── Excel export ────────────────────────────────────────────────────────────
 
-// colWidth tracks the maximum content width seen for a column so we can
-// auto-size at the end.
-type colWidth [12]int
+var excelHeaders = []string{
+	"Gene", "Start", "Stop", "Strand",
+	"# Variants", "Variants/kb", "# Concordant", "Best concordance", "Best mode", "Top concordant effect", "Variant score",
+	"PRG %Identity", "PRG coverage %", "PRG E-value",
+	"Gene description", "Matched terms", "TF", "Function score",
+	"Tier", "Tier label",
+}
 
-// WriteGeneSpaceExcel writes rows to an Excel workbook at outPath using the
-// pure-Go excelize library (github.com/xuri/excelize/v2).
-// No Python or shell-out required.
-func WriteGeneSpaceExcel(rows []GeneSpaceRow, outPath string) error {
+func (r GeneSpaceRow) cells() []any {
+	var pi, cov, ev any = "", "", ""
+	if r.PRG != nil {
+		pi = r.PRG.PercIdent
+		cov = math.Round(r.PRG.Coverage*10) / 10
+		ev = r.PRG.Eval
+	}
+	tf := "N"
+	if r.IsTF {
+		tf = "Y"
+	}
+	mode, eff := r.BestMode, r.TopEffect
+	if r.NumConcordant == 0 {
+		mode, eff = "-", ""
+	}
+	return []any{
+		r.Gene, r.Start, r.Stop, r.Strand,
+		r.NumVariants, r.VariantsPerKb, r.NumConcordant, math.Round(r.BestConcordance*1000) / 1000, mode, eff, r.VariantScore,
+		pi, cov, ev,
+		r.Description, strings.Join(r.MatchedTerms, "; "), tf, r.FunctionScore,
+		r.Tier.Code, r.Tier.Label,
+	}
+}
+
+// WriteGeneSpaceExcel writes the rows (already sorted) to a workbook with a
+// GeneSpace data sheet and a Legend sheet.
+func WriteGeneSpaceExcel(rows []GeneSpaceRow, prof Profile, outPath string) error {
 	f := excelize.NewFile()
 	defer f.Close()
 
-	// ── shared style helpers ──────────────────────────────────────────────
-
-	// mustStyle panics on style creation errors; they only arise from
-	// malformed JSON which cannot happen with literal structs here.
-	mustStyle := func(s *excelize.Style) int {
-		id, err := f.NewStyle(s)
-		if err != nil {
-			panic(fmt.Sprintf("excelize.NewStyle: %v", err))
-		}
-		return id
-	}
-
-	navy := "1F3864"
-	white := "FFFFFF"
-	thinBorder := []excelize.Border{
+	newStyle := func(s *excelize.Style) (int, error) { return f.NewStyle(s) }
+	border := []excelize.Border{
 		{Type: "left", Color: "CCCCCC", Style: 1},
 		{Type: "right", Color: "CCCCCC", Style: 1},
 		{Type: "top", Color: "CCCCCC", Style: 1},
 		{Type: "bottom", Color: "CCCCCC", Style: 1},
 	}
-
-	headerStyle := mustStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true, Color: white, Family: "Arial", Size: 10},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{navy}},
-		Alignment: &excelize.Alignment{Horizontal: "center", WrapText: true, Vertical: "center"},
-		Border:    thinBorder,
+	headerStyle, err := newStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF", Family: "Arial", Size: 10},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"1F3864"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center", WrapText: true},
+		Border:    border,
 	})
-
-	// rowStyleFor returns a new style ID for the given hex fill colour.
-	rowStyleFor := func(hex string) int {
-		return mustStyle(&excelize.Style{
+	if err != nil {
+		return err
+	}
+	tierStyle := make(map[string]int)
+	for _, t := range []Tier{TierA, TierB, TierC, TierD} {
+		id, err := newStyle(&excelize.Style{
 			Font:      &excelize.Font{Family: "Arial", Size: 10},
-			Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{hex}},
+			Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{t.Hex}},
 			Alignment: &excelize.Alignment{Vertical: "center"},
-			Border:    thinBorder,
+			Border:    border,
 		})
-	}
-
-	// Cache one style per unique hex so we don't create thousands of duplicates.
-	styleCache := make(map[string]int)
-	cachedStyle := func(hex string) int {
-		if id, ok := styleCache[hex]; ok {
-			return id
+		if err != nil {
+			return err
 		}
-		id := rowStyleFor(hex)
-		styleCache[hex] = id
-		return id
+		tierStyle[t.Code] = id
 	}
 
-	// ── Legend sheet ─────────────────────────────────────────────────────
+	// ── GeneSpace data sheet ──
+	const data = "GeneSpace"
+	if err := f.SetSheetName("Sheet1", data); err != nil {
+		return err
+	}
+	widths := make([]int, len(excelHeaders))
+	if err := f.SetSheetRow(data, "A1", &excelHeaders); err != nil {
+		return err
+	}
+	lastHeader, _ := excelize.CoordinatesToCellName(len(excelHeaders), 1)
+	_ = f.SetCellStyle(data, "A1", lastHeader, headerStyle)
+	for i, h := range excelHeaders {
+		widths[i] = len(h)
+	}
+	for ri, r := range rows {
+		vals := r.cells()
+		first, _ := excelize.CoordinatesToCellName(1, ri+2)
+		last, _ := excelize.CoordinatesToCellName(len(vals), ri+2)
+		if err := f.SetSheetRow(data, first, &vals); err != nil {
+			return err
+		}
+		_ = f.SetCellStyle(data, first, last, tierStyle[r.Tier.Code])
+		for ci, v := range vals {
+			widths[ci] = max(widths[ci], len(fmt.Sprint(v)))
+		}
+	}
+	for ci, w := range widths {
+		name, _ := excelize.ColumnNumberToName(ci + 1)
+		_ = f.SetColWidth(data, name, name, float64(min(w+3, 60)))
+	}
+	_ = f.SetPanes(data, &excelize.Panes{Freeze: true, YSplit: 1, TopLeftCell: "A2", ActivePane: "bottomLeft"})
+	lastCell, _ := excelize.CoordinatesToCellName(len(excelHeaders), len(rows)+1)
+	_ = f.AutoFilter(data, "A1:"+lastCell, nil)
 
+	// ── Legend sheet ──
 	const legend = "Legend"
-	f.SetSheetName("Sheet1", legend)
-
-	legHeaderStyle := mustStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true, Color: white, Family: "Arial"},
-		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{navy}},
-		Alignment: &excelize.Alignment{Horizontal: "center"},
-	})
-	legHeaders := []string{"Priority", "Category", "Colour"}
-	for ci, h := range legHeaders {
-		cell, _ := excelize.CoordinatesToCellName(ci+1, 1)
-		f.SetCellValue(legend, cell, h)
-		f.SetCellStyle(legend, cell, cell, legHeaderStyle)
+	if _, err := f.NewSheet(legend); err != nil {
+		return err
 	}
-
-	type legRow struct {
-		level    int
-		category string
-		hex      string
-	}
-	legendRows := []legRow{
-		{1, "PRG database match only", "92D050"},
-		{2, "Resistance keywords (no PRG)", "FFFF99"},
-		{3, "PRG + R-gene associated", "9DC3E6"},
-		{4, "STRONG candidates", "FF9900"},
-		{5, "Transcription factors", "C5A0FF"},
+	legendRows := [][]any{
+		{"Tier", "Label", "Rule"},
+		{TierA.Code, TierA.Label, "Variant score >= 3 and Function score >= 2"},
+		{TierB.Code, TierB.Label, "Variant score >= 2, or a concordant variant and Function score >= 2"},
+		{TierC.Code, TierC.Label, "Function score >= 2, no qualifying concordant variant"},
+		{TierD.Code, TierD.Label, "In the window, nothing else"},
+		{},
+		{"Score", "Value", "Meaning"},
+		{"Variant score", 4, "Concordant HIGH-impact variant (stop gained, frameshift, splice site, start lost)"},
+		{"Variant score", 3, "Concordant MODERATE-impact variant (missense, in-frame indel)"},
+		{"Variant score", 2, "Concordant UTR, splice-region or other LOW-impact (non-synonymous) variant"},
+		{"Variant score", 1, "Concordant variant in the promoter window upstream of the gene"},
+		{"Variant score", 0, "No concordant variant, or only intronic/synonymous/downstream ones"},
+		{"Function score", 3, fmt.Sprintf("PRG pass (identity >= %g%%, coverage >= %g%%, E <= %g) and a strong term", PrgMinIdentity, PrgMinCoverage, PrgMaxEvalue)},
+		{"Function score", 2, "PRG pass or a strong term"},
+		{"Function score", 1, "Weak term, weaker PRG hit, or transcription factor"},
+		{"Function score", 0, "Nothing"},
+		{},
+		{"Concordance", "", "Mean of the fraction of resistant and of susceptible lines that fit the pattern; missing calls ignored"},
+		{"Best mode", "DOM", "Resistant lines carry the allele, susceptible lines do not"},
+		{"Best mode", "REC", "Resistant lines are homozygous for the allele, susceptible lines are not"},
+		{"Best mode", "DOM/REC", "Both patterns fit equally (e.g. R all 1/1, S all 0/0)"},
+		{},
+		{"Trait profile", prof.Name, prof.Description},
 	}
 	for ri, lr := range legendRows {
-		row := ri + 2
-
-		cellA, _ := excelize.CoordinatesToCellName(1, row)
-		cellB, _ := excelize.CoordinatesToCellName(2, row)
-		cellC, _ := excelize.CoordinatesToCellName(3, row)
-
-		centreStyle := mustStyle(&excelize.Style{
-			Font:      &excelize.Font{Family: "Arial"},
-			Alignment: &excelize.Alignment{Horizontal: "center"},
-		})
-		colourStyle := mustStyle(&excelize.Style{
-			Font: &excelize.Font{Family: "Arial"},
-			Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{lr.hex}},
-		})
-
-		f.SetCellValue(legend, cellA, lr.level)
-		f.SetCellStyle(legend, cellA, cellA, centreStyle)
-		f.SetCellValue(legend, cellB, lr.category)
-		f.SetCellValue(legend, cellC, lr.hex)
-		f.SetCellStyle(legend, cellC, cellC, colourStyle)
-	}
-	f.SetColWidth(legend, "A", "C", 36)
-
-	// ── GeneSpace data sheet ──────────────────────────────────────────────
-
-	const dataSheet = "GeneSpace"
-	f.NewSheet(dataSheet)
-
-	headers := []string{
-		"Gene", "Start", "Stop",
-		"PRG %Identity", "PRG Match/Qlen", "PRG E-value",
-		"Gene Description",
-		"# SNPs", "# Sig SNPs", "# ResNotSus SNPs",
-		"Priority", "Priority Category",
-	}
-
-	// Track max content width per column for auto-sizing.
-	var widths colWidth
-	for ci, h := range headers {
-		if len(h) > widths[ci] {
-			widths[ci] = len(h)
-		}
-		cell, _ := excelize.CoordinatesToCellName(ci+1, 1)
-		f.SetCellValue(dataSheet, cell, h)
-		f.SetCellStyle(dataSheet, cell, cell, headerStyle)
-	}
-
-	// Sort rows highest-priority first before writing.
-	sort.Slice(rows, func(i, j int) bool {
-		return ClassifyPriority(rows[i]).Level > ClassifyPriority(rows[j]).Level
-	})
-
-	for ri, r := range rows {
-		excelRow := ri + 2
-		p := ClassifyPriority(r)
-		sID := cachedStyle(p.HexColor)
-
-		vals := []any{
-			r.Gene, r.Start, r.Stop,
-			r.PRGPerc, r.PRGMatchLen, r.PRGEval,
-			r.GeneDescription,
-			r.NumSNPs, r.NumSigSNPs, r.NumResNotSusSNPs,
-			p.Level, p.Category,
-		}
-		for ci, v := range vals {
-			cell, _ := excelize.CoordinatesToCellName(ci+1, excelRow)
-			f.SetCellValue(dataSheet, cell, v)
-			f.SetCellStyle(dataSheet, cell, cell, sID)
-
-			w := len(fmt.Sprintf("%v", v))
-			if w > widths[ci] {
-				widths[ci] = w
-			}
+		cell, _ := excelize.CoordinatesToCellName(1, ri+1)
+		if err := f.SetSheetRow(legend, cell, &lr); err != nil {
+			return err
 		}
 	}
-
-	// Auto-size columns (cap at 60 characters).
-	cols := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"}
-	for ci, col := range cols {
-		w := float64(widths[ci]) + 3
-		if w > 60 {
-			w = 60
-		}
-		f.SetColWidth(dataSheet, col, col, w)
+	_ = f.SetCellStyle(legend, "A1", "C1", headerStyle)
+	_ = f.SetCellStyle(legend, "A7", "C7", headerStyle)
+	for i, t := range []Tier{TierA, TierB, TierC, TierD} {
+		c := fmt.Sprintf("A%d", i+2)
+		e := fmt.Sprintf("C%d", i+2)
+		_ = f.SetCellStyle(legend, c, e, tierStyle[t.Code])
 	}
+	_ = f.SetColWidth(legend, "A", "B", 18)
+	_ = f.SetColWidth(legend, "C", "C", 100)
 
-	// Freeze the header row and add auto-filter.
-	f.SetPanes(dataSheet, &excelize.Panes{
-		Freeze:      true,
-		Split:       false,
-		YSplit:      1,
-		TopLeftCell: "A2",
-		ActivePane:  "bottomLeft",
-	})
-	lastCol, _ := excelize.CoordinatesToCellName(len(headers), len(rows)+1)
-	f.AutoFilter(dataSheet, fmt.Sprintf("A1:%s", lastCol), nil)
-
-	// Set GeneSpace as the active sheet.
-	idx, _ := f.GetSheetIndex(dataSheet)
+	idx, _ := f.GetSheetIndex(data)
 	f.SetActiveSheet(idx)
 
 	if err := f.SaveAs(outPath); err != nil {

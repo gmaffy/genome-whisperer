@@ -11,6 +11,10 @@ import (
 var ScanWarehouseCmd = &cobra.Command{
 	Use:   "ScanWarehouse",
 	Short: "Inventory sequencing storage and write an NDJSON warehouse report",
+	Example: `  genome-whisperer ScanWarehouse --mounts /mnt/nas1 --mounts /mnt/nas2 --report warehouse.ndjson
+
+  # Also validate every alignment file found
+  genome-whisperer ScanWarehouse --mounts /mnt/nas1 --report warehouse.ndjson --validate alignments`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mounts, err := cmd.Flags().GetStringSlice("mounts")
 		if err != nil {

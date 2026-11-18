@@ -18,6 +18,12 @@ var VariantAnnotationCmd = &cobra.Command{
 	Use:   "VariantAnnotation",
 	Short: "Annotation of variants using snpEff",
 	Long:  `Annotation of variants using snpEff`,
+	Example: `  genome-whisperer VariantAnnotation -V joint.filtered.vcf.gz --database squash_v1.1 \
+      --prg SQUASHV1.1_PRG_TOP_HITS.txt
+
+  # Several VCFs, with gene descriptions and BSA-seq columns
+  genome-whisperer VariantAnnotation -V chr1.vcf.gz -V chr2.vcf.gz --database squash_v1.1 \
+      --prg SQUASHV1.1_PRG_TOP_HITS.txt --gene-description-tsv desc.tsv --bsaseq`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("variantAnnotation called")
 		vcfs, vErr := cmd.Flags().GetStringSlice("variant")

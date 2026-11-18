@@ -17,6 +17,10 @@ var RunSnpEffCmd = &cobra.Command{
 	Use:   "RunSnpEff",
 	Short: "annotation of variants using snpEff",
 	Long:  `Annotation of variants using snpEff. Outputs a vcf file and tsv file with annotations.`,
+	Example: `  genome-whisperer RunSnpEff -V joint.vcf.gz --database squash_v1.1
+
+  # Keep AD/DP/GQ columns for BSA-seq
+  genome-whisperer RunSnpEff -V joint.vcf.gz --database squash_v1.1 --bsaseq`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("RunSnpEff called")
 		vcfs, vErr := cmd.Flags().GetStringSlice("variant")

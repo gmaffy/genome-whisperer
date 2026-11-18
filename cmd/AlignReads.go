@@ -24,6 +24,19 @@ var AlignReadsCmd = &cobra.Command{
         - Aligns long reads to reference using pbmm2
         - Marks duplicates using picard tools
         - Recalibrates bam using GATK's BQSR pipeline`,
+	Example: `  # Paired-end short reads, with BQSR bootstrapped from the data
+  genome-whisperer AlignReads -1 R1.fq.gz -2 R2.fq.gz --sample S1 --library L1 \
+      --reference genome.fa --out-dir aln --aligner bwa-mem2 --bqsr --bootstrap
+
+  # PacBio HiFi reads
+  genome-whisperer AlignReads --single-end hifi.fq.gz --sample S1 --library L1 \
+      --reference genome.fa --out-dir aln --aligner pbmm2 --preset HIFI
+
+  # Every read pair listed in a config file
+  genome-whisperer AlignReads --config config.txt
+
+  # Every sample in the standard data directory
+  genome-whisperer AlignReads --data-dir /data --species squash --ref-version v1.1 --genomes-dir /genomes`,
 	Run: func(cmd *cobra.Command, args []string) {
 		//fmt.Println("AlignReads called")
 		configFile, cErr := cmd.Flags().GetString("config")

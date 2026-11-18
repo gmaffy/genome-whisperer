@@ -31,6 +31,11 @@ The PRG database is not built for you. If blastp cannot find one beside the path
 given, build it with:
 
     makeblastdb -in <prgdb fasta> -dbtype prot -out <prgdb fasta>`,
+	Example: `  genome-whisperer GetProtPrgTopHits --protein proteins.fa --prg-db prgdb.fa \
+      --species squash --annotation-version v1.1 --threads 16
+
+  # Protein FASTA and species from the config file
+  genome-whisperer GetProtPrgTopHits --config config.txt --prg-db prgdb.fa --annotation-version v1.1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		protein, err := cmd.Flags().GetString("protein")
 		if err != nil {
